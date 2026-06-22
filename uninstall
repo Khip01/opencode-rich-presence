@@ -1,0 +1,172 @@
+#!/usr/bin/env bash
+# uninstall — Remove OpenCode Discord Presence plugin
+#
+# Usage: ./uninstall
+#
+# This script removes all files installed by ./install:
+#   - ~/.config/opencode/plugins/opencode-dc-too-rich-presence.js
+#   - ~/.config/opencode/discord-worker.mjs
+#   - ~/.config/opencode/discord-config.json
+#   - ~/.config/opencode/restart-discord.sh
+#   - Entry from ~/.config/opencode/opencode.jsonc
+#
+# IMPORTANT: discord-config.json contains YOUR customizations. You will be
+# asked to confirm before deleting it.
+
+set -e
+
+CONFIG_DIR="${HOME}/.config/opencode"
+PLUGINS_DIR="${CONFIG_DIR}/plugins"
+
+echo "=== OpenCode Discord Presence Uninstaller ==="
+echo ""
+
+# Check existing install
+echo "--- Checking existing install ---"
+HAS_PLUGIN=0
+HAS_WORKER=0
+HAS_CONFIG=0
+HAS_RESTART=0
+HAS_NPM_DEPS=0
+[ -f "$PLUGINS_DIR/opencode-dc-too-rich-presence.js" ] && HAS_PLUGIN=1
+[ -f "$CONFIG_DIR/discord-worker.mjs" ] && HAS_WORKER=1
+[ -f "$CONFIG_DIR/discord-config.json" ] && HAS_CONFIG=1
+[ -f "$CONFIG_DIR/restart-discord.sh" ] && HAS_RESTART=1
+grep -q "@xhayper/discord-rpc" "$CONFIG_DIR/package.json" 2>/dev/null && HAS_NPM_DEPS=1
+
+if [ "$HAS_PLUGIN" = "0" ] && [ "$HAS_WORKER" = "0" ] && [ "$HAS_CONFIG" = "0" ]; then
+    echo "  No install found. Nothing to do."
+    exit 0
+fi
+
+[ "$HAS_PLUGIN" = "1" ] && echo "  Plugin file:    $PLUGINS_DIR/opencode-dc-too-rich-presence.js"
+[ "$HAS_WORKER" = "1" ] && echo "  Worker file:    $CONFIG_DIR/discord-worker.mjs"
+[ "$HAS_CONFIG" = "1" ] && echo "  Config file:    $CONFIG_DIR/discord-config.json"
+[ "$HAS_RESTART" = "1" ] && echo "  Restart helper: $CONFIG_DIR/restart-discord.sh"
+[ "$HAS_NPM_DEPS" = "1" ] && echo "  npm deps:       @xhayper/discord-rpc in package.json"
+echo ""
+
+# Kill any running worker processes
+echo "--- Stopping worker processes ---"
+if pgrep -f "discord-worker\.mjs" > /dev/null; then
+    pkill -TERM -f "discord-worker\.mjs" 2>/dev/null || true
+    sleep 1
+    if pgrep -f "discord-worker\.mjs" > /dev/null; then
+        pkill -KILL -f "discord-worker\.mjs" 2>/dev/null || true
+    fi
+    echo "  ✓ Worker processes stopped"
+else
+    echo "  (no worker running)"
+fi
+
+# Confirm with user before deleting
+echo ""
+echo "--- Files that will be REMOVED ---"
+[ "$HAS_PLUGIN" = "1" ] && echo "  ✗ $PLUGINS_DIR/opencode-dc-too-rich-presence.js"
+[ "$HAS_WORKER" = "1" ] && echo "  ✗ $CONFIG_DIR/discord-worker.mjs"
+[ "$HAS_RESTART" = "1" ] && echo "  ✗ $CONFIG_DIR/restart-discord.sh"
+
+# Handle config file specially - warn about user customizations
+DELETE_CONFIG=0
+if [ "$HAS_CONFIG" = "1" ]; then
+    echo ""
+    echo "════════════════════════════════════════════════════════════════════"
+    echo "⚠️  WARNING: discord-config.json contains YOUR CUSTOMIZATIONS"
+    echo "════════════════════════════════════════════════════════════════════"
+    echo ""
+    echo "File: $CONFIG_DIR/discord-config.json"
+    echo ""
+    if grep -q "discordAppId" "$CONFIG_DIR/discord-config.json" 2>/dev/null; then
+        APP_ID=$(grep -o '"discordAppId"[[:space:]]*:[[:space:]]*"[^"]*"' "$CONFIG_DIR/discord-config.json" | head -1 | sed 's/.*"\([^"]*\)"$/\1/')
+        if [ -n "$APP_ID" ] && [ "$APP_ID" != "YOUR_DISCORD_APPLICATION_ID" ]; then
+            echo "  Your Discord App ID: $APP_ID"
+        fi
+    fi
+    echo ""
+    read -p "Delete $CONFIG_DIR/discord-config.json (permanent, cannot undo)? [y/N] " confirm_config
+    if [[ "$confirm_config" =~ ^[Yy]$ ]]; then
+        DELETE_CONFIG=1
+    else
+        echo "  → Keeping discord-config.json"
+    fi
+fi
+
+# Ask about removing npm deps
+REMOVE_NPM_DEPS=0
+if [ "$HAS_NPM_DEPS" = "1" ]; then
+    echo ""
+    echo "--- npm dependencies ---"
+    echo "  The file $CONFIG_DIR/package.json contains @xhayper/discord-rpc."
+    read -p "Remove @xhayper/discord-rpc from package.json? [y/N] " confirm_deps
+    if [[ "$confirm_deps" =~ ^[Yy]$ ]]; then
+        REMOVE_NPM_DEPS=1
+    else
+        echo "  → Keeping @xhayper/discord-rpc in package.json"
+    fi
+fi
+
+# Final confirmation
+echo ""
+echo "════════════════════════════════════════════════════════════════════"
+echo "READY TO UNINSTALL"
+echo "════════════════════════════════════════════════════════════════════"
+echo "Files to be deleted:"
+[ "$HAS_PLUGIN" = "1" ] && echo "  ✗ $PLUGINS_DIR/opencode-dc-too-rich-presence.js"
+[ "$HAS_WORKER" = "1" ] && echo "  ✗ $CONFIG_DIR/discord-worker.mjs"
+[ "$HAS_RESTART" = "1" ] && echo "  ✗ $CONFIG_DIR/restart-discord.sh"
+[ "$DELETE_CONFIG" = "1" ] && echo "  ✗ $CONFIG_DIR/discord-config.json  (PERMANENT - cannot undo)"
+[ "$REMOVE_NPM_DEPS" = "1" ] && echo "  ✗ Remove @xhayper/discord-rpc from $CONFIG_DIR/package.json"
+echo ""
+read -p "Proceed with uninstall? [y/N] " confirm
+if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
+    echo ""
+    echo "Aborted. No files were deleted."
+    exit 0
+fi
+
+# Delete files
+echo ""
+echo "--- Removing files ---"
+[ "$HAS_PLUGIN" = "1" ] && rm -f "$PLUGINS_DIR/opencode-dc-too-rich-presence.js" && echo "  ✓ Plugin removed"
+[ "$HAS_WORKER" = "1" ] && rm -f "$CONFIG_DIR/discord-worker.mjs" && echo "  ✓ Worker removed"
+[ "$HAS_RESTART" = "1" ] && rm -f "$CONFIG_DIR/restart-discord.sh" && echo "  ✓ Restart script removed"
+[ "$DELETE_CONFIG" = "1" ] && rm -f "$CONFIG_DIR/discord-config.json" && echo "  ✓ Config removed (permanent)"
+
+# Remove from opencode.jsonc
+echo ""
+echo "--- Updating opencode.jsonc ---"
+OPENCODE_JSON="$CONFIG_DIR/opencode.jsonc"
+if [ -f "$OPENCODE_JSON" ] && grep -q "opencode-dc-too-rich-presence" "$OPENCODE_JSON"; then
+    sed -i 's/,[[:space:]]*"opencode-dc-too-rich-presence"//g; s/"opencode-dc-too-rich-presence",[[:space:]]*//g; s/"opencode-dc-too-rich-presence"//g' "$OPENCODE_JSON"
+    echo "  ✓ Plugin removed from opencode.jsonc"
+fi
+
+# Remove npm dep
+if [ "$REMOVE_NPM_DEPS" = "1" ]; then
+    sed -i '/"@xhayper\/discord-rpc"/d' "$CONFIG_DIR/package.json"
+    echo "  ✓ @xhayper/discord-rpc removed from package.json"
+    echo "    (Run 'bun install' or 'npm install' to update node_modules)"
+fi
+
+# Also clean up output file
+echo ""
+echo "--- Cleanup output file ---"
+if [ -f "$CONFIG_DIR/presence-state.txt" ]; then
+    read -p "Delete $CONFIG_DIR/presence-state.txt (output history)? [y/N] " confirm_state
+    if [[ "$confirm_state" =~ ^[Yy]$ ]]; then
+        rm -f "$CONFIG_DIR/presence-state.txt"
+        echo "  ✓ Output file removed"
+    else
+        echo "  → Keeping output file"
+    fi
+fi
+
+echo ""
+echo "════════════════════════════════════════════════════════════════════"
+echo "=== Uninstall Complete ==="
+echo "════════════════════════════════════════════════════════════════════"
+echo ""
+echo "Notes:"
+echo "  - presence-state.txt was preserved (if you chose to keep it)"
+echo "  - If OpenCode is running, restart it to fully unload the plugin"
+echo "  - To reinstall later, run ./install"

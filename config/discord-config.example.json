@@ -1,0 +1,55 @@
+{
+    "_help_app_id": "Get from https://discord.com/developers/applications",
+    "_help_asset": "Upload image at Rich Presence > Art Assets, use filename (no ext) as key",
+    "_help_currency": "Currency symbol for cost display (default $). Change to €, £, ¥, Rp, etc.",
+    "_help_templates": "Template syntax: {var} for substitution, {{#if var == \"x\"}}...{{/if}} for conditionals. See docs/CUSTOMIZATION.md",
+    "_help_compact": "Use {varCompact} (e.g. {contextCompact}, {costCompact}, {promptsCompact}) for large numbers (500K, 1.5M, etc.)",
+
+    "discordAppId": "1512803991300476989",
+    "discordLargeImageKey": "opencode-logo-too-rich-presence",
+    "currency": "$",
+
+    "presence": {
+        "details": "{model} ({mode}) {{#if cost == \"free\"}} • $0 spent{{else}}{costCompact} spent{{/if}}",
+        "state": "{state} • {contextCompact}/{contextLimitCompact} token • {prompts} prompts",
+        "largeImageText": "Context: {context} / {contextLimit} tokens",
+        "smallImageText": "Provider: {provider}",
+
+        "byState": {
+            "Waiting for command": {
+                "details": "{model} ({mode}) {{#if cost == \"free\"}} • $0 spent{{else}}{costCompact} spent{{/if}}",
+                "state": "Waiting • {contextCompact}/{contextLimitCompact} token • {prompts} prompts"
+            },
+            "Working": {
+                "details": "{model} ({mode}) {{#if cost == \"free\"}} • $0 spent{{else}}{costCompact} spent{{/if}}",
+                "state": "Working • {contextCompact}/{contextLimitCompact} token • {prompts} prompts"
+            },
+            "Thinking": {
+                "details": "{model} ({mode}) {{#if cost == \"free\"}} • $0 spent{{else}}{costCompact} spent{{/if}}",
+                "state": "Thinking • {contextCompact}/{contextLimitCompact} token • {prompts} prompts"
+            },
+            "Typing": {
+                "details": "{model} ({mode}) {{#if cost == \"free\"}} • $0 spent{{else}}{costCompact} spent{{/if}}",
+                "state": "Typing • {contextCompact}/{contextLimitCompact} token • {prompts} prompts"
+            },
+            "Asking": {
+                "details": "{model} ({mode}) {{#if cost == \"free\"}} • $0 spent{{else}}{costCompact} spent{{/if}}",
+                "state": "Asking • {contextCompact}/{contextLimitCompact} token • {prompts} prompts"
+            }
+        },
+
+        "idle": {
+            "details": "{model|OpenCode} ({mode|standby}) • $0 spent",
+            "state": "Waiting • {contextCompact|0}/{contextLimitCompact|0} token • {prompts|0} prompts",
+            "largeImageText": "Context: {context|0} / {contextLimit|0} tokens",
+            "smallImageText": "Provider: {provider|Local}"
+        },
+
+        "home": {
+            "details": "OpenCode",
+            "state": "Ready",
+            "largeImageText": "OpenCode",
+            "smallImageText": "Waiting..."
+        }
+    }
+}
