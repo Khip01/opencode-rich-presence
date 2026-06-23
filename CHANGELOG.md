@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.4] - 2026-06-23
+
+### Fixed (BREAKING CLI behavior)
+
+- `opencode-rpc restart` no longer restarts Discord Desktop. It now only writes the restart signal and kills the worker subprocess (matches v1.0.0 `restart-discord.sh` behavior). Discord Desktop is left alone, so users in voice chat are not disrupted.
+- CLI entry script now wraps execution in an async `main()` function. Eliminates the Node.js warning "Detected unsettled top-level await" that appeared in Node 22+ when running interactive commands like `install`, `restart`, and `uninstall`.
+- `opencode-rpc info` can now read `~/.config/opencode/opencode.jsonc` files that use JSONC features (line comments, block comments, trailing commas). Previously only strictly valid JSON was accepted, causing the "OpenCode plugin registration" section to be skipped on JSONC configs.
+- Documentation accuracy: replaced fabricated example outputs in `docs/CLI-REFERENCE.md` and `docs/TROUBLESHOOTING.md` with actual outputs captured from the running CLI. Section visibility notes added so users know when "Lock (leader instance)" and "OpenCode plugin registration" sections appear or are absent.
+- Documentation updated across README, CLI-REFERENCE, TROUBLESHOOTING, and ARCHITECTURE to reflect the new restart behavior.
+
 ## [2.0.2] - 2026-06-23
 
 ### Changed

@@ -63,7 +63,7 @@ opencode-rpc <command>
 |---------|-------------|
 | `install` | Create config file from example, print setup steps |
 | `uninstall` | Remove generated files (lock, output, restart signal); backup config |
-| `restart` | Restart Discord desktop client + trigger plugin reload |
+| `restart` | Reload the plugin worker (does not touch Discord Desktop) |
 | `update` | Check GitHub Releases for new version, self-update |
 | `info` | Show diagnostic info: paths, config, lock status, plugin registration |
 | `version` | Print package version |

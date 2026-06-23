@@ -6,7 +6,21 @@ import { CONFIG_PATH, OUTPUT_FILE, LOCK_FILE, DEBUG_LOG } from "../shared/paths.
 import { getPlatformName } from "./platform/index.js";
 
 function readJsonSafe(path) {
-    try { return JSON.parse(readFileSync(path, "utf-8")); } catch { return null; }
+    try {
+        return JSON.parse(readFileSync(path, "utf-8"));
+    } catch { return null; }
+}
+
+function readJsoncSafe(path) {
+    try {
+        const raw = readFileSync(path, "utf-8");
+        // Strip JSONC: comments and trailing commas before } or ]
+        const stripped = raw
+            .replace(/\/\/.*$/gm, "")
+            .replace(/\/\*[\s\S]*?\*\//g, "")
+            .replace(/,(\s*[}\]])/g, "$1");
+        return JSON.parse(stripped);
+    } catch { return null; }
 }
 
 function formatBytes(b) {
@@ -69,7 +83,7 @@ export async function info() {
         lines.push("");
     }
 
-    const opencodeCfg = readJsonSafe(`${opencodeDir}/opencode.json`) || readJsonSafe(`${opencodeDir}/opencode.jsonc`);
+    const opencodeCfg = readJsonSafe(`${opencodeDir}/opencode.json`) || readJsoncSafe(`${opencodeDir}/opencode.jsonc`);
     if (opencodeCfg) {
         const plugins = Array.isArray(opencodeCfg.plugin) ? opencodeCfg.plugin : [];
         lines.push("OpenCode plugin registration");

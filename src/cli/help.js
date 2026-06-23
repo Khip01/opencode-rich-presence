@@ -7,7 +7,7 @@ Usage:
 Commands:
   install      Set up Rich Presence for OpenCode (creates config)
   uninstall    Remove Rich Presence configuration
-  restart      Restart Discord desktop client
+  restart      Reload the plugin worker (writes restart signal, kills worker)
   update       Check for updates and upgrade
   info         Show diagnostic information
   help         Show this message

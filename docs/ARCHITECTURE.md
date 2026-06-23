@@ -101,13 +101,15 @@ The worker is spawned as a Node.js subprocess (not loaded in-process) because:
 
 ## Restart Flow
 
-`opencode-rpc restart` triggers a coordinated reload:
+`opencode-rpc restart` triggers a coordinated worker reload:
 
 1. Write `~/.config/opencode/.discord-restart-request` signal file.
-2. Optionally kill + relaunch Discord desktop client (platform-specific).
-3. Worker exits and sees the signal file → marks as intentional restart.
+2. CLI kills the `discord-worker.mjs` subprocess (`pgrep` + `kill -TERM` on Linux/macOS, `wmic` + `taskkill` on Windows).
+3. Worker exits and sees the signal file, marks it as intentional restart.
 4. Worker waits 2 seconds (IPC socket release delay).
 5. Plugin reloads config and respawns worker with new settings.
+
+Discord Desktop is not touched by `restart`. If Discord itself is stuck, close and reopen it manually.
 
 The 2s delay prevents a race where the new worker's connect() races with the old IPC socket still being released.
 
