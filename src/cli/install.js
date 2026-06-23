@@ -64,5 +64,5 @@ function printNextSteps() {
     console.log("");
     console.log("3. Start OpenCode. The plugin auto-installs via Bun and Discord presence activates.");
     console.log("");
-    console.log("Run `rich-presence info` anytime to check status.");
+    console.log("Run `opencode-rpc info` anytime to check status.");
 }

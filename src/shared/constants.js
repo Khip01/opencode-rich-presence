@@ -18,7 +18,7 @@ export const MAX_DISCORD_FIELD = 128;
 
 // Developer's verified Discord App ID (used as fallback so the plugin works out-of-box).
 export const FALLBACK_APP_ID = "1512803991300476989";
-export const FALLBACK_IMAGE_KEY = "opencode-logo-too-rich-presence";
+export const FALLBACK_IMAGE_KEY = "opencode-logo-too-opencode-rpc";
 
 export const FALLBACK_MODEL_LIMITS = {
     "minimax-m3": 1048576,

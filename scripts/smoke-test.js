@@ -14,7 +14,7 @@ const REQUIRED_FILES = [
     "README.md",
     "LICENSE",
     "CHANGELOG.md",
-    "bin/rich-presence.js",
+    "bin/opencode-rpc.js",
     "src/plugin/index.js",
     "src/plugin/template-engine.js",
     "src/plugin/config-resolver.js",
@@ -63,8 +63,8 @@ if (pkg.name !== "opencode-rich-presence") {
     console.error(`package.json name mismatch: ${pkg.name}`);
     process.exit(1);
 }
-if (!pkg.bin || !pkg.bin["rich-presence"]) {
-    console.error("package.json missing 'rich-presence' bin entry");
+if (!pkg.bin || !pkg.bin["opencode-rpc"]) {
+    console.error("package.json missing 'opencode-rpc' bin entry");
     process.exit(1);
 }
 if (!pkg.dependencies || !pkg.dependencies["@xhayper/discord-rpc"]) {
@@ -73,14 +73,14 @@ if (!pkg.dependencies || !pkg.dependencies["@xhayper/discord-rpc"]) {
 }
 
 // CLI basic execution test
-const cliTest = spawnSync("node", [join(PKG_ROOT, "bin/rich-presence.js"), "version"], { encoding: "utf-8" });
+const cliTest = spawnSync("node", [join(PKG_ROOT, "bin/opencode-rpc.js"), "version"], { encoding: "utf-8" });
 if (cliTest.status !== 0) {
     console.error("CLI version command failed:");
     console.error(cliTest.stderr);
     process.exit(1);
 }
 
-const helpTest = spawnSync("node", [join(PKG_ROOT, "bin/rich-presence.js"), "help"], { encoding: "utf-8" });
+const helpTest = spawnSync("node", [join(PKG_ROOT, "bin/opencode-rpc.js"), "help"], { encoding: "utf-8" });
 if (helpTest.status !== 0) {
     console.error("CLI help command failed:");
     console.error(helpTest.stderr);

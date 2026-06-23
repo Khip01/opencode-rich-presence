@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.1] - 2026-06-23
+
+### Changed
+
+- **CLI command renamed**: `rich-presence` -> `opencode-rpc` for clearer namespace ownership (this is an OpenCode ecosystem tool, not a generic rich presence tool).
+- Package name stays `opencode-rich-presence` (unchanged).
+- Bin file renamed: `bin/rich-presence.js` -> `bin/opencode-rpc.js`.
+- CLI debug env var renamed: `RICH_PRESENCE_DEBUG` -> `OPENCODE_RPC_DEBUG`.
+
+### Migration from v2.0.0
+
+The npm package name is unchanged (`opencode-rich-presence`), so `npm update -g opencode-rich-presence` upgrades both v2.0.0 and v2.0.1 users. Only the CLI command name changed:
+
+- v2.0.0: `rich-presence install`
+- v2.0.1: `opencode-rpc install`
+
 ## [2.0.0] - 2026-06-23
 
 ### Changed (BREAKING)
@@ -13,7 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Cross-platform**: Linux, macOS, Windows. Replaces Linux-only v1.0.0.
 - **Plugin code refactored** into modular structure (`src/plugin/`, `src/shared/`, `src/cli/`).
 - **Config paths** standardized to OpenCode's `~/.config/opencode/` across all platforms (OpenCode normalizes this on Windows too).
-- **CLI replaces bash scripts** — `rich-presence install/uninstall/restart/update/info/help`.
+- **CLI replaces bash scripts** — `opencode-rpc install/uninstall/restart/update/info/help`.
 - **Plugin name renamed** from `opencode-dc-too-rich-presence` to `opencode-rich-presence`.
 - **Lock file renamed** from `.opencode-dc-too-rich-presence.lock` to `.opencode-rich-presence.lock`.
 - **Debug log** moved from hardcoded `/tmp/plugin-debug.log` to OS temp directory via `os.tmpdir()`.
@@ -22,7 +38,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - CLI tool with subcommands: `install`, `uninstall`, `restart`, `update`, `info`, `help`, `version`.
-- `rich-presence update` fetches latest release from GitHub API and self-updates.
+- `opencode-rpc update` fetches latest release from GitHub API and self-updates.
 - Cross-platform Discord restart logic (`pkill`/`osascript`/`taskkill`).
 - Windows path detection in `findNodeExecutable` (`%ProgramFiles%`, `%LOCALAPPDATA%`).
 - CI matrix testing on Linux, macOS, Windows across Node 18/20/22.
@@ -44,7 +60,7 @@ v1.0.0 is preserved as `opencode-rich-presence-v1.0.0-legacy-linux-only` on the 
    ```bash
    npm install -g https://github.com/Khip01/opencode-rich-presence/releases/latest/download/opencode-rich-presence-latest.tgz
    ```
-3. Run `rich-presence install`.
+3. Run `opencode-rpc install`.
 4. Restore your settings into the new config (App ID, presence templates).
 5. Restart OpenCode.
 

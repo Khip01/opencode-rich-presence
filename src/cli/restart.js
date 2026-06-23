@@ -23,7 +23,7 @@ export async function restart() {
     const ok = await confirm("\nAlso restart the Discord desktop app now?", { defaultYes: true });
     if (!ok) {
         console.log("\nRestart signal written. The plugin will reload on next event.");
-        console.log("(Or run 'rich-presence restart' again to also restart Discord.)\n");
+        console.log("(Or run 'opencode-rpc restart' again to also restart Discord.)\n");
         return;
     }
 

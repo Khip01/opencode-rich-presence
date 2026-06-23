@@ -2,7 +2,7 @@ const USAGE = `
 opencode-rich-presence - Discord Rich Presence plugin for OpenCode AI
 
 Usage:
-  rich-presence <command> [options]
+  opencode-rpc <command> [options]
 
 Commands:
   install      Set up Rich Presence for OpenCode (creates config)
@@ -15,11 +15,11 @@ Commands:
 
 Installation (one-time):
   npm install -g https://github.com/Khip01/opencode-rich-presence/releases/latest/download/opencode-rich-presence-latest.tgz
-  rich-presence install
+  opencode-rpc install
   # Then add "plugin": ["opencode-rich-presence"] to ~/.config/opencode/opencode.json
 
 Update:
-  rich-presence update
+  opencode-rpc update
 
 Documentation: https://github.com/Khip01/opencode-rich-presence
 `;

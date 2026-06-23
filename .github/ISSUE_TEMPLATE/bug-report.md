@@ -14,7 +14,7 @@ A clear and concise description of what the bug is.
 
 Steps to reproduce the behavior:
 
-1. Run `rich-presence info` and paste the output here (mask your Discord App ID if you want):
+1. Run `opencode-rpc info` and paste the output here (mask your Discord App ID if you want):
    ```
    [paste output]
    ```
@@ -39,7 +39,7 @@ Steps to reproduce the behavior:
 - OS: [e.g., Ubuntu 24.04, macOS 15, Windows 11]
 - Node.js version: [run `node --version`]
 - OpenCode version: [run `opencode --version` if available]
-- Plugin version: [run `rich-presence version`]
+- Plugin version: [run `opencode-rpc version`]
 - Discord client version: [Discord > Settings > About]
 
 ## Debug log

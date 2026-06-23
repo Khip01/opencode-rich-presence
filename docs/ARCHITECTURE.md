@@ -101,7 +101,7 @@ The worker is spawned as a Node.js subprocess (not loaded in-process) because:
 
 ## Restart Flow
 
-`rich-presence restart` triggers a coordinated reload:
+`opencode-rpc restart` triggers a coordinated reload:
 
 1. Write `~/.config/opencode/.discord-restart-request` signal file.
 2. Optionally kill + relaunch Discord desktop client (platform-specific).

@@ -23,12 +23,12 @@ Works on **Linux**, **macOS**, and **Windows**.
 npm install -g https://github.com/Khip01/opencode-rich-presence/releases/latest/download/opencode-rich-presence-latest.tgz
 ```
 
-This installs the `rich-presence` CLI globally. The plugin code is bundled inside the tarball and OpenCode will auto-load it once registered (next step).
+This installs the `opencode-rpc` CLI globally. The plugin code is bundled inside the tarball and OpenCode will auto-load it once registered (next step).
 
 ### 2. Set up the config
 
 ```bash
-rich-presence install
+opencode-rpc install
 ```
 
 This creates `~/.config/opencode/discord-config.json` from the example. Edit it to set your Discord App ID and customize templates.
@@ -48,7 +48,7 @@ Add the plugin to `~/.config/opencode/opencode.json` (or `.jsonc`):
 OpenCode auto-installs the plugin via Bun on startup. After restart, check status:
 
 ```bash
-rich-presence info
+opencode-rpc info
 ```
 
 For detailed setup (creating your own Discord App, advanced config), see [`docs/INSTALL.md`](./docs/INSTALL.md).
@@ -56,7 +56,7 @@ For detailed setup (creating your own Discord App, advanced config), see [`docs/
 ## CLI Reference
 
 ```bash
-rich-presence <command>
+opencode-rpc <command>
 ```
 
 | Command | Description |
@@ -74,7 +74,7 @@ Full reference: [`docs/CLI-REFERENCE.md`](./docs/CLI-REFERENCE.md)
 ## Update
 
 ```bash
-rich-presence update
+opencode-rpc update
 ```
 
 Checks the latest GitHub release, downloads the new tarball, and reinstalls globally. No manual steps needed.

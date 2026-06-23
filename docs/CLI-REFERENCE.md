@@ -1,14 +1,14 @@
 # CLI Reference
 
 ```
-rich-presence <command> [options]
+opencode-rpc <command> [options]
 ```
 
 All commands work the same on Linux, macOS, and Windows.
 
 ---
 
-## `rich-presence install`
+## `opencode-rpc install`
 
 Creates the Discord Rich Presence config file at `~/.config/opencode/discord-config.json` from the bundled example, then prints setup steps.
 
@@ -19,7 +19,7 @@ Creates the Discord Rich Presence config file at `~/.config/opencode/discord-con
 
 **Example:**
 ```
-$ rich-presence install
+$ opencode-rpc install
 
 opencode-rich-presence installer
 
@@ -38,7 +38,7 @@ Next steps:
 
 ---
 
-## `rich-presence uninstall`
+## `opencode-rpc uninstall`
 
 Interactive cleanup. Walks through each generated file and asks before deleting.
 
@@ -50,7 +50,7 @@ Interactive cleanup. Walks through each generated file and asks before deleting.
 
 **Example:**
 ```
-$ rich-presence uninstall
+$ opencode-rpc uninstall
 
 opencode-rich-presence uninstaller
 
@@ -67,7 +67,7 @@ Step 3: Remove CLI globally (optional)
 
 ---
 
-## `rich-presence restart`
+## `opencode-rpc restart`
 
 Triggers a Discord desktop client restart and signals the plugin to reload.
 
@@ -86,7 +86,7 @@ Triggers a Discord desktop client restart and signals the plugin to reload.
 
 **Example:**
 ```
-$ rich-presence restart
+$ opencode-rpc restart
 
 Restarting Discord desktop client...
 
@@ -99,7 +99,7 @@ Discord restart triggered.
 
 ---
 
-## `rich-presence update`
+## `opencode-rpc update`
 
 Checks GitHub Releases for the latest version, downloads the new tarball, and reinstalls globally via npm.
 
@@ -111,7 +111,7 @@ Checks GitHub Releases for the latest version, downloads the new tarball, and re
 
 **Example:**
 ```
-$ rich-presence update
+$ opencode-rpc update
 
 Current version: v2.0.0
 Checking for updates...
@@ -127,13 +127,13 @@ Restart OpenCode to apply changes.
 
 ---
 
-## `rich-presence info`
+## `opencode-rpc info`
 
 Prints diagnostic info: paths, config status, lock file state, OpenCode plugin registration.
 
 **Example:**
 ```
-$ rich-presence info
+$ opencode-rpc info
 
 opencode-rich-presence - diagnostics
 ==================================================
@@ -152,7 +152,7 @@ Paths
 
 Config (discord-config.json)
   App ID         : 1512...6989
-  Image key      : opencode-logo-too-rich-presence
+  Image key      : opencode-logo-too-opencode-rpc
   Image text     : OpenCode
   Currency       : $
   Custom template: no
@@ -169,18 +169,18 @@ OpenCode plugin registration
 
 ---
 
-## `rich-presence version`
+## `opencode-rpc version`
 
 Prints package name and version.
 
 ```
-$ rich-presence version
+$ opencode-rpc version
 opencode-rich-presence v2.0.0
 ```
 
 ---
 
-## `rich-presence help`
+## `opencode-rpc help`
 
 Prints usage summary.
 

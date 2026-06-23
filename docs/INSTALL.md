@@ -18,7 +18,7 @@ Pick one installation method.
 npm install -g https://github.com/Khip01/opencode-rich-presence/releases/latest/download/opencode-rich-presence-latest.tgz
 ```
 
-This installs the `rich-presence` CLI globally and makes the plugin code available.
+This installs the `opencode-rpc` CLI globally and makes the plugin code available.
 
 ### B. From a specific version
 
@@ -47,7 +47,7 @@ For the quickest out-of-box experience, the plugin ships with a verified App ID 
 ## Step 3: Run the installer
 
 ```bash
-rich-presence install
+opencode-rpc install
 ```
 
 This creates `~/.config/opencode/discord-config.json` from the bundled example.
@@ -100,7 +100,7 @@ OpenCode auto-installs the npm plugin on startup via Bun.
 Verify:
 
 ```bash
-rich-presence info
+opencode-rpc info
 ```
 
 You should see `Status: REGISTERED in opencode.json`.
@@ -110,7 +110,7 @@ Start OpenCode and check Discord — your AI session should appear as a rich pre
 ## Updating
 
 ```bash
-rich-presence update
+opencode-rpc update
 ```
 
 This fetches the latest GitHub release, downloads the new tarball, and reinstalls globally. Restart OpenCode afterwards.
@@ -118,7 +118,7 @@ This fetches the latest GitHub release, downloads the new tarball, and reinstall
 ## Uninstalling
 
 ```bash
-rich-presence uninstall    # removes config + generated files (interactive)
+opencode-rpc uninstall    # removes config + generated files (interactive)
 npm uninstall -g opencode-rich-presence    # removes CLI globally
 ```
 
@@ -139,7 +139,7 @@ The plugin name changed from `opencode-dc-too-rich-presence` to `opencode-rich-p
 
 If Discord doesn't show your presence:
 
-1. Run `rich-presence info` — check that the plugin is registered and the config is found.
+1. Run `opencode-rpc info` — check that the plugin is registered and the config is found.
 2. Verify Discord Desktop is running.
-3. Check the debug log: `cat $(rich-presence info | grep "Debug log" | awk '{print $3}')`.
+3. Check the debug log: `cat $(opencode-rpc info | grep "Debug log" | awk '{print $3}')`.
 4. See [`TROUBLESHOOTING.md`](./TROUBLESHOOTING.md) for platform-specific issues.

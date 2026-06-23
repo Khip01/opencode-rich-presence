@@ -14,6 +14,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
 
       - uses: actions/setup-node@v4
         with:
@@ -25,8 +27,8 @@ jobs:
 
       - name: Smoke tests
         run: |
-          node bin/rich-presence.js help
-          node bin/rich-presence.js version
+          node bin/opencode-rpc.js help
+          node bin/opencode-rpc.js version
 
       - name: Build tarball
         run: npm pack
@@ -44,7 +46,7 @@ jobs:
 
             ```bash
             npm install -g https://github.com/Khip01/opencode-rich-presence/releases/download/${{ github.ref_name }}/opencode-rich-presence-${{ github.ref_name }}.tgz
-            rich-presence install
+            opencode-rpc install
             ```
 
             Then add this to `~/.config/opencode/opencode.json` (or `.jsonc`):
@@ -58,7 +60,7 @@ jobs:
             ### Update from previous v2.x
 
             ```bash
-            rich-presence update
+            opencode-rpc update
             ```
 
             ### Migrating from v1.0.0 (legacy Linux-only)
@@ -67,7 +69,7 @@ jobs:
 
             1. Back up your old `~/.config/opencode/discord-config.json` if you have one.
             2. Run the fresh install command above.
-            3. Run `rich-presence install` to set up the new config file.
+            3. Run `opencode-rpc install` to set up the new config file.
             4. Restore your settings into the new config (App ID, presence templates).
             5. Restart OpenCode.
 

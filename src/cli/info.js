@@ -55,7 +55,7 @@ export async function info() {
         lines.push(`  Custom template: ${cfg.presence ? "yes" : "no"}`);
         lines.push("");
     } else {
-        lines.push("Config: not found. Run `rich-presence install` to create one.");
+        lines.push("Config: not found. Run `opencode-rpc install` to create one.");
         lines.push("");
     }
 

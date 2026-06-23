@@ -6,6 +6,6 @@ try {
     await run(process.argv.slice(2));
 } catch (err) {
     console.error(`\n[error] ${err?.message || err}\n`);
-    if (process.env.RICH_PRESENCE_DEBUG) console.error(err);
+    if (process.env.OPENCODE_RPC_DEBUG) console.error(err);
     process.exit(1);
 }

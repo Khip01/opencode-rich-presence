@@ -32,7 +32,7 @@ export async function run(argv) {
     const handler = COMMANDS[cmd];
     if (!handler) {
         console.error(`Unknown command: ${cmd}`);
-        console.error(`Run 'rich-presence help' for usage.`);
+        console.error(`Run 'opencode-rpc help' for usage.`);
         process.exit(2);
     }
 

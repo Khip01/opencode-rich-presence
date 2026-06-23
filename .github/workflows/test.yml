@@ -30,13 +30,13 @@ jobs:
         run: node scripts/syntax-check.js
 
       - name: Help output
-        run: node bin/rich-presence.js help
+        run: node bin/opencode-rpc.js help
 
       - name: Version output
-        run: node bin/rich-presence.js version
+        run: node bin/opencode-rpc.js version
 
       - name: Info output (dry)
-        run: node bin/rich-presence.js info
+        run: node bin/opencode-rpc.js info
 
       - name: Pack dry run
         run: npm pack --dry-run

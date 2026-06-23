@@ -20,7 +20,7 @@ function walk(dir, out = []) {
 }
 
 const targets = [
-    join(ROOT, "bin", "rich-presence.js"),
+    join(ROOT, "bin", "opencode-rpc.js"),
     ...walk(join(ROOT, "src")),
 ];
 

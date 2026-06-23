@@ -4,7 +4,7 @@ Common issues and fixes for `opencode-rich-presence` v2.0.0+.
 
 ## Quick Diagnostics
 
-Run `rich-presence info` first. It shows:
+Run `opencode-rpc info` first. It shows:
 - Platform and Node.js version
 - All file paths and existence
 - Config values (App ID masked)
@@ -20,7 +20,7 @@ If something looks wrong, the next steps depend on what's missing.
 **Check 1: Is the plugin loaded by OpenCode?**
 
 ```
-$ rich-presence info
+$ opencode-rpc info
 ...
 OpenCode plugin registration
   Status         : REGISTERED in opencode.json
@@ -96,11 +96,11 @@ Look for `Discord connected via worker` message. If you see retry attempts, the 
 This is expected behavior — only one instance pushes to Discord at a time. If you want a specific instance to be leader:
 1. Close all other OpenCode windows.
 2. The remaining instance becomes leader automatically after the lock expires (15s).
-3. Or, restart Discord with `rich-presence restart` to trigger an immediate leader re-election.
+3. Or, restart Discord with `opencode-rpc restart` to trigger an immediate leader re-election.
 
 Check leader status:
 ```
-$ rich-presence info
+$ opencode-rpc info
 ...
 Lock (leader instance)
   PID            : 12345
@@ -126,7 +126,7 @@ Lock (leader instance)
 If Discord is installed via Flatpak (user), Snap, or custom location, the restart command won't find it.
 
 **Fix:**
-- Start Discord manually before running `rich-presence restart`.
+- Start Discord manually before running `opencode-rpc restart`.
 - Or symlink Discord into a standard location:
   ```bash
   sudo ln -s /path/to/your/discord /usr/local/bin/discord
@@ -139,7 +139,7 @@ If Discord is installed via Flatpak (user), Snap, or custom location, the restar
 **Cause:** First-time AppleScript permission prompt.
 
 **Fix:**
-1. Run `rich-presence restart` once.
+1. Run `opencode-rpc restart` once.
 2. macOS will prompt "Terminal wants to control Discord" — click **OK**.
 3. Re-run if needed.
 
@@ -151,7 +151,7 @@ If Discord is installed via Flatpak (user), Snap, or custom location, the restar
 
 **Fix:**
 - Run your terminal as Administrator, or
-- Manually close Discord and skip the restart option in `rich-presence restart` (answer `n` to "Also restart Discord").
+- Manually close Discord and skip the restart option in `opencode-rpc restart` (answer `n` to "Also restart Discord").
 
 ---
 
@@ -170,7 +170,7 @@ If Discord is installed via Flatpak (user), Snap, or custom location, the restar
 
 ## Uninstall didn't clean up
 
-If files remain after `rich-presence uninstall`:
+If files remain after `opencode-rpc uninstall`:
 
 ```bash
 # Remove lock file
@@ -218,7 +218,7 @@ If you can't run scripts, this isn't related to the plugin — adjust PowerShell
 
 **Fix:**
 ```bash
-rich-presence restart
+opencode-rpc restart
 ```
 
 This triggers an intentional restart, reloads config, and reconnects.
@@ -227,10 +227,10 @@ This triggers an intentional restart, reloads config, and reconnects.
 
 ## Still stuck?
 
-1. Run `rich-presence info` and capture the output.
+1. Run `opencode-rpc info` and capture the output.
 2. Tail the debug log while reproducing the issue.
 3. Open an issue at https://github.com/Khip01/opencode-rich-presence/issues with:
    - OS and version
    - Node.js version
-   - Output of `rich-presence info` (mask sensitive IDs if needed)
+   - Output of `opencode-rpc info` (mask sensitive IDs if needed)
    - Relevant debug log snippets
