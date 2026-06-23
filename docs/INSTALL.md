@@ -39,7 +39,7 @@ npm link
 
 1. Go to https://discord.com/developers/applications.
 2. Click **New Application**, give it a name (e.g., "OpenCode").
-3. Copy the **Application ID** — this is your `discordAppId`.
+3. Copy the **Application ID**: this is your `discordAppId`.
 4. (Optional) Go to **Rich Presence > Art Assets** and upload an image. Note the asset key (e.g., `opencode-logo`).
 
 For the quickest out-of-box experience, the plugin ships with a verified App ID and asset key as defaults. You only need your own if you want custom branding.
@@ -105,7 +105,7 @@ opencode-rpc info
 
 You should see `Status: REGISTERED in opencode.json`.
 
-Start OpenCode and check Discord — your AI session should appear as a rich presence within a few seconds.
+Start OpenCode and check Discord. Your AI session should appear as a rich presence within a few seconds.
 
 ## Updating
 
@@ -139,7 +139,7 @@ The plugin name changed from `opencode-dc-too-rich-presence` to `opencode-rich-p
 
 If Discord doesn't show your presence:
 
-1. Run `opencode-rpc info` — check that the plugin is registered and the config is found.
+1. Run `opencode-rpc info` to check that the plugin is registered and the config is found.
 2. Verify Discord Desktop is running.
 3. Check the debug log: `cat $(opencode-rpc info | grep "Debug log" | awk '{print $3}')`.
 4. See [`TROUBLESHOOTING.md`](./TROUBLESHOOTING.md) for platform-specific issues.

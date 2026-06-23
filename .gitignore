@@ -18,7 +18,7 @@ Thumbs.db
 .DS_Store
 Thumbs.db
 
-# Build artifacts (none expected — pure JS, no build step)
+# Build artifacts (none expected: pure JS, no build step)
 
 # Sensitive / personal
 .env

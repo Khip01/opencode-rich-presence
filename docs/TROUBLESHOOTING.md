@@ -53,7 +53,7 @@ If using your own Discord App:
 - App ID must match the one from https://discord.com/developers/applications
 - Asset key must match an asset uploaded to that app's Rich Presence > Art Assets
 
-If unsure, use the fallback defaults (just delete `discordAppId` from your config) — the plugin ships with a verified App ID.
+If unsure, use the fallback defaults (just delete `discordAppId` from your config). The plugin ships with a verified App ID.
 
 **Check 4: Debug log**
 
@@ -93,7 +93,7 @@ Look for `Discord connected via worker` message. If you see retry attempts, the 
 
 **Fix:**
 
-This is expected behavior — only one instance pushes to Discord at a time. If you want a specific instance to be leader:
+This is expected behavior. Only one instance pushes to Discord at a time. If you want a specific instance to be leader:
 1. Close all other OpenCode windows.
 2. The remaining instance becomes leader automatically after the lock expires (15s).
 3. Or, restart Discord with `opencode-rpc restart` to trigger an immediate leader re-election.
@@ -140,7 +140,7 @@ If Discord is installed via Flatpak (user), Snap, or custom location, the restar
 
 **Fix:**
 1. Run `opencode-rpc restart` once.
-2. macOS will prompt "Terminal wants to control Discord" — click **OK**.
+2. macOS will prompt "Terminal wants to control Discord". Click **OK**.
 3. Re-run if needed.
 
 ---
@@ -208,7 +208,7 @@ npm install -g https://github.com/Khip01/opencode-rich-presence/releases/latest/
 
 **Check 2: PowerShell execution policy**
 
-If you can't run scripts, this isn't related to the plugin — adjust PowerShell policy or use `cmd.exe`.
+If you can't run scripts, this isn't related to the plugin. Adjust PowerShell policy or use `cmd.exe`.
 
 ---
 

@@ -71,7 +71,7 @@ Discord is installed in `%LOCALAPPDATA%\Discord\`. The CLI restart command uses 
 
 ### IPC transport
 
-Discord IPC uses **named pipes** at `\\.\pipe\discord-ipc-{0..9}` (not Unix sockets). The `@xhayper/discord-rpc` library handles this transparently — no code changes needed in the plugin.
+Discord IPC uses **named pipes** at `\\.\pipe\discord-ipc-{0..9}` (not Unix sockets). The `@xhayper/discord-rpc` library handles this transparently, so no code changes are needed in the plugin.
 
 ### File system
 

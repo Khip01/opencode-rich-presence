@@ -29,7 +29,7 @@ The npm package name is unchanged (`opencode-rich-presence`), so `npm update -g 
 - **Cross-platform**: Linux, macOS, Windows. Replaces Linux-only v1.0.0.
 - **Plugin code refactored** into modular structure (`src/plugin/`, `src/shared/`, `src/cli/`).
 - **Config paths** standardized to OpenCode's `~/.config/opencode/` across all platforms (OpenCode normalizes this on Windows too).
-- **CLI replaces bash scripts** — `opencode-rpc install/uninstall/restart/update/info/help`.
+- **CLI replaces bash scripts**: `opencode-rpc install/uninstall/restart/update/info/help`.
 - **Plugin name renamed** from `opencode-dc-too-rich-presence` to `opencode-rich-presence`.
 - **Lock file renamed** from `.opencode-dc-too-rich-presence.lock` to `.opencode-rich-presence.lock`.
 - **Debug log** moved from hardcoded `/tmp/plugin-debug.log` to OS temp directory via `os.tmpdir()`.

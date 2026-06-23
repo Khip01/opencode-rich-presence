@@ -10,10 +10,10 @@ Works on **Linux**, **macOS**, and **Windows**.
 
 - **Real-time Discord Rich Presence** with model, mode, state, context usage, cost, prompts
 - **Template engine** with variables, conditionals, fallbacks, per-state templates
-- **Multi-instance safe** — leader election via file lock prevents duplicate Discord connections when running multiple OpenCode windows
+- **Multi-instance safe**: leader election via file lock prevents duplicate Discord connections when running multiple OpenCode windows
 - **Automatic Discord restart** via CLI (cross-platform: `pkill`, `osascript`, `taskkill`)
 - **Status output file** at `~/.config/opencode/presence-state.txt` for debugging
-- **CLI management** — install, uninstall, restart, update, info, help
+- **CLI management**: install, uninstall, restart, update, info, help
 
 ## Installation
 

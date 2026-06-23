@@ -85,19 +85,19 @@ The worker is spawned as a Node.js subprocess (not loaded in-process) because:
 **IPC:** Newline-delimited JSON over stdin/stdout.
 
 **Commands (parent -> worker):**
-- `connect` — initiate Discord login
-- `setActivity` — update presence
-- `clearActivity` — clear presence
-- `shutdown` — graceful disconnect
-- `ping` — health check
+- `connect`: initiate Discord login
+- `setActivity`: update presence
+- `clearActivity`: clear presence
+- `shutdown`: graceful disconnect
+- `ping`: health check
 
 **Events (worker -> parent):**
-- `ready` — worker started
-- `connected` — Discord READY
-- `disconnected` — Discord disconnected
-- `error` — connection error
-- `attempt` — retry attempt with backoff
-- `log` — log line
+- `ready`: worker started
+- `connected`: Discord READY
+- `disconnected`: Discord disconnected
+- `error`: connection error
+- `attempt`: retry attempt with backoff
+- `log`: log line
 
 ## Restart Flow
 
@@ -130,14 +130,14 @@ Same precedence applies to:
 The template engine supports:
 
 1. **Variables:** `{model}`, `{context}`, etc.
-2. **Fallbacks:** `{var|fallback}` — used if var is undefined/null.
+2. **Fallbacks:** `{var|fallback}` is used if var is undefined/null.
 3. **Boolean conditionals:** `{{#if thinking}}...{{else}}...{{/if}}`
 4. **Comparison conditionals:** `{{#if contextPercent > 50}}...{{else}}...{{/if}}`
 5. **Per-state templates:** `byState.Typing.state`, etc.
 
 Variable substitution handles edge cases:
-- `{var}` — typo missing `}` matches (returns fallback or "?")
-- `{var}}` — extra `}` matches (returns var value)
+- `{var}` (typo missing `}` matches, returns fallback or "?")
+- `{var}}` (extra `}` matches, returns var value)
 - Missing var → fallback or "?"
 
 ## CLI Subcommands
