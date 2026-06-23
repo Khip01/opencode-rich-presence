@@ -26,15 +26,8 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      - name: Syntax check (JS files)
-        run: |
-          node --check bin/rich-presence.js
-          for f in $(find src -name '*.js' -not -path '*/node_modules/*'); do
-            node --check "$f" || exit 1
-          done
-
-      - name: Worker syntax check
-        run: node --check src/worker/discord-worker.mjs
+      - name: Syntax check (all JS/MJS files)
+        run: node scripts/syntax-check.js
 
       - name: Help output
         run: node bin/rich-presence.js help
