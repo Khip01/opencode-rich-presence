@@ -1,13 +1,12 @@
 #!/usr/bin/env node
-// Discord RPC worker - uses @xhayper/discord-rpc with login() (Puri's approach)
-// Runs as Node.js subprocess so Bun's Unix socket issues are bypassed
+// Discord RPC worker - uses @xhayper/discord-rpc.
+// Runs as Node.js subprocess so Bun's Unix socket issues are bypassed.
+// Cross-platform: @xhayper/discord-rpc handles Unix sockets (Linux/macOS) and named pipes (Windows).
 
 import { Client } from "@xhayper/discord-rpc";
 import { readFile } from "node:fs/promises";
-import { homedir } from "node:os";
-import { join } from "node:path";
+import { CONFIG_PATH } from "../shared/paths.js";
 
-const CONFIG_PATH = join(homedir(), ".config", "opencode", "discord-config.json");
 const CONNECT_TIMEOUT = 30000;
 const MAX_RETRIES = 100;
 
@@ -36,10 +35,8 @@ function log(...args) {
 }
 
 async function loadAppId() {
-    // Priority 1: DISCORD_APP_ID env var (set by parent plugin process)
     if (process.env.DISCORD_APP_ID) return process.env.DISCORD_APP_ID;
 
-    // Priority 2: discord-config.json file (single source of truth for the plugin)
     try {
         const raw = await readFile(CONFIG_PATH, "utf-8");
         const cfg = JSON.parse(raw);
@@ -48,7 +45,6 @@ async function loadAppId() {
         log(`Could not read config file ${CONFIG_PATH}: ${err?.message || err}`);
     }
 
-    // Priority 3: no fallback - fail loudly so user knows to configure
     const msg = `No Discord App ID found. Set DISCORD_APP_ID env var or add discordAppId to ${CONFIG_PATH}`;
     log(msg);
     send({ type: "error", error: msg });

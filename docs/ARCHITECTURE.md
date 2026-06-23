@@ -1,195 +1,201 @@
 # Architecture
 
-## High-Level Flow
-
-```mermaid
-sequenceDiagram
-    participant OC as OpenCode CLI (Bun)
-    participant Plugin as Plugin (Bun)
-    participant Worker as discord-worker.mjs (Node.js)
-    participant Discord as Discord Desktop
-
-    OC->>Plugin: Load plugin
-    Plugin->>Plugin: Load config, acquire lock
-    Plugin->>Worker: spawn() with stdin/stdout pipes
-    Worker->>Discord: connect() to IPC socket
-    Discord-->>Worker: READY event
-    Worker-->>Plugin: { type: "connected" }
-    Plugin->>Plugin: mark connected, push activity
-    Plugin->>Worker: send: { cmd: "setActivity", activity }
-    Worker->>Discord: setActivity()
-    Note over Plugin,Worker: communicates via JSON over stdin/stdout
-```
-
-## Why Subprocess Architecture?
-
-OpenCode plugins run in **Bun runtime**. But:
-
-- **Bun has known issues** with Unix domain sockets (Discord IPC)
-- `net.createConnection()` fails with `ECONNREFUSED` in Bun
-- Bun's native `Bun.connect()` works but the socket API differs
-
-Solution: Run the Discord RPC client in a **Node.js subprocess** (full Unix socket support), communicate via stdin/stdout (JSON).
-
-## Restart Mechanism (Signal File)
-
-When `./restart-discord.sh` is run:
-
-```mermaid
-sequenceDiagram
-    participant Script as restart-discord.sh
-    participant Plugin as Plugin (in OpenCode)
-    participant Worker as discord-worker.mjs
-
-    Script->>Plugin: touch .discord-restart-request
-    Script->>Worker: pkill -TERM
-    Note over Worker: exits (process.on("SIGTERM"))
-    Note over Plugin: exit handler fires
-    Plugin->>Plugin: detect signal file (isIntentionalRestart)
-    Plugin->>Plugin: set discord.respawning = true
-    Note over Plugin: WAIT 2 seconds
-    Note over Plugin: (old IPC socket fully releases)
-    Plugin->>Plugin: reload config via loadConfig()
-    Plugin->>Plugin: clear respawning flag
-    Plugin->>Worker: spawn new worker
-```
-
-Without the 2-second delay, the new worker's connection races with the old worker's IPC socket cleanup, causing a brief disconnect/reconnect flicker.
-
-Normal crash (no signal file): Plugin uses 3-second backoff before respawning.
-
-## Multi-Instance Coordinator
-
-Discord IPC allows only **ONE active connection per Application ID**.
+## Overview
 
 ```
-Lock file: ~/.config/opencode/.opencode-dc-too-rich-presence.lock
-Contents: {"pid": 12345, "started": 1234567890}
+                           OpenCode AI
+                                |
+                                | events (chat.message, session.*, message.*, ...)
+                                v
+   +-------------------------------------------------------------+
+   |  OpenCodeRichPresence plugin  (src/plugin/index.js)         |
+   |  - receives events, tracks SessionState                     |
+   |  - coordinator: leader election via file lock               |
+   |  - discord-service: pushes activity via worker              |
+   |  - writes ~/.config/opencode/presence-state.txt             |
+   +----------------------------+--------------------------------+
+                                | stdin (NDJSON commands)
+                                v
+   +-------------------------------------------------------------+
+   |  discord-worker.mjs  (src/worker/)                          |
+   |  - uses @xhayper/discord-rpc                                |
+   |  - handles reconnect with exponential backoff               |
+   +----------------------------+--------------------------------+
+                                | Discord IPC
+                                v
+                       Discord Desktop Client
 ```
 
-**Algorithm:**
-1. Plugin init: try exclusive create lock file (`wx` flag)
-2. If success -> this instance becomes **leader** (only one pushes to Discord)
-3. If lock exists with fresh timestamp -> another instance is leader, become **standby**
-4. Leader updates lock file timestamp every 5 seconds (heartbeat)
-5. If lock is stale (>15s old) -> standby steals lock, becomes new leader
+## Module Structure
 
-**Behavior:**
-- Leader: pushes to Discord, sends presence updates, writes output file
-- Standby: doesn't push to Discord, doesn't write to output file
-- On leader death: standby takes over automatically after 15 seconds
-
-## Global Activity Polling (Auto-Switch)
-
-Each plugin instance only receives events for its own OpenCode process's sessions. So with 3 terminals, each instance is blind to events from the other 2.
-
-The leader solves this by polling all sessions globally every 5 seconds:
-
-```mermaid
-sequenceDiagram
-    participant Leader as Leader (Terminal A)
-    participant Server as OpenCode Server
-    participant Standby as Standby (Terminal B)
-
-    loop Every 5 seconds
-        Leader->>Server: client.session.list()
-        Server-->>Leader: all sessions
-        Leader->>Server: GET /messages?limit=1 (per session)
-        Server-->>Leader: latest message metadata
-        Note over Leader: update lastActivity, detect active sessions
-        Leader->>Leader: pick most recently active session
-        Leader->>Discord: push presence
-    end
-
-    Note over Standby: only handles its own events
+```
+src/
+  shared/
+    paths.js          cross-platform paths (uses os.homedir + .config/opencode)
+    constants.js      STATE enum, defaults, fallback model limits
+    logger.js         debug log to os.tmpdir()
+  plugin/
+    index.js          main entry, event handlers, orchestration
+    config-resolver.js  load discord-config.json + env vars
+    coordinator.js    leader election (file lock + heartbeat)
+    session-state.js  per-session token/cost/state tracking
+    template-engine.js variables, conditionals, render, format helpers
+    worker-spawner.js cross-platform node binary discovery, spawn worker
+    discord-service.js  worker lifecycle + activity push
+  worker/
+    discord-worker.mjs  Node.js subprocess using @xhayper/discord-rpc
+  cli/
+    dispatcher.js     route subcommands
+    install.js, uninstall.js, restart.js, update.js, info.js, help.js, version.js
+    prompt.js         zero-dep readline confirmation
+    platform/
+      linux.js, macos.js, windows.js, index.js   cross-platform restart
 ```
 
-Result: When user runs a prompt in Terminal B, the leader detects it in the next poll cycle and switches Discord display to show Terminal B.
+## Multi-instance Coordinator
+
+Discord IPC allows only one active connection per Application ID. When multiple OpenCode instances run, only one should push to Discord.
+
+**Algorithm** (in `coordinator.js`):
+
+1. Try to create `~/.config/opencode/.opencode-rich-presence.lock` with `wx` (exclusive).
+2. If success: become leader. Start heartbeat (every 5s, rewrites lock).
+3. If file exists: read it, check age. If fresh (< 15s) and not our PID: standby.
+4. If stale: unlink and retry from step 1.
+
+**Lock file format:**
+```json
+{ "pid": 12345, "started": 1719123456789 }
+```
+
+**Heartbeat:** Leader rewrites lock every 5s. Stale threshold: 15s (3x heartbeat).
+
+**Cleanup:** Leader releases lock on dispose. Standby instances never touch the lock.
+
+## Subprocess Worker
+
+The worker is spawned as a Node.js subprocess (not loaded in-process) because:
+
+- OpenCode runs on Bun, which has known issues with Discord IPC Unix sockets.
+- Node.js has stable Discord RPC support via `@xhayper/discord-rpc`.
+- Worker crash doesn't take down the plugin.
+
+**Spawn:** `node src/worker/discord-worker.mjs` (or `bun`/`bun.exe` if available).
+
+**IPC:** Newline-delimited JSON over stdin/stdout.
+
+**Commands (parent -> worker):**
+- `connect` — initiate Discord login
+- `setActivity` — update presence
+- `clearActivity` — clear presence
+- `shutdown` — graceful disconnect
+- `ping` — health check
+
+**Events (worker -> parent):**
+- `ready` — worker started
+- `connected` — Discord READY
+- `disconnected` — Discord disconnected
+- `error` — connection error
+- `attempt` — retry attempt with backoff
+- `log` — log line
+
+## Restart Flow
+
+`rich-presence restart` triggers a coordinated reload:
+
+1. Write `~/.config/opencode/.discord-restart-request` signal file.
+2. Optionally kill + relaunch Discord desktop client (platform-specific).
+3. Worker exits and sees the signal file → marks as intentional restart.
+4. Worker waits 2 seconds (IPC socket release delay).
+5. Plugin reloads config and respawns worker with new settings.
+
+The 2s delay prevents a race where the new worker's connect() races with the old IPC socket still being released.
 
 ## Config Resolution Order
 
-**Single source of truth:** `~/.config/opencode/discord-config.json`
-
-Both plugin and worker read from this file. Plugin passes the value to worker via `DISCORD_APP_ID` env var for convenience.
+App ID priority: env var > config file > fallback (developer's verified App ID).
 
 ```
-Priority 1: DISCORD_APP_ID env var          (per-session override)
-Priority 2: ~/.config/opencode/discord-config.json   (single source)
-Priority 3: developer App ID "1512803991300476989"    (fallback)
+1. process.env.DISCORD_APP_ID         (highest)
+2. discord-config.json: discordAppId  (medium)
+3. FALLBACK_APP_ID (1512803991300476989)  (out-of-box default)
 ```
 
-If not configured, the plugin logs a warning and uses the developer's App ID as fallback.
+Same precedence applies to:
+- `discordLargeImageKey` / `DISCORD_LARGE_IMAGE_KEY`
+- `discordLargeImageText` / `DISCORD_LARGE_IMAGE_TEXT`
 
-### Where to Edit App ID
+## Template Engine
 
-Edit `~/.config/opencode/discord-config.json`:
-```json
-{
-    "discordAppId": "YOUR_APP_ID_HERE",
-    "discordLargeImageKey": "opencode-logo-too-rich-presence"
-}
+The template engine supports:
+
+1. **Variables:** `{model}`, `{context}`, etc.
+2. **Fallbacks:** `{var|fallback}` — used if var is undefined/null.
+3. **Boolean conditionals:** `{{#if thinking}}...{{else}}...{{/if}}`
+4. **Comparison conditionals:** `{{#if contextPercent > 50}}...{{else}}...{{/if}}`
+5. **Per-state templates:** `byState.Typing.state`, etc.
+
+Variable substitution handles edge cases:
+- `{var}` — typo missing `}` matches (returns fallback or "?")
+- `{var}}` — extra `}` matches (returns var value)
+- Missing var → fallback or "?"
+
+## CLI Subcommands
+
+| Command | Purpose |
+|---------|---------|
+| `install` | Create config, print setup steps |
+| `uninstall` | Interactive cleanup |
+| `restart` | Restart Discord + trigger plugin reload |
+| `update` | Check GitHub, self-update |
+| `info` | Diagnostics dump |
+| `help`, `version` | Usage info |
+
+CLI is zero-dependency (built-in `readline/promises` for confirmations).
+
+## Cross-Platform Considerations
+
+| Concern | Linux | macOS | Windows |
+|---------|-------|-------|---------|
+| Config dir | `~/.config/opencode/` | `~/.config/opencode/` | `%USERPROFILE%\.config\opencode\` (normalized by OpenCode) |
+| Discord IPC | Unix socket `/tmp/discord-ipc-N` | Unix socket `/tmp/discord-ipc-N` | Named pipe `\\.\pipe\discord-ipc-N` |
+| Process detection | `ps -eo pid,comm` | `osascript` + `pkill` | `tasklist` |
+| Kill signal | `kill -TERM/-KILL` | `osascript` quit, `pkill` | `taskkill /IM Discord.exe /T /F` |
+| Relaunch | `spawn` (detached) | `open -a Discord` | `cmd /c start "" Discord` |
+
+The plugin code itself is fully cross-platform thanks to:
+- `os.homedir()` + `path.join()` for paths
+- `os.tmpdir()` for debug log
+- `@xhayper/discord-rpc` for cross-platform Discord IPC
+- libuv simulating signals on Windows for `SIGTERM`/`SIGINT`
+
+## Plugin Lifecycle
+
 ```
-
-Plugin picks up changes after running `./restart-discord.sh` (no OpenCode restart needed).
-
-## Session State Machine
-
-```mermaid
-stateDiagram-v2
-    [*] --> WaitingForCommand
-    WaitingForCommand --> Working: chat.message (user sends prompt)
-    Working --> Thinking: message.part.updated (reasoning)
-    Working --> Typing: message.part.updated (text, no reasoning)
-    Working --> Asking: permission.asked
-    Asking --> Working: permission.replied
-    Thinking --> Typing: message.part.updated (text)
-    Typing --> WaitingForCommand: session.status idle / done
-    Working --> WaitingForCommand: session.status idle
+OpenCode startup
+    |
+    v
+OpenCodeRichPresence({ client, directory }) called
+    |
+    +--> loadConfig()                (config-resolver.js)
+    +--> coordinator.tryAcquire()    (coordinator.js)
+    +--> loadProviderModels()        (async, via SDK)
+    +--> if leader: spawn worker     (discord-service.js)
+    +--> return { event, dispose, chat.message }
+                |
+                v
+         event handlers update SessionState, schedule writes
+                |
+                v
+         leader: push activity to Discord via worker
+                |
+                v
+OpenCode shutdown
+    |
+    v
+dispose() called
+    |
+    +--> clear timers
+    +--> coordinator.release()
+    +--> discordDestroy() (SIGTERM worker, then SIGKILL)
 ```
-
-5 states:
-- **Working** -- right after user sends prompt, before AI responds
-- **Thinking** -- AI is reasoning (chain of thought)
-- **Typing** -- AI is generating response text
-- **Asking** -- AI needs user permission
-- **Waiting for command** -- idle, waiting for next prompt
-
-## Context Token Calculation
-
-Context percentage matches OpenCode UI:
-
-```js
-contextTokens = tokens.input + tokens.cache.read
-contextPercent = (contextTokens / model.limit.context) * 100
-```
-
-Represents the **latest message's** input + cache.read tokens (what was sent to the model), NOT the cumulative sum across all messages.
-
-Tracks the latest message using `time.completed` (or `time.created` for in-flight messages).
-
-## Discord Activity Format
-
-```js
-{
-    details: "minimax-m3 · build · 6 prompts · $0.0000",
-    state: "Working · 7.3% ctx",
-    largeImageKey: "opencode-logo-too-rich-presence",
-    largeImageText: "OpenCode"
-}
-```
-
-**Constraints:**
-- `details` and `state` max 128 chars each (auto-truncated)
-- `largeImageKey` must be uploaded to Discord Dev Portal
-- No buttons (per user preference)
-- All text customizable via template engine (see CUSTOMIZATION.md)
-
-## Failure Modes & Recovery
-
-| Failure | Behavior | Recovery |
-|---|---|---|
-| Discord IPC not reachable | Worker exits, plugin respawns w/ backoff | Check Discord is running |
-| Discord rate limit (Server at capacity) | Worker retries with 60-300s backoff | Wait 15-30 minutes |
-| Plugin crashes | OpenCode logs error, plugin disabled | Restart OpenCode |
-| Worker spawn fails | Plugin logs error, no Discord presence | Check Node.js install |
-| Asset key invalid | Discord shows fallback image | Upload asset in Dev Portal |

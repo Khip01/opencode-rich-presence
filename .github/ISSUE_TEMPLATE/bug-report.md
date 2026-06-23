@@ -1,33 +1,66 @@
 ---
 name: Bug Report
-about: Create a report to help improve the Discord presence plugin
+about: Report a problem with opencode-rich-presence
+title: "[BUG] "
+labels: bug
+assignees: ""
 ---
 
-## Bug Description
+## Describe the bug
+
 A clear and concise description of what the bug is.
 
-## Steps to Reproduce
-Steps to reproduce the behavior:
-1. Run `opencode` with plugin loaded
-2. Do action X...
-3. See error...
+## To Reproduce
 
-## Expected Behavior
-A clear and concise description of what you expected to happen.
+Steps to reproduce the behavior:
+
+1. Run `rich-presence info` and paste the output here (mask your Discord App ID if you want):
+   ```
+   [paste output]
+   ```
+
+2. What you did:
+   ```
+   $ ...
+   ```
+
+3. What you expected:
+   ```
+
+   ```
+
+4. What happened instead:
+   ```
+
+   ```
 
 ## Environment
-- **OS:** (e.g., openSUSE Leap, Arch Linux, Fedora, macOS)
-- **OpenCode Version:** (e.g., 1.15.10)
-- **Node.js Version:** (e.g., 18, 20, 22)
-- **Discord Desktop:** (Yes / No)
 
-## Output File (`~/.config/opencode/presence-state.txt`)
+- OS: [e.g., Ubuntu 24.04, macOS 15, Windows 11]
+- Node.js version: [run `node --version`]
+- OpenCode version: [run `opencode --version` if available]
+- Plugin version: [run `rich-presence version`]
+- Discord client version: [Discord > Settings > About]
+
+## Debug log
+
+If applicable, attach the debug log (with sensitive info masked):
+
+```bash
+# Linux
+cat /tmp/opencode-rich-presence-debug.log | tail -100
+# macOS
+ls /var/folders/*/T/opencode-rich-presence-debug.log
+# Windows
+type %TEMP%\opencode-rich-presence-debug.log
 ```
-(Paste the last 20 lines here)
-```
 
-## Discord Error
-What does the state file say under `Discord Error:`?
+## Screenshots
 
-## Additional Context
-Any other relevant info (App ID verified?, multiple terminals?, custom templates?).
+If applicable, add screenshots of:
+- Discord profile showing wrong/missing presence
+- Terminal output
+
+## Additional context
+
+Anything else relevant (custom config, other plugins, etc.).

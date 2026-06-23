@@ -1,0 +1,25 @@
+node_modules/
+*.log
+.DS_Store
+Thumbs.db
+
+# npm
+*.tgz
+.npm/
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build artifacts (none expected — pure JS, no build step)
+
+# Sensitive / personal
+.env
+.env.local

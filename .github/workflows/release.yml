@@ -1,0 +1,74 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build & publish GitHub release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Smoke tests
+        run: |
+          node bin/rich-presence.js help
+          node bin/rich-presence.js version
+
+      - name: Build tarball
+        run: npm pack
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ github.ref_name }}
+          generate_release_notes: true
+          files: opencode-rich-presence-*.tgz
+          body: |
+            ## Installation
+
+            ### Fresh install
+
+            ```bash
+            npm install -g https://github.com/Khip01/opencode-rich-presence/releases/download/${{ github.ref_name }}/opencode-rich-presence-${{ github.ref_name }}.tgz
+            rich-presence install
+            ```
+
+            Then add this to `~/.config/opencode/opencode.json` (or `.jsonc`):
+
+            ```json
+            {
+              "plugin": ["opencode-rich-presence"]
+            }
+            ```
+
+            ### Update from previous v2.x
+
+            ```bash
+            rich-presence update
+            ```
+
+            ### Migrating from v1.0.0 (legacy Linux-only)
+
+            v1.0.0 used bash install/uninstall scripts which are no longer included.
+
+            1. Back up your old `~/.config/opencode/discord-config.json` if you have one.
+            2. Run the fresh install command above.
+            3. Run `rich-presence install` to set up the new config file.
+            4. Restore your settings into the new config (App ID, presence templates).
+            5. Restart OpenCode.
+
+            See the [README](https://github.com/Khip01/opencode-rich-presence#readme) for full documentation.
