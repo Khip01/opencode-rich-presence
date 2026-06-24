@@ -48,7 +48,9 @@ jobs:
             opencode-rpc install
             ```
 
-            Then add this to `~/.config/opencode/opencode.json` (or `.jsonc`):
+            The installer creates a symlink at `~/.config/opencode/plugins/opencode-rich-presence.js` so OpenCode loads the plugin as a local file (the package is distributed only via GitHub Releases, not the npm registry). It also adds `@xhayper/discord-rpc` to your local `package.json` and runs `npm install` so the worker can resolve its dependency.
+
+            The installer offers to register the plugin in `opencode.jsonc` automatically. You only need to add it manually if you decline the prompt:
 
             ```json
             {
@@ -56,38 +58,68 @@ jobs:
             }
             ```
 
-            ### Update from previous v2.x
+            ### Update from v2.0.x
 
             ```bash
             opencode-rpc update
             ```
 
             Or reinstall manually:
+
             ```bash
             npm install -g https://github.com/Khip01/opencode-rich-presence/releases/download/${{ github.ref_name }}/opencode-rich-presence-${{ github.ref_name }}.tgz
             ```
 
-            ### Migrating from v1.0.0 (legacy Linux-only)
+            ### Migrating from v1.0.0
 
-            v1.0.0 used bash install/uninstall scripts which are no longer included.
+            v1.0.0 used bash scripts (`install`, `uninstall`, `restart-discord.sh`) and was Linux-only.
 
             1. Back up your old `~/.config/opencode/discord-config.json` if you have one.
             2. Run the fresh install command above.
             3. Run `opencode-rpc install` to set up the new config file.
             4. Restore your settings into the new config (App ID, presence templates).
-            5. Restart OpenCode.
+            5. Manually remove old v1.0.0 leftovers from `~/.config/opencode/`:
+               ```bash
+               rm -rf ~/.config/opencode/plugins/opencode-dc-too-rich-presence.js
+               rm -f ~/.config/opencode/discord-worker.mjs
+               rm -f ~/.config/opencode/restart-discord.sh
+               rm -f ~/.config/opencode/package.json ~/.config/opencode/package-lock.json
+               rm -f ~/.config/opencode/CUSTOMIZATION.md ~/.config/opencode/README.md ~/.config/opencode/SETUP.md
+               ```
+            6. Restart OpenCode.
 
-            ## What's in v2.0.4
+            The plugin name changed from `opencode-dc-too-rich-presence` to `opencode-rich-presence`.
 
-            ### Fixed
+            ## What's in v2.0.5
 
-            - `opencode-rpc restart` no longer restarts Discord Desktop. It now only writes the restart signal and kills the worker subprocess, matching the v1.0.0 behavior. Users in voice chat are no longer disrupted just to apply a plugin config change.
-            - Cross-platform worker kill uses `pgrep`+`kill` on Linux/macOS and `wmic`+`taskkill` on Windows.
-            - CLI entry script wraps execution in an async `main()` function. Eliminates the "Detected unsettled top-level await" warning that Node 22+ emitted for interactive commands.
-            - `opencode-rpc info` now reads `~/.config/opencode/opencode.jsonc` files that use JSONC features (line comments, block comments, trailing commas).
+            Fix: worker path
+            - Correct worker path in `src/shared/paths.js` (`../../worker/` to `../worker/`)
+            - Plugin no longer gets stuck with lock held but worker unable to spawn
 
-            ### Documentation
+            Fix: install flow
+            - Install symlinks plugin entry to `~/.config/opencode/plugins/opencode-rich-presence.js`
+            - Install adds `@xhayper/discord-rpc` to local `package.json` and runs `npm install`
+            - Install auto-registers plugin entry in `opencode.jsonc` with JSONC-tolerant parsing
+            - Install skips "edit config" suggestion when Discord App ID is already set
 
-            - Replaced fabricated example outputs in CLI-REFERENCE and TROUBLESHOOTING with actual outputs captured from a running CLI installation.
-            - Section visibility notes added so users know when the "Lock (leader instance)" and "OpenCode plugin registration" sections appear or are absent.
-            - README, CLI-REFERENCE, TROUBLESHOOTING, and ARCHITECTURE updated to reflect the new restart behavior.
+            Fix: uninstall flow
+            - Uninstall removes the local symlink
+            - Uninstall prunes `@xhayper/discord-rpc` from `package.json` via `npm install`
+            - Uninstall asks Y/N before deleting `discord-config.json`, with timestamp backup if yes
+            - Uninstall prints a code snippet for removing the plugin entry from `opencode.jsonc`
+
+            Fix: CLI stability
+            - `prompt.js` uses a single long-lived readline interface (no more install hang, supports piped stdin)
+            - `bin/opencode-rpc.js` calls `process.exit(0)` after command completes (no more post-Done hang)
+
+            Fix: JSONC parser
+            - `://` in URLs no longer treated as a line comment (negative lookbehind on `:`)
+
+            Chore: docs
+            - `docs/TROUBLESHOOTING.md` adds root causes section and diagnostic checklist
+            - `docs/CLI-REFERENCE.md` rewritten to match real v2.0.5 CLI output
+            - `docs/INSTALL.md` rewritten for symlink-based install flow
+            - `docs/ARCHITECTURE.md` adds plugin loading section and corrects subcommands table
+            - `docs/PLATFORM-NOTES.md` removes Discord Desktop process management sections
+
+            See CHANGELOG.md for full details.
