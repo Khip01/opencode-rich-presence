@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.5] - 2026-06-23
+
+### Fixed
+
+- `opencode-rpc install` no longer hangs when the Discord config file already exists. The prompt helper now uses a single long-lived readline interface so prompts always receive input correctly.
+- `opencode-rpc install` can now auto-register the plugin in `~/.config/opencode/opencode.jsonc` (or `.json`). The user is asked for confirmation before any modification; if the file cannot be parsed, the installer falls back to clear manual instructions.
+- `opencode-rpc install` now symlinks the plugin entry into `~/.config/opencode/plugins/opencode-rich-presence.js` and ensures `@xhayper/discord-rpc` is installed under `~/.config/opencode/node_modules/`. This works around the fact that the plugin is not on the npm registry: OpenCode can load it directly from disk instead of trying to fetch it via Bun and getting a 404.
+- The worker path in `src/shared/paths.js` was computed with the wrong number of `../` levels (resolving to `<pkg-root>/worker/...` instead of `<pkg-root>/src/worker/...`). The plugin would acquire the leader lock and stay "alive" but the worker subprocess it spawned failed instantly with `MODULE_NOT_FOUND`. Fixed to use `../worker/discord-worker.mjs` (one level up from `src/shared/`).
+- `opencode-rpc uninstall` now also removes `@xhayper/discord-rpc` from `~/.config/opencode/package.json` and re-runs `npm install` there to prune the package from `node_modules`. Users no longer carry leftover presence plugin artifacts after uninstall.
+- `opencode-rpc install` next-steps message no longer suggests editing the config when a Discord App ID is already set. Users with a working configuration see only the restart instruction.
+- `opencode-rpc uninstall` now asks before deleting `discord-config.json` (default N), and backs up the file with a timestamp suffix when the user agrees. Previously the file was always left alone without explanation.
+- `opencode-rpc uninstall` now prints an explicit code snippet showing the `"plugin"` array entry to remove from `opencode.jsonc` (with a `<-- DELETE THIS LINE` marker). Previously the file was mentioned but no concrete example was given.
+- `opencode-rpc install` now manages `~/.config/opencode/package.json` (adds the dependency if missing) and runs `npm install` in that directory. Existing entries are preserved.
+- `opencode-rpc uninstall` removes the local plugin symlink at `~/.config/opencode/plugins/opencode-rich-presence.js` (with confirmation).
+- `opencode-rpc uninstall` no longer suggests the non-existent `/config` slash command. The Step 1 output now suggests using a text editor (`nano`) to edit `opencode.jsonc` or `opencode.json` directly.
+- Backup files are now explained as persistent in the home directory, not in `/tmp`. The full backup path is printed so users can locate the backup.
+- `opencode-rpc uninstall` now detects and offers to remove a leftover `~/.config/opencode/node_modules/` directory from older install scripts. The check is gated on the `@xhayper` scope being present, and the script now also recognises OpenCode's own runtime cache (`@opencode-ai` scope) and leaves it alone with a clear explanation.
+- The JSONC parser used by both `opencode-rpc install` (auto-register) and `opencode-rpc info` (plugin registration status) no longer treats `://` inside URLs as a line comment. The regex now uses a negative lookbehind on `:` so URLs like `"https://example.com"` and `"http://127.0.0.1:8080"` parse correctly.
+- The CLI process now exits cleanly after each command instead of hanging. `bin/opencode-rpc.js` calls `process.exit(0)` after a successful command so the readline interface (held by the prompt helper) does not keep the Node process alive after `Done.` is printed.
+
+### Changed
+
+- The prompt helper now supports multi-option prompts with a single long-lived readline interface, fixing both interactive hangs and piped input (e.g., `echo "b" | opencode-rpc uninstall`).
+- The installer's "next steps" message no longer tells users to wait for OpenCode's "auto-install via Bun" (which fails because the package is not on the npm registry). It now points users to the symlink in `~/.config/opencode/plugins/`.
+- `docs/TROUBLESHOOTING.md` adds a "Known Root Causes" section with seven failure modes observed during v2.0.x development (worker path, missing npm registry, stale ESM cache, JSONC `://` bug, install/uninstall hangs, npm registry workaround). Also adds a quick diagnostic checklist at the bottom for triaging "Discord presence not showing" reports.
+
 ## [2.0.4] - 2026-06-23
 
 ### Fixed (BREAKING CLI behavior)

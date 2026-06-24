@@ -82,6 +82,8 @@ The worker is spawned as a Node.js subprocess (not loaded in-process) because:
 
 **Spawn:** `node src/worker/discord-worker.mjs` (or `bun`/`bun.exe` if available).
 
+The worker path is computed in `src/shared/paths.js` via `fileURLToPath(new URL("../worker/discord-worker.mjs", import.meta.url))`. This resolves relative to the location of the plugin entry file, so it follows symlinks correctly whether the plugin is loaded from the npm global install, a local source checkout, or the symlinked `~/.config/opencode/plugins/opencode-rich-presence.js`.
+
 **IPC:** Newline-delimited JSON over stdin/stdout.
 
 **Commands (parent -> worker):**
@@ -142,13 +144,26 @@ Variable substitution handles edge cases:
 - `{var}}` (extra `}` matches, returns var value)
 - Missing var → fallback or "?"
 
+## Plugin Loading
+
+OpenCode loads plugins from multiple sources:
+
+1. The npm registry (auto-installed via Bun on startup).
+2. Files in `~/.config/opencode/plugins/` and `.opencode/plugins/`.
+
+Because `opencode-rich-presence` is distributed via GitHub Releases (tarball) and not published to the npm registry, the default npm auto-install fails with a 404. To work around this, `opencode-rpc install` creates a symlink at `~/.config/opencode/plugins/opencode-rich-presence.js` pointing to the plugin entry file in the user's npm prefix. OpenCode then loads the plugin directly from disk.
+
+The symlink target is computed at install time based on the install location (global `npm install -g` or local `npm link`), so it works for both end users and developers.
+
+For the worker's `@xhayper/discord-rpc` dependency, the installer also adds it to `~/.config/opencode/package.json` and runs `npm install` there so the dependency is resolvable via Node's module resolution (walking up from the worker's location).
+
 ## CLI Subcommands
 
 | Command | Purpose |
 |---------|---------|
-| `install` | Create config, print setup steps |
-| `uninstall` | Interactive cleanup |
-| `restart` | Restart Discord + trigger plugin reload |
+| `install` | Create config, auto-register plugin, create symlink, install dep |
+| `uninstall` | Remove runtime files, symlink, and dependency; ask Y/N for config |
+| `restart` | Reload plugin worker (does NOT touch Discord Desktop) |
 | `update` | Check GitHub, self-update |
 | `info` | Diagnostics dump |
 | `help`, `version` | Usage info |

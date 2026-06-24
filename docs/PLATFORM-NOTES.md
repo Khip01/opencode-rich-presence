@@ -41,9 +41,7 @@ Discord Desktop is installed as `/Applications/Discord.app`. The CLI uses `open 
 
 ### AppleScript quit
 
-The restart command uses `osascript -e 'tell application "Discord" to quit'` for graceful shutdown. macOS prompts the user the first time an app is quit via AppleScript.
-
-If AppleScript fails (Discord already crashed, permission issue), the CLI falls back to `pkill -x Discord`.
+`opencode-rpc restart` does NOT touch Discord Desktop. The plugin worker is killed and respawned by the plugin itself, leaving any active Discord session (including voice chat) running.
 
 ### IPC transport
 
@@ -55,19 +53,13 @@ Same as Linux: Unix domain sockets at `/tmp/discord-ipc-{0..9}`.
 - Intel: Same.
 - Rosetta: Not needed for Discord or Node.js plugins.
 
-### Process management
-
-- Detection: `pkill -x Discord` (macOS ships `pkill` via BSD)
-- Quit: `osascript` (preferred), `pkill` (fallback)
-- Relaunch: `open -a Discord`
-
 ---
 
 ## Windows
 
 ### Installation paths
 
-Discord is installed in `%LOCALAPPDATA%\Discord\`. The CLI restart command uses `cmd /c start "" Discord` which lets Windows resolve the app via PATH/registry.
+Discord is installed in `%LOCALAPPDATA%\Discord\`. `opencode-rpc restart` does not touch Discord Desktop, so there is no relaunch behavior to worry about.
 
 ### IPC transport
 
@@ -77,15 +69,13 @@ Discord IPC uses **named pipes** at `\\.\pipe\discord-ipc-{0..9}` (not Unix sock
 
 OpenCode normalizes to `~/.config/opencode/` even on Windows (XDG-style via `%USERPROFILE%\.config\opencode\`). The plugin follows this convention.
 
-### Process management
+### Worker process management
 
-- Detection: `tasklist /FI "IMAGENAME eq Discord.exe"` (CLI uses `ps`-equivalent via shell)
-- Kill: `taskkill /IM Discord.exe /T /F` (`/T` for tree, `/F` for force)
-- Relaunch: `cmd /c start "" Discord`
+The `restart` command uses `pgrep` on Linux/macOS and `wmic` + `taskkill` on Windows to find and kill the `discord-worker.mjs` subprocess. After the kill, the plugin respawns the worker after a 2-second IPC socket release delay.
 
 ### Windows-specific notes
 
-- **No `pgrep`/`pkill`**: Windows uses `tasklist`/`taskkill`. The CLI has a separate Windows implementation.
+- **No `pgrep`/`pkill`**: Windows uses `wmic` + `taskkill` for worker process management.
 - **No `read -p`**: The CLI uses Node.js built-in `readline/promises` (zero-dep) instead of bash read.
 - **No GNU sed/awk**: All text processing is in JavaScript.
 - **Path separators**: All paths use `path.join()` which handles `\` on Windows.

@@ -1,5 +1,6 @@
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 // OpenCode standardizes ~/.config/opencode/ across all platforms (Linux, macOS, Windows).
 // See: https://opencode.ai/docs/config#global
@@ -17,5 +18,8 @@ export const LOCK_FILE = join(OPENCODE_DIR, ".opencode-rich-presence.lock");
 // Debug log uses OS temp directory (cross-platform: /tmp on Linux, /var/folders/... on macOS, %TEMP% on Windows).
 export const DEBUG_LOG = join(tmpdir(), "opencode-rich-presence-debug.log");
 
-// Worker location relative to package source.
-export const WORKER_SOURCE = new URL("../../worker/discord-worker.mjs", import.meta.url).pathname;
+// Worker location: src/worker/discord-worker.mjs (resolved from src/shared/paths.js,
+// so one "../worker/" is correct). fileURLToPath handles file:// URLs on all platforms
+// including Windows where the URL pathname starts with the drive letter.
+export const WORKER_SOURCE = fileURLToPath(new URL("../worker/discord-worker.mjs", import.meta.url));
+

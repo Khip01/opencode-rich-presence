@@ -201,3 +201,137 @@ This kills the worker and signals a reload. The plugin respawns the worker withi
    - Node.js version
    - Output of `opencode-rpc info` (mask sensitive IDs if needed)
    - Relevant debug log snippets
+
+---
+
+## Known Root Causes (from v2.0.x development)
+
+These are the specific failure modes that have been observed and fixed. If you hit a similar symptom, check the corresponding root cause before debugging from scratch.
+
+### Plugin acquires lock but Discord never shows presence
+
+**Symptom:** `info` shows `Lock (leader instance)` section with `YOU are leader`, but Discord profile never updates.
+
+**Root cause:** The worker subprocess failed to spawn. The plugin parent stays alive holding the lock, but nothing connects to Discord.
+
+**How to verify:** Check the debug log (`/tmp/opencode-rich-presence-debug.log`):
+```bash
+tail -30 /tmp/opencode-rich-presence-debug.log
+```
+
+Look for `Cannot find module` errors mentioning `discord-worker.mjs`. If the path is wrong (missing `src/`), the worker is computed from the wrong `../` level in `src/shared/paths.js`.
+
+**Fix:** In `src/shared/paths.js`, `WORKER_SOURCE` must be `../worker/discord-worker.mjs` (one `..` from `src/shared/`), not `../../worker/...`. After editing, restart OpenCode (Node ESM caches modules; an in-process plugin keeps the old path).
+
+### OpenCode does not load the plugin at all
+
+**Symptom:** `info` does not show `Lock (leader instance)` section. `Output file: missing`. AI fires messages normally but Discord stays empty. Plugin entry exists in `opencode.jsonc`.
+
+**Root cause:** OpenCode tries to install npm plugins from the npm registry at startup via Bun. The `opencode-rich-presence` package is NOT published there (we distribute via GitHub Releases tarball), so the install attempt 404s. OpenCode creates `~/.cache/opencode/packages/opencode-rich-presence@latest/` but leaves it empty.
+
+**How to verify:**
+```bash
+npm view opencode-rich-presence version 2>&1 | head -3
+# Expected: npm error 404 'opencode-rich-presence@*' could not be found
+ls -la ~/.cache/opencode/packages/opencode-rich-presence@latest/
+# Expected: empty directory
+```
+
+**Fix:** The installer creates a symlink at `~/.config/opencode/plugins/opencode-rich-presence.js` pointing to the package entry file in the npm prefix (global install location). OpenCode also loads from this plugins directory. The symlink approach bypasses the npm registry entirely.
+
+If the symlink is missing, run `opencode-rpc install` to recreate it. Verify with:
+```bash
+ls -la ~/.config/opencode/plugins/opencode-rich-presence.js
+# Should show: -> /.../opencode-rich-presence/src/plugin/index.js
+```
+
+### Plugin fixes applied but Discord still does not show
+
+**Symptom:** Code path is fixed, install looks correct, but Discord stays empty.
+
+**Root cause:** Node ESM caches loaded modules. An already-running OpenCode process holds the OLD paths.js in memory even after you reinstall and edit the file on disk. The fix is in the file but not in the running process.
+
+**How to verify:** Check if a previous OpenCode process is still running:
+```bash
+ps aux | grep opencode | grep -v grep
+```
+
+**Fix:** Restart OpenCode. Fully exit (Ctrl+C or `/exit` in OpenCode), then start a fresh `opencode` process. The new process re-imports paths.js with the fixed path.
+
+### JSONC parser treats `://` in URLs as a comment
+
+**Symptom:** When reading `opencode.jsonc` (which contains URLs like `"https://opencode.ai/config.json"`), the parser strips the URL thinking it's a comment. `info` reports `Could not parse opencode.jsonc as JSON/JSONC`.
+
+**Root cause:** The regex `//.*$` (used to strip JSONC line comments) matches `://` in URLs, treating everything from `//` to end of line as a comment.
+
+**How to verify:** Check if the user's opencode.jsonc has URLs:
+```bash
+grep "//" ~/.config/opencode/opencode.jsonc
+```
+
+**Fix:** Use `(?<!:)\/\/.*$` with negative lookbehind on `:` so `://` is not matched as a comment. Plain JSONC comment (space or newline before `//`) still matches.
+
+### Install hangs at confirmation prompt
+
+**Symptom:** `opencode-rpc install` shows `Overwrite? [y/N]` and never returns. Keyboard input has no effect.
+
+**Root cause:** The prompt helper was creating and closing a new readline interface for every prompt. Multiple short-lived interfaces on the same stdin confuses interactive input on some Node versions (especially under Bun).
+
+**How to verify:** Check `node --version` and whether OpenCode spawns its own stdin reader.
+
+**Fix:** Use a single long-lived readline interface created on first prompt and reused across all prompts. For piped (non-TTY) stdin, read all lines upfront into a buffer and consume on each prompt.
+
+### CLI hangs after `Done.` until Ctrl+C
+
+**Symptom:** The uninstall command prints everything and ends with `Done.`, but the prompt does not return. Pressing Ctrl+C is required.
+
+**Root cause:** A readline interface is still open (held by the readline event loop). Node waits for the interface to close before exiting.
+
+**How to verify:** `info` command exits immediately but `install` and `uninstall` hang.
+
+**Fix:** Call `process.exit(0)` after the CLI command completes successfully in `bin/opencode-rpc.js`. Forces Node to exit regardless of pending handles.
+
+### npm install in installer produces a lot of warnings
+
+**Symptom:** The install output is dominated by npm warnings about engine versions (`EBADENGINE Unsupported engine`).
+
+**Root cause:** The user's Node.js version (e.g., 24.13.1) is slightly older than what some dependencies require (`^24.15.0`). This is non-fatal; npm still installs correctly.
+
+**How to verify:** Check the warnings include `current: { node: 'v24.13.1' }` and the install still completes with `added N packages`.
+
+**Fix:** Safe to ignore. If you want clean output, upgrade Node.js to the version listed in the warning. The plugin itself works fine on the older Node version.
+
+---
+
+## Quick Diagnostic Checklist
+
+When Discord presence does not show, walk through this in order:
+
+1. **Plugin registered?**
+   ```bash
+   opencode-rpc info | grep -A1 "OpenCode plugin registration"
+   ```
+   If no section appears, `opencode.jsonc` cannot be parsed (likely has `://` in a URL value). Fix the file manually or `opencode-rpc install` will offer to register in another config file.
+
+2. **Plugin loaded by OpenCode?**
+   ```bash
+   ls -la ~/.config/opencode/plugins/opencode-rich-presence.js
+   cat ~/.config/opencode/package.json | grep xhayper
+   ```
+   Symlink should exist. `@xhayper/discord-rpc` should be in package.json. If missing, run `opencode-rpc install`.
+
+3. **Lock file present?**
+   ```bash
+   ls -la ~/.config/opencode/.opencode-rich-presence.lock
+   opencode-rpc info | grep -A2 "Lock"
+   ```
+   If no lock file, no OpenCode instance has the plugin running. Restart OpenCode.
+
+4. **Worker spawned successfully?**
+   ```bash
+   tail -50 /tmp/opencode-rich-presence-debug.log
+   ```
+   Look for `Spawn worker:` followed by `Discord connected via worker`. If you see `Cannot find module` or repeated `Worker exited: code=1`, the worker path is wrong (see root cause above).
+
+5. **Discord Desktop running?**
+   The plugin can only push presence if Discord Desktop is open with the IPC socket available.

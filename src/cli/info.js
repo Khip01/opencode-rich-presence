@@ -14,9 +14,10 @@ function readJsonSafe(path) {
 function readJsoncSafe(path) {
     try {
         const raw = readFileSync(path, "utf-8");
-        // Strip JSONC: comments and trailing commas before } or ]
+        // Strip JSONC: line/block comments and trailing commas.
+        // Use negative lookbehind on `:` so `://` in URLs is not treated as a comment.
         const stripped = raw
-            .replace(/\/\/.*$/gm, "")
+            .replace(/(?<!:)\/\/.*$/gm, "")
             .replace(/\/\*[\s\S]*?\*\//g, "")
             .replace(/,(\s*[}\]])/g, "$1");
         return JSON.parse(stripped);
