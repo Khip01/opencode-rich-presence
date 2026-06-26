@@ -31,7 +31,9 @@ jobs:
           node bin/opencode-rpc.js version
 
       - name: Build tarball
-        run: npm pack
+        run: |
+          npm pack
+          mv opencode-rich-presence-*.tgz opencode-rich-presence-${{ github.ref_name }}.tgz
 
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
