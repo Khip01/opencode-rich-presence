@@ -1,26 +1,16 @@
-import { existsSync, statSync, readFileSync } from "node:fs";
+import { existsSync, statSync, readFileSync, lstatSync, readlinkSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
+import { join } from "node:path";
 import { platform, version as nodeVersion, execPath } from "node:process";
 import { CONFIG_PATH, OUTPUT_FILE, LOCK_FILE, DEBUG_LOG } from "../shared/paths.js";
 import { getPlatformName } from "./platform/index.js";
 
+const PLUGIN_NAME = "opencode-rich-presence";
+
 function readJsonSafe(path) {
     try {
         return JSON.parse(readFileSync(path, "utf-8"));
-    } catch { return null; }
-}
-
-function readJsoncSafe(path) {
-    try {
-        const raw = readFileSync(path, "utf-8");
-        // Strip JSONC: line/block comments and trailing commas.
-        // Use negative lookbehind on `:` so `://` in URLs is not treated as a comment.
-        const stripped = raw
-            .replace(/(?<!:)\/\/.*$/gm, "")
-            .replace(/\/\*[\s\S]*?\*\//g, "")
-            .replace(/,(\s*[}\]])/g, "$1");
-        return JSON.parse(stripped);
     } catch { return null; }
 }
 
@@ -84,17 +74,31 @@ export async function info() {
         lines.push("");
     }
 
-    const opencodeCfg = readJsonSafe(`${opencodeDir}/opencode.json`) || readJsoncSafe(`${opencodeDir}/opencode.jsonc`);
-    if (opencodeCfg) {
-        const plugins = Array.isArray(opencodeCfg.plugin) ? opencodeCfg.plugin : [];
-        lines.push("OpenCode plugin registration");
-        if (plugins.includes("opencode-rich-presence")) {
-            lines.push("  Status         : REGISTERED in opencode.json");
+    const pluginLink = join(opencodeDir, "plugins", `${PLUGIN_NAME}.js`);
+    let linkStat = null;
+    try { linkStat = lstatSync(pluginLink); } catch {}
+
+    lines.push("OpenCode plugin symlink");
+    lines.push(`  Path           : ${pluginLink}`);
+    if (linkStat) {
+        const isLink = linkStat.isSymbolicLink();
+        if (isLink) {
+            let target = "";
+            try { target = readlinkSync(pluginLink); } catch {}
+            if (target) {
+                lines.push(`  Linked         : yes`);
+                lines.push(`  Target         : ${target}`);
+            } else {
+                lines.push(`  Linked         : yes (target unreadable)`);
+            }
         } else {
-            lines.push("  Status         : NOT registered. Add \"opencode-rich-presence\" to the plugin array.");
+            lines.push(`  Linked         : NO (regular file at that path, not a symlink)`);
+            lines.push(`                  Run \`opencode-rpc install\` to recreate as symlink.`);
         }
-        lines.push("");
+    } else {
+        lines.push(`  Linked         : NO. Run \`opencode-rpc install\` to create.`);
     }
+    lines.push("");
 
     console.log(lines.join("\n"));
 }

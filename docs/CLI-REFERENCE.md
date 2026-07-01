@@ -58,12 +58,37 @@ Documentation: https://github.com/Khip01/opencode-rich-presence
 Sets up the Discord Rich Presence plugin for OpenCode. Performs three things:
 
 1. Writes `~/.config/opencode/discord-config.json` (only if missing, or after confirmation to overwrite).
-2. Auto-registers the plugin in `~/.config/opencode/opencode.jsonc` (or `.json`) — with confirmation, falls back to manual instructions on parse error.
+2. (v2.0.6+ only) If `opencode.jsonc` (or `.json`) still has a v2.0.5-era `"opencode-rich-presence"` entry from an earlier install, the installer offers to remove it. That entry made OpenCode try to fetch the package from the npm registry on every startup, returning 404. The symlink alone is sufficient.
 3. Symlinks the plugin entry to `~/.config/opencode/plugins/opencode-rich-presence.js` and ensures `@xhayper/discord-rpc` is installed under `~/.config/opencode/node_modules/`.
 
 The symlink approach works around the fact that the package is not on the npm registry: OpenCode loads the plugin directly from disk instead of trying to fetch it via Bun and getting a 404.
 
-**Example: config already exists, plugin already registered, symlink already linked**
+**Example: fresh install (no stale opencode.jsonc entry, no existing config)**
+
+```
+$ opencode-rpc install
+
+opencode-rich-presence installer
+
+Created /home/user/.config/opencode/discord-config.json.
+
+  Linked /home/user/.config/opencode/plugins/opencode-rich-presence.js
+    -> /home/user/.nvm/versions/node/v22/lib/node_modules/opencode-rich-presence/src/plugin/index.js
+
+  Updated /home/user/.config/opencode/package.json (added @xhayper/discord-rpc)
+  Running npm install in /home/user/.config/opencode...
+  Installed dependencies.
+
+Next steps:
+
+1. Restart OpenCode. The plugin loads from a symlink at:
+   ~/.config/opencode/plugins/opencode-rich-presence.js
+   pointing to the installed package entry file in your npm prefix.
+
+Run `opencode-rpc info` anytime to check status.
+```
+
+**Example: upgrade from v2.0.5 with stale opencode.jsonc entry**
 
 ```
 $ opencode-rpc install
@@ -72,10 +97,9 @@ opencode-rich-presence installer
 
 Config exists at /home/user/.config/opencode/discord-config.json. Overwrite? [y/N] Keeping existing config.
 
-  Plugin already registered in /home/user/.config/opencode/opencode.jsonc.
+  Remove stale "opencode-rich-presence" entry from /home/user/.config/opencode/opencode.jsonc? (causes npm 404 on OpenCode startup) [Y/n]   Updated /home/user/.config/opencode/opencode.jsonc
 
-  Linked /home/user/.config/opencode/plugins/opencode-rich-presence.js
-    -> /home/user/.nvm/versions/node/v22/lib/node_modules/opencode-rich-presence/src/plugin/index.js
+  Plugin already linked at /home/user/.config/opencode/plugins/opencode-rich-presence.js
 
   @xhayper/discord-rpc already present in /home/user/.config/opencode/package.json
 
@@ -88,13 +112,11 @@ Next steps:
 Run `opencode-rpc info` anytime to check status.
 ```
 
-If your config does not yet have a Discord App ID, the installer will also suggest editing the config.
-
 ---
 
 ## `opencode-rpc uninstall`
 
-Cleans up everything the plugin generated or installed. No prompts for runtime files, symlink, or dependency. Asks Y/N before deleting `discord-config.json` (default N). Prints explicit instructions for editing `opencode.jsonc`.
+Cleans up everything the plugin generated or installed. No prompts for runtime files, symlink, or dependency. Asks Y/N before deleting `discord-config.json` (default N). Auto-removes any stale `"opencode-rich-presence"` entry left in `opencode.jsonc` (or `.json`) by a v2.0.5-era install, so the user does not carry a noisy 404 notification after uninstalling.
 
 ```
 $ opencode-rpc uninstall
@@ -107,22 +129,14 @@ Cleaning up plugin-generated runtime files:
   removed /home/user/.config/opencode/plugins/opencode-rich-presence.js
   removed @xhayper/discord-rpc from /home/user/.config/opencode/package.json
   running npm install to prune @xhayper/discord-rpc from node_modules...
+  removed "opencode-rich-presence" entry from /home/user/.config/opencode/opencode.jsonc
 
 Delete /home/user/.config/opencode/discord-config.json? [y/N]   Kept. The file remains at /home/user/.config/opencode/discord-config.json.
-
-Manual edit required in OpenCode config:
-  /home/user/.config/opencode/opencode.jsonc
-
-  Remove this entry from the "plugin" array:
-
-    "plugin": [
-      "opencode-rich-presence"     <-- DELETE THIS LINE
-    ]
 
 Final cleanup (run manually if you want a full uninstall):
   npm uninstall -g opencode-rich-presence    (removes the CLI globally)
 
-Done. Removed 3 plugin-generated file(s).
+Done. Removed 4 plugin-generated file(s).
 ```
 
 If you answer `y` to the config prompt, the file is renamed to `discord-config.json.backup-<timestamp>` (persistent in your home dir, NOT in `/tmp`).
@@ -230,14 +244,16 @@ Config (discord-config.json)
   Currency       : $
   Custom template: yes
 
-OpenCode plugin registration
-  Status         : REGISTERED in opencode.json
+OpenCode plugin symlink
+  Path           : /home/user/.config/opencode/plugins/opencode-rich-presence.js
+  Linked         : yes
+  Target         : /home/user/.nvm/versions/node/v22/lib/node_modules/opencode-rich-presence/src/plugin/index.js
 ```
 
 **Sections that may appear based on state:**
 
 - **Lock (leader instance)**: Only shown when a lock file exists (an OpenCode instance is currently the leader).
-- **OpenCode plugin registration**: Only shown when `~/.config/opencode/opencode.json` or `.jsonc` parses successfully. The parser is JSONC-tolerant: it strips line/block comments and trailing commas, and uses negative lookbehind on `:` so URLs like `"https://example.com"` do not break parsing.
+- **OpenCode plugin symlink**: Always shown. Reports whether the plugin entry is symlinked at `~/.config/opencode/plugins/opencode-rich-presence.js` and what its target is. v2.0.6+ uses the symlink as the sole load mechanism (the entry in `opencode.jsonc` is no longer required and would cause a 404 noise on every OpenCode startup).
 
 ---
 

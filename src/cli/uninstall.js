@@ -41,9 +41,12 @@ export async function uninstall() {
     // user's Discord App ID and custom templates. Back up before delete if user agrees.
     if (await maybeDeleteConfig()) removed++;
 
-    // Show explicit instruction for removing the plugin entry from opencode.jsonc.
-    // We do NOT touch this file because other plugins may share it.
-    showOpencodeJsoncHint();
+    // v2.0.5-era installs added `opencode-rich-presence` to the `plugin` array in
+    // opencode.jsonc/.json. That entry makes OpenCode try to fetch the package from
+    // the npm registry on every startup, returning 404. Remove the entry as part of
+    // uninstall so the user does not carry a stale entry (and a noisy notification)
+    // after removing the plugin.
+    if (maybeRemoveFromOpencodeConfig()) removed++;
 
     console.log("");
     console.log("Final cleanup (run manually if you want a full uninstall):");
@@ -114,20 +117,37 @@ async function maybeDeleteConfig() {
     }
 }
 
-// Print a clear instruction for removing the plugin entry from opencode.jsonc.
-// We do not modify this file because other plugins or settings live there.
-function showOpencodeJsoncHint() {
-    console.log("");
-    console.log("Manual edit required in OpenCode config:");
-    const configFile = existsSync(join(OPENCODE_DIR, "opencode.jsonc"))
-        ? join(OPENCODE_DIR, "opencode.jsonc")
-        : join(OPENCODE_DIR, "opencode.json");
+// Remove `opencode-rich-presence` from the `plugin` array in the user's
+// OpenCode config (opencode.jsonc or opencode.json). v2.0.5-era installs
+// added this entry, which makes OpenCode try to fetch the package from the
+// npm registry on every startup, returning 404. We auto-remove on uninstall
+// because the user is leaving and the entry is now useless. JSONC-tolerant.
+function maybeRemoveFromOpencodeConfig() {
+    const jsonc = join(OPENCODE_DIR, "opencode.jsonc");
+    const json = join(OPENCODE_DIR, "opencode.json");
+    const configFile = existsSync(jsonc) ? jsonc : existsSync(json) ? json : null;
+    if (!configFile) return false;
 
-    console.log(`  ${configFile}`);
-    console.log("");
-    console.log(`  Remove this entry from the "plugin" array:`);
-    console.log("");
-    console.log(`    "plugin": [`);
-    console.log(`      "opencode-rich-presence"     <-- DELETE THIS LINE`);
-    console.log(`    ]`);
+    const raw = readFileSync(configFile, "utf-8");
+    if (!raw.includes(`"${PLUGIN_NAME}"`)) return false;
+
+    let parsed;
+    try {
+        const stripped = raw
+            .replace(/(?<!:)\/\/.*$/gm, "")
+            .replace(/\/\*[\s\S]*?\*\//g, "")
+            .replace(/,(\s*[}\]])/g, "$1");
+        parsed = JSON.parse(stripped);
+    } catch (e) {
+        console.log(`  Could not parse ${configFile} as JSON/JSONC.`);
+        console.log(`  Remove "${PLUGIN_NAME}" from the "plugin" array manually.`);
+        return false;
+    }
+
+    if (!Array.isArray(parsed.plugin) || !parsed.plugin.includes(PLUGIN_NAME)) return false;
+
+    parsed.plugin = parsed.plugin.filter((p) => p !== PLUGIN_NAME);
+    writeFileSync(configFile, JSON.stringify(parsed, null, 2) + "\n", "utf-8");
+    console.log(`  removed "${PLUGIN_NAME}" entry from ${configFile}`);
+    return true;
 }

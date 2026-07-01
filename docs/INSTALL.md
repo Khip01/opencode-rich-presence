@@ -55,7 +55,7 @@ opencode-rpc install
 The installer:
 
 1. Creates `~/.config/opencode/discord-config.json` from the bundled example (only if missing, or after confirmation to overwrite).
-2. Auto-registers the plugin in `~/.config/opencode/opencode.jsonc` (with confirmation, falls back to manual instructions on parse error).
+2. (v2.0.6+ only) If your `opencode.jsonc` (or `.json`) still has a `"opencode-rich-presence"` entry from a v2.0.5-era install, the installer offers to remove it (default Y). The symlink alone is sufficient; the entry would cause OpenCode to attempt an npm install on every startup, returning 404.
 3. Symlinks the plugin entry to `~/.config/opencode/plugins/opencode-rich-presence.js` and ensures `@xhayper/discord-rpc` is installed under `~/.config/opencode/node_modules/`.
 
 The symlink approach works around the fact that the package is not on the npm registry: OpenCode loads the plugin directly from disk instead of trying to fetch it via Bun and getting a 404.
@@ -72,7 +72,7 @@ nano ~/.config/opencode/discord-config.json
 opencode-rpc info
 ```
 
-You should see `Status: REGISTERED in opencode.json` (or `.jsonc`). Then start OpenCode and check Discord. Your AI session should appear as a rich presence within a few seconds.
+You should see `OpenCode plugin symlink` with `Linked: yes` and a `Target:` pointing to the package entry file in your npm prefix. Then start OpenCode and check Discord. Your AI session should appear as a rich presence within a few seconds.
 
 ```bash
 opencode
@@ -98,10 +98,9 @@ The uninstaller automatically removes:
 - Runtime files (`~/.config/opencode/.opencode-rich-presence.lock`, `presence-state.txt`, `.discord-restart-request`)
 - Local plugin symlink at `~/.config/opencode/plugins/opencode-rich-presence.js`
 - `@xhayper/discord-rpc` from `~/.config/opencode/package.json` and `node_modules`
+- Any stale `"opencode-rich-presence"` entry left in `~/.config/opencode/opencode.jsonc` (or `.json`) by a v2.0.5-era install. Without this cleanup, OpenCode would attempt an npm install on every startup and return 404.
 
 You will be asked before `discord-config.json` is deleted (default N), with a timestamp-suffixed backup if you agree.
-
-You will still need to manually remove `"opencode-rich-presence"` from the `plugin` array in `opencode.jsonc` (the uninstaller prints the exact code snippet to remove).
 
 ## Migration from v1.0.0
 

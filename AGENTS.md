@@ -9,7 +9,7 @@ need to navigate this codebase safely.
 
 - **Plugin name**: `opencode-rich-presence`
 - **CLI command**: `opencode-rpc`
-- **Latest version**: v2.0.5
+- **Latest version**: v2.0.6
 - **Node.js**: 18+ required, tested with 24.x
 - **npm registry**: package is NOT published there. Distributed
   only via GitHub Releases tarballs.
@@ -54,6 +54,14 @@ symlink created by `opencode-rpc install` that points to the npm
 global install location. The package is NOT on the npm registry, so
 OpenCode's default auto-install via Bun returns 404. The symlink
 bypasses this entirely.
+
+**NEVER add `opencode-rich-presence` to the `plugin` array in
+`~/.config/opencode/opencode.jsonc` (or `.json`).** OpenCode reads
+that array as a list of npm packages to fetch on startup, and the
+package is not on npm. The entry would cause a 404 notification on
+every OpenCode launch. v2.0.6+ never writes the entry, migrates
+v2.0.5-era stale entries on next install (offered, default Y), and
+auto-removes on uninstall.
 
 If the symlink is missing, run `opencode-rpc install` to recreate
 it. Verify with `ls -la ~/.config/opencode/plugins/`.
@@ -144,6 +152,14 @@ In addition to the global rules in `~/.config/opencode/AGENTS.md`:
   helper uses a single long-lived interface.
 - Bash scripts in the project root (the v1.0.0 era). Long gone,
   but the docs still mention migration. Do not reintroduce.
+- Adding `opencode-rich-presence` to the `plugin` array in
+  `opencode.jsonc` (or `.json`). Symptom: every OpenCode startup
+  triggers a `Failed to install plugin opencode-rich-presence@latest:
+  404 Not Found` notification. OpenCode reads the array as a list
+  of npm packages to fetch on startup, and the package is not on
+  npm. Fixed in v2.0.6: `install` no longer writes the entry, and
+  detects/offers removal of v2.0.5-era stale entries on upgrade.
+  `uninstall` auto-removes stale entries as part of cleanup.
 
 ## Documentation Maintenance
 

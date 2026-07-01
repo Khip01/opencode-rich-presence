@@ -52,13 +52,9 @@ jobs:
 
             The installer creates a symlink at `~/.config/opencode/plugins/opencode-rich-presence.js` so OpenCode loads the plugin as a local file (the package is distributed only via GitHub Releases, not the npm registry). It also adds `@xhayper/discord-rpc` to your local `package.json` and runs `npm install` so the worker can resolve its dependency.
 
-            The installer offers to register the plugin in `opencode.jsonc` automatically. You only need to add it manually if you decline the prompt:
+            **Do not add `opencode-rich-presence` to the `plugin` array in `opencode.jsonc`.** OpenCode reads that array as a list of npm packages to fetch on startup. The package is not on the npm registry, so adding it there causes a 404 notification on every OpenCode launch. The symlink alone is sufficient.
 
-            ```json
-            {
-              "plugin": ["opencode-rich-presence"]
-            }
-            ```
+            If you are upgrading from v2.0.5 and have a stale entry in `opencode.jsonc`, the installer detects it on the next `opencode-rpc install` and offers to remove it (default Yes).
 
             ### Update from v2.0.x
 
@@ -92,36 +88,24 @@ jobs:
 
             The plugin name changed from `opencode-dc-too-rich-presence` to `opencode-rich-presence`.
 
-            ## What's in v2.0.5
+            ## What's in v2.0.6
 
-            Fix: worker path
-            - Correct worker path in `src/shared/paths.js` (`../../worker/` to `../worker/`)
-            - Plugin no longer gets stuck with lock held but worker unable to spawn
+            Fix: install no longer writes `opencode.jsonc`
+            - `opencode-rpc install` no longer adds `opencode-rich-presence` to the `plugin` array in `opencode.jsonc`
+            - The entry made OpenCode try to fetch the package from npm on every startup, returning 404
+            - The symlink at `~/.config/opencode/plugins/opencode-rich-presence.js` is sufficient
 
-            Fix: install flow
-            - Install symlinks plugin entry to `~/.config/opencode/plugins/opencode-rich-presence.js`
-            - Install adds `@xhayper/discord-rpc` to local `package.json` and runs `npm install`
-            - Install auto-registers plugin entry in `opencode.jsonc` with JSONC-tolerant parsing
-            - Install skips "edit config" suggestion when Discord App ID is already set
+            Fix: migrate stale v2.0.5-era entries
+            - `install` detects and offers to remove a stale `opencode-rich-presence` entry in `opencode.jsonc` (default Y)
+            - `uninstall` auto-removes stale entries as part of cleanup
 
-            Fix: uninstall flow
-            - Uninstall removes the local symlink
-            - Uninstall prunes `@xhayper/discord-rpc` from `package.json` via `npm install`
-            - Uninstall asks Y/N before deleting `discord-config.json`, with timestamp backup if yes
-            - Uninstall prints a code snippet for removing the plugin entry from `opencode.jsonc`
-
-            Fix: CLI stability
-            - `prompt.js` uses a single long-lived readline interface (no more install hang, supports piped stdin)
-            - `bin/opencode-rpc.js` calls `process.exit(0)` after command completes (no more post-Done hang)
-
-            Fix: JSONC parser
-            - `://` in URLs no longer treated as a line comment (negative lookbehind on `:`)
+            Fix: `info` reports symlink status
+            - `OpenCode plugin registration` section renamed to `OpenCode plugin symlink`
+            - Reports whether `~/.config/opencode/plugins/opencode-rich-presence.js` is a symlink and its target
 
             Chore: docs
-            - `docs/TROUBLESHOOTING.md` adds root causes section and diagnostic checklist
-            - `docs/CLI-REFERENCE.md` rewritten to match real v2.0.5 CLI output
-            - `docs/INSTALL.md` rewritten for symlink-based install flow
-            - `docs/ARCHITECTURE.md` adds plugin loading section and corrects subcommands table
-            - `docs/PLATFORM-NOTES.md` removes Discord Desktop process management sections
+            - `docs/INSTALL.md`, `docs/CLI-REFERENCE.md`, `docs/ARCHITECTURE.md`, `docs/TROUBLESHOOTING.md` updated to reflect symlink-only loading
+            - `CHANGELOG.md` adds v2.0.6 entry
+            - Project `AGENTS.md` adds known bug entry and updates plugin loading section
 
             See CHANGELOG.md for full details.

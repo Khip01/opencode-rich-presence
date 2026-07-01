@@ -10,7 +10,7 @@ Run `opencode-rpc info` first. Output sections:
 - **Paths**: OpenCode dir, config file, output file, lock file, debug log (always present)
 - **Config**: Your `discord-config.json` values (App ID masked, always present if config exists)
 - **Lock (leader instance)**: Only shown when an OpenCode instance currently holds the leader lock
-- **OpenCode plugin registration**: Only shown when `~/.config/opencode/opencode.json` or `.jsonc` parses successfully
+- **OpenCode plugin symlink**: Always shown. Reports whether the plugin entry is symlinked at `~/.config/opencode/plugins/opencode-rich-presence.js` and what its target is
 
 If something looks wrong, the next steps depend on what's missing.
 
@@ -20,15 +20,11 @@ If something looks wrong, the next steps depend on what's missing.
 
 **Check 1: Is the plugin loaded by OpenCode?**
 
-Look for the `OpenCode plugin registration` section near the bottom of `opencode-rpc info` output. If it's missing entirely, your `~/.config/opencode/opencode.json` or `.jsonc` could not be parsed (see below). If it appears and says `Status: NOT registered`, edit the file:
+Look for the `OpenCode plugin symlink` section near the bottom of `opencode-rpc info` output. It should show `Linked: yes` with a `Target:` pointing to the package entry file in your npm prefix (for example, `~/.nvm/versions/node/v22/lib/node_modules/opencode-rich-presence/src/plugin/index.js`).
 
-```json
-{ "plugin": ["opencode-rich-presence"] }
-```
+If it shows `Linked: NO`, run `opencode-rpc install` to create the symlink. If it shows `Linked: NO (regular file at that path, not a symlink)`, the symlink was replaced with a real file at some point. Remove it manually and re-run `opencode-rpc install`.
 
-Then restart OpenCode.
-
-If the `OpenCode plugin registration` section does not appear at all in `opencode-rpc info`, your OpenCode config file contains characters that cannot be parsed. Common causes are unescaped newlines inside string values (for example, model or provider names with literal line breaks). Edit `~/.config/opencode/opencode.json` or `.jsonc` and ensure all string values are valid JSON or JSONC.
+**Do not add `"opencode-rich-presence"` to the `plugin` array in `opencode.jsonc`.** OpenCode reads that array as a list of npm packages to fetch on startup. The package is not on the npm registry (only on GitHub Releases), so the entry causes a 404 notification every time OpenCode launches. The symlink alone is sufficient.
 
 **Check 2: Is Discord running?**
 
@@ -155,8 +151,9 @@ mv ~/.config/opencode/discord-config.json ~/.config/opencode/discord-config.json
 # Remove CLI globally
 npm uninstall -g opencode-rich-presence
 
-# Remove plugin entry from OpenCode config
-# Edit ~/.config/opencode/opencode.json and remove "opencode-rich-presence" from "plugin"
+# Remove plugin entry from OpenCode config (only needed for v2.0.5-era installs;
+# v2.0.6+ removes this automatically)
+# Edit ~/.config/opencode/opencode.jsonc and remove "opencode-rich-presence" from "plugin"
 ```
 
 ---
@@ -225,9 +222,9 @@ Look for `Cannot find module` errors mentioning `discord-worker.mjs`. If the pat
 
 ### OpenCode does not load the plugin at all
 
-**Symptom:** `info` does not show `Lock (leader instance)` section. `Output file: missing`. AI fires messages normally but Discord stays empty. Plugin entry exists in `opencode.jsonc`.
+**Symptom:** `info` does not show `Lock (leader instance)` section. `Output file: missing`. AI fires messages normally but Discord stays empty.
 
-**Root cause:** OpenCode tries to install npm plugins from the npm registry at startup via Bun. The `opencode-rich-presence` package is NOT published there (we distribute via GitHub Releases tarball), so the install attempt 404s. OpenCode creates `~/.cache/opencode/packages/opencode-rich-presence@latest/` but leaves it empty.
+**Root cause 1:** OpenCode tries to install npm plugins from the npm registry at startup via Bun. The `opencode-rich-presence` package is NOT published there (we distribute via GitHub Releases tarball), so the install attempt 404s. OpenCode creates `~/.cache/opencode/packages/opencode-rich-presence@latest/` but leaves it empty. The fix is the symlink at `~/.config/opencode/plugins/opencode-rich-presence.js`.
 
 **How to verify:**
 ```bash
@@ -235,9 +232,23 @@ npm view opencode-rich-presence version 2>&1 | head -3
 # Expected: npm error 404 'opencode-rich-presence@*' could not be found
 ls -la ~/.cache/opencode/packages/opencode-rich-presence@latest/
 # Expected: empty directory
+ls -la ~/.config/opencode/plugins/opencode-rich-presence.js
+# Expected: -> /.../opencode-rich-presence/src/plugin/index.js
 ```
 
-**Fix:** The installer creates a symlink at `~/.config/opencode/plugins/opencode-rich-presence.js` pointing to the package entry file in the npm prefix (global install location). OpenCode also loads from this plugins directory. The symlink approach bypasses the npm registry entirely.
+**Fix:** Run `opencode-rpc install` to recreate the symlink if missing.
+
+**Root cause 2 (v2.0.5-era installs):** `opencode.jsonc` (or `.json`) has `"opencode-rich-presence"` in the `plugin` array. OpenCode reads that array as npm packages to fetch on startup, returning 404. The symlink in `~/.config/opencode/plugins/` alone is sufficient; the entry in `opencode.jsonc` is no longer required and should not be present.
+
+**How to verify:**
+```bash
+grep "opencode-rich-presence" ~/.config/opencode/opencode.jsonc ~/.config/opencode/opencode.json 2>/dev/null
+# Expected: empty output. If a line appears, you have the stale entry.
+```
+
+**Fix:**
+- v2.0.6+: Run `opencode-rpc install` and accept the prompt to remove the stale entry (default Y). Or run `opencode-rpc uninstall` which auto-removes it.
+- v2.0.5 users (before this release): Edit `~/.config/opencode/opencode.jsonc` (or `.json`) and remove the `"opencode-rich-presence"` line from the `"plugin"` array manually.
 
 If the symlink is missing, run `opencode-rpc install` to recreate it. Verify with:
 ```bash
@@ -307,11 +318,11 @@ grep "//" ~/.config/opencode/opencode.jsonc
 
 When Discord presence does not show, walk through this in order:
 
-1. **Plugin registered?**
+1. **Plugin symlinked?**
    ```bash
-   opencode-rpc info | grep -A1 "OpenCode plugin registration"
+   opencode-rpc info | grep -A2 "OpenCode plugin symlink"
    ```
-   If no section appears, `opencode.jsonc` cannot be parsed (likely has `://` in a URL value). Fix the file manually or `opencode-rpc install` will offer to register in another config file.
+   Should show `Linked: yes` and a `Target:` path. If `Linked: NO`, run `opencode-rpc install` to create the symlink.
 
 2. **Plugin loaded by OpenCode?**
    ```bash

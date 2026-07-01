@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.6] - 2026-07-01
+
+### Fixed
+
+- `opencode-rpc install` no longer adds `opencode-rich-presence` to the `plugin` array in `~/.config/opencode/opencode.jsonc` (or `.json`). The v2.0.5 install path wrote that entry, but OpenCode reads the array as a list of npm packages to fetch on startup. The package is not published to npm (it is distributed via GitHub Releases tarballs only), so OpenCode returned a 404 notification on every launch. v2.0.6+ relies entirely on the symlink at `~/.config/opencode/plugins/opencode-rich-presence.js` for loading, which OpenCode does natively and which never triggers an npm fetch.
+- `opencode-rpc install` now detects and offers to remove a stale `opencode-rich-presence` entry in `opencode.jsonc` left over from a v2.0.5-era install. Default Yes. This silences the 404 notification on the next OpenCode restart.
+- `opencode-rpc uninstall` now auto-removes any stale `opencode-rich-presence` entry in `opencode.jsonc` as part of cleanup, so users uninstalling the plugin do not carry a noisy 404 notification afterwards.
+- `opencode-rpc info` no longer reads `opencode.jsonc` to check plugin registration. It now reports the symlink status of `~/.config/opencode/plugins/opencode-rich-presence.js` (path, whether it is a symlink, target). The section was renamed from `OpenCode plugin registration` to `OpenCode plugin symlink` and is now always shown.
+- Updated `docs/INSTALL.md`, `docs/CLI-REFERENCE.md`, `docs/ARCHITECTURE.md`, and `docs/TROUBLESHOOTING.md` to remove all references to the now-defunct `opencode.jsonc` plugin registration step and to describe the symlink-only loading mechanism.
+
+### Changed
+
+- The `OpenCode plugin registration` section in `opencode-rpc info` output has been replaced with `OpenCode plugin symlink`. Always shown (no longer conditional on `opencode.jsonc` parsing).
+
 ## [2.0.5] - 2026-06-23
 
 ### Fixed
@@ -120,5 +134,6 @@ v1.0.0 is preserved as `opencode-rich-presence-v1.0.0-legacy-linux-only` on the 
 - Configurable via `discord-config.json` + env vars.
 - Documentation: README, SETUP, ARCHITECTURE, CUSTOMIZATION, TROUBLESHOOTING.
 
+[2.0.5]: https://github.com/Khip01/opencode-rich-presence/releases/tag/v2.0.5
 [2.0.0]: https://github.com/Khip01/opencode-rich-presence/releases/tag/v2.0.0
 [1.0.0]: https://github.com/Khip01/opencode-rich-presence/releases/tag/v1.0.0

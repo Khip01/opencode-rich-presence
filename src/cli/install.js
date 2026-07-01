@@ -32,7 +32,7 @@ export async function install() {
         copyExample();
     }
 
-    await maybeRegisterPlugin();
+    await maybeMigrateRemoveFromOpencodeConfig();
     await installLocalPlugin();
     await ensureDependencies();
 
@@ -67,46 +67,42 @@ function findOpencodeConfig() {
     return null;
 }
 
-// Offer to register the plugin in the OpenCode config.
-async function maybeRegisterPlugin() {
+// Migration helper for v2.0.5-era installs. Earlier versions of `install` added
+// `opencode-rich-presence` to the `plugin` array in `opencode.jsonc` (or `.json`).
+// OpenCode reads that array as a list of npm packages to fetch on startup, so the
+// entry caused a 404 every time OpenCode launched. v2.0.6+ relies on the symlink
+// in `~/.config/opencode/plugins/` alone and never writes the entry. This function
+// detects any stale entry left over from earlier installs and offers to remove it.
+async function maybeMigrateRemoveFromOpencodeConfig() {
     console.log("");
     const existing = findOpencodeConfig();
-    if (!existing) {
-        const ok = await confirm(`No OpenCode config found. Create opencode.json with the plugin registered?`, { defaultYes: true });
-        if (!ok) {
-            console.log(`  Skipped. You will need to register the plugin manually.`);
-            return;
-        }
-        const target = join(OPENCODE_DIR, "opencode.json");
-        writeFileSync(target, JSON.stringify({ plugin: [PLUGIN_NAME] }, null, 2) + "\n", "utf-8");
-        console.log(`  Created ${target}`);
-        return;
-    }
+    if (!existing) return;
 
     const raw = readFileSync(existing, "utf-8");
-    if (raw.includes(`"${PLUGIN_NAME}"`)) {
-        console.log(`  Plugin already registered in ${existing}.`);
-        return;
-    }
+    if (!raw.includes(`"${PLUGIN_NAME}"`)) return;
 
     let parsed;
     try {
         parsed = parseJsonc(raw);
     } catch (e) {
         console.log(`  Could not parse ${existing} as JSON/JSONC.`);
-        console.log(`  Skipping auto-register. Add "${PLUGIN_NAME}" to the "plugin" array manually.`);
+        console.log(`  Remove "${PLUGIN_NAME}" from the "plugin" array manually to silence`);
+        console.log(`  the npm 404 notification on OpenCode startup.`);
         return;
     }
 
-    const ok = await confirm(`Register plugin in ${existing} (add to "plugin" array)?`, { defaultYes: true });
+    if (!Array.isArray(parsed.plugin) || !parsed.plugin.includes(PLUGIN_NAME)) return;
+
+    const ok = await confirm(
+        `Remove stale "${PLUGIN_NAME}" entry from ${existing}? (causes npm 404 on OpenCode startup)`,
+        { defaultYes: true },
+    );
     if (!ok) {
-        console.log(`  Skipped. Add "${PLUGIN_NAME}" to the "plugin" array manually.`);
+        console.log(`  Skipped. Remove "${PLUGIN_NAME}" from the "plugin" array manually.`);
         return;
     }
 
-    if (!Array.isArray(parsed.plugin)) parsed.plugin = [];
-    if (!parsed.plugin.includes(PLUGIN_NAME)) parsed.plugin.push(PLUGIN_NAME);
-
+    parsed.plugin = parsed.plugin.filter((p) => p !== PLUGIN_NAME);
     writeFileSync(existing, JSON.stringify(parsed, null, 2) + "\n", "utf-8");
     console.log(`  Updated ${existing}`);
 }

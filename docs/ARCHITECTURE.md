@@ -146,12 +146,9 @@ Variable substitution handles edge cases:
 
 ## Plugin Loading
 
-OpenCode loads plugins from multiple sources:
+OpenCode loads plugins from `~/.config/opencode/plugins/` and `.opencode/plugins/`. The `opencode-rich-presence` package is NOT published to the npm registry (only distributed via GitHub Releases tarballs). v2.0.6+ relies entirely on a symlink at `~/.config/opencode/plugins/opencode-rich-presence.js` pointing to the plugin entry file in the user's npm prefix. OpenCode loads the plugin directly from disk via this symlink.
 
-1. The npm registry (auto-installed via Bun on startup).
-2. Files in `~/.config/opencode/plugins/` and `.opencode/plugins/`.
-
-Because `opencode-rich-presence` is distributed via GitHub Releases (tarball) and not published to the npm registry, the default npm auto-install fails with a 404. To work around this, `opencode-rpc install` creates a symlink at `~/.config/opencode/plugins/opencode-rich-presence.js` pointing to the plugin entry file in the user's npm prefix. OpenCode then loads the plugin directly from disk.
+**Do not add `"opencode-rich-presence"` to the `plugin` array in `opencode.jsonc` or `opencode.json`.** OpenCode reads that array as a list of npm packages to fetch on startup via Bun, and the package does not exist on npm. The entry causes a 404 notification on every OpenCode launch. v2.0.6+ never writes this entry; v2.0.5-era installs that did write it are migrated on next `opencode-rpc install` (offered, default Y) and on `opencode-rpc uninstall` (auto-removed).
 
 The symlink target is computed at install time based on the install location (global `npm install -g` or local `npm link`), so it works for both end users and developers.
 
@@ -161,8 +158,8 @@ For the worker's `@xhayper/discord-rpc` dependency, the installer also adds it t
 
 | Command | Purpose |
 |---------|---------|
-| `install` | Create config, auto-register plugin, create symlink, install dep |
-| `uninstall` | Remove runtime files, symlink, and dependency; ask Y/N for config |
+| `install` | Create config; migrate any v2.0.5-era opencode.jsonc entry; create symlink; install dep |
+| `uninstall` | Remove runtime files, symlink, dependency, and any stale opencode.jsonc entry; ask Y/N for config |
 | `restart` | Reload plugin worker (does NOT touch Discord Desktop) |
 | `update` | Check GitHub, self-update |
 | `info` | Diagnostics dump |
