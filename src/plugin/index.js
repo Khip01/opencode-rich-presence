@@ -21,8 +21,14 @@ let config = null;
 
 // Record that this instance is doing something. Updates the local lastActivity
 // timestamp so the leader's heartbeat knows we are fresher than it. If we are
-// a standby, also request leadership so we push to Discord instead of the
-// idle leader.
+// a standby AND this is a user-initiated event, also request leadership so we
+// push to Discord instead of the idle leader.
+//
+// opts.requestHandoff === false: agent-side events (typing, tool calls,
+// message parts, etc.) only mark active, do NOT request handoff. Only
+// user-initiated events (chat.message, permission.asked/replied) should
+// request handoff; otherwise all instances see the same SDK events and
+// ping-pong leadership back and forth.
 function noteActivity(opts = {}) {
     coordinator.markActive();
     if (!coordinator.isLeader && opts.requestHandoff !== false) {
@@ -294,7 +300,17 @@ export const OpencodeRichPresence = async ({ client, directory }) => {
     coordinator.setLeadershipChangeCallback(async (nowLeader) => {
         if (nowLeader) {
             log("Gained leadership, connecting to Discord");
+            // Wait 2s for the previous leader's worker to fully release the
+            // Discord IPC socket. Without this delay, our worker can race
+            // against the still-cleaning-up old connection and fail to log
+            // in. The worker does retry with backoff, but the user sees a
+            // visible "no presence" gap.
+            await new Promise((r) => setTimeout(r, 2000));
             try { startConnect(config); } catch (e) { log("startConnect:", e?.message || e); }
+            // Force a state refresh from the server so the new leader's
+            // session states reflect reality, not stale in-memory snapshots
+            // from when we were standby (standby does not poll for activity).
+            try { await checkAllSessionsActivity(client, directory); } catch (e) { log("refresh:", e?.message || e); }
             scheduleWrite();
         } else {
             log("Lost leadership, disconnecting from Discord");
@@ -381,7 +397,7 @@ export const OpencodeRichPresence = async ({ client, directory }) => {
                     const s = ensureSession(i.id);
                     if (i.time?.created) s.startedAt = i.time.created;
                     s.lastActivity = Date.now();
-                    noteActivity();
+                    noteActivity({ requestHandoff: false });
                     updateDisplay();
                     scheduleWrite();
                     restoreSessionMessages(client, i.id, directory).catch(() => {});
@@ -409,7 +425,7 @@ export const OpencodeRichPresence = async ({ client, directory }) => {
                     s.lastActivity = Date.now();
                     if ((st === "idle" || et === "session.idle") && s.state !== STATE.ASKING) s.state = STATE.WAITING;
                     else if (st === "busy" && ![STATE.TYPING, STATE.THINKING, STATE.ASKING].includes(s.state)) s.state = STATE.WORKING;
-                    if (st === "busy") noteActivity();
+                    if (st === "busy") noteActivity({ requestHandoff: false });
                     updateDisplay();
                     scheduleWrite();
                     return;
@@ -425,7 +441,7 @@ export const OpencodeRichPresence = async ({ client, directory }) => {
                     if (i.mode) s.mode = i.mode;
                     s.modelLimit = getModelLimit(s.model) ?? s.modelLimit;
                     s.lastActivity = Date.now();
-                    noteActivity();
+                    noteActivity({ requestHandoff: false });
                     updateDisplay();
                     scheduleWrite();
                     return;
@@ -446,7 +462,7 @@ export const OpencodeRichPresence = async ({ client, directory }) => {
                         const ctxT = (p.tokens.input || 0) + (p.tokens.cache?.read || 0);
                         if (ctxT > 0) s._latestContextTokens = ctxT;
                     }
-                    noteActivity();
+                    noteActivity({ requestHandoff: false });
                     updateDisplay();
                     scheduleWrite();
                     return;

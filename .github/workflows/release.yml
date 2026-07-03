@@ -40,6 +40,10 @@ jobs:
         with:
           name: ${{ github.ref_name }}
           files: opencode-rich-presence-*.tgz
+          # Tags containing -rc, -beta, or -alpha are marked prerelease so
+          # `opencode-rpc update` does not pick them up by default. Users opt
+          # in via `opencode-rpc update --prerelease`.
+          prerelease: ${{ contains(github.ref_name, '-rc') || contains(github.ref_name, '-beta') || contains(github.ref_name, '-alpha') }}
           body: |
             ## Installation
 
@@ -87,6 +91,33 @@ jobs:
             6. Restart OpenCode.
 
             The plugin name changed from `opencode-dc-too-rich-presence` to `opencode-rich-presence`.
+
+            ## What's in v2.0.8
+
+            Fix: shutdownWorker no longer signal-kills an already-exited child
+            - The previous implementation sent `SIGTERM` 200ms after the shutdown command, regardless of whether the worker had exited
+            - Linux reuses PIDs, so the new leader's worker could spawn with the same PID and then receive a stray SIGTERM from the old leader's cached ChildProcess reference
+            - This caused `Worker exited: code=null sig=SIGTERM` immediately after a handoff, killing the new leader's worker
+            - Fixed by polling `child.exitCode` and `child.signalCode` and only force-killing if the worker is genuinely still alive
+
+            Fix: leader cooldown prevents handoff oscillation
+            - v2.0.7 yielded leadership as soon as a standby's `lastActivity` was fresher than the leader's
+            - Every instance receives every SDK event, so multi-instance setups ping-ponged leadership and the Discord presence flickered every few seconds
+            - v2.0.8+ ignores handoff signals for `LEADER_COOLDOWN_MS` (8 seconds) after becoming leader, so the active window keeps Discord presence for at least that long
+
+            Fix: only user-initiated events request handoff
+            - `chat.message`, `session.created/updated`, `session.status busy`, `message.updated`, and `message.part.updated` now opt out of handoff
+            - Only `chat.message`, `permission.asked`, and `permission.replied` still request handoff
+            - Agent-side events still `markActive` but do not request leadership
+
+            Fix: 2s IPC release delay before new leader connects
+            - The new leader now waits 2 seconds before calling `startConnect()`
+            - Gives the previous leader's worker time to fully release the Discord IPC socket
+
+            Fix: forced state refresh on leadership gain
+            - The new leader calls `checkAllSessionsActivity()` after gaining leadership
+            - Standby instances do not poll, so their in-memory session states can be stale
+            - This fixes the "display stuck at Typing after handoff" symptom
 
             ## What's in v2.0.7
 

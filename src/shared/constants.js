@@ -12,6 +12,11 @@ export const HEARTBEAT_TIMEOUT = 15000;
 // released the lock (either due to a handoff request or because the leader
 // exited). Also used for the lock-stale takeover path.
 export const HANDOFF_CHECK_INTERVAL = 2000;
+// Right after becoming leader, the instance ignores handoff signals for this
+// long. Without it, all instances see the same SDK events and ping-pong
+// leadership back and forth. 8s gives the user enough time to actually type
+// something in the now-leading window before anyone else can take over.
+export const LEADER_COOLDOWN_MS = 8000;
 export const REFRESH_INTERVAL = 5000;
 export const FILE_WRITE_DEBOUNCE_MS = 250;
 export const DISCORD_DEBOUNCE_MS = 300;

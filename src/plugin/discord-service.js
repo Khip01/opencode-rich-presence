@@ -132,18 +132,33 @@ export async function destroy() {
 // Tear the worker down because we lost leadership (or otherwise no longer want
 // to push to Discord). Unlike destroy() this does NOT mark the service as
 // permanently disposed; a subsequent connect() will spawn a new worker.
+//
+// Important: do NOT signal-kill the worker by PID after a brief wait. Linux
+// reuses PIDs as soon as a process exits, and the next leader's worker can
+// spawn with the same PID. Sending SIGTERM (or even SIGKILL) to the cached
+// ChildProcess reference after the worker has already exited would signal an
+// unrelated process. Instead, poll the child's exitCode/signalCode and only
+// force-kill if it is genuinely still alive after the grace period.
 export async function shutdownWorker() {
     state.intentionalShutdown = true;
     if (state.pushTimer) { clearTimeout(state.pushTimer); state.pushTimer = null; }
-    if (state.workerProcess) {
-        sendCmd({ cmd: "shutdown" });
-        await new Promise(r => setTimeout(r, 200));
-        try { state.workerProcess.kill("SIGTERM"); } catch {}
-        await new Promise(r => setTimeout(r, 500));
-        try { state.workerProcess.kill("SIGKILL"); } catch {}
-        state.workerProcess = null;
-    }
+    const wp = state.workerProcess;
+    state.workerProcess = null;
     state.connected = false;
+    if (!wp) return;
+
+    try { sendCmd({ cmd: "shutdown" }); } catch {}
+
+    const start = Date.now();
+    const graceMs = 2000;
+    while (Date.now() - start < graceMs) {
+        if (wp.exitCode !== null || wp.signalCode !== null) return;
+        await new Promise((r) => setTimeout(r, 50));
+    }
+
+    if (wp.exitCode === null && wp.signalCode === null) {
+        try { wp.kill("SIGKILL"); } catch {}
+    }
 }
 
 // Internal: track current config for respawn

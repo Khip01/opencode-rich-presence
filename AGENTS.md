@@ -9,7 +9,7 @@ need to navigate this codebase safely.
 
 - **Plugin name**: `opencode-rich-presence`
 - **CLI command**: `opencode-rpc`
-- **Latest version**: v2.0.7
+- **Latest version**: v2.0.8
 - **Node.js**: 18+ required, tested with 24.x
 - **npm registry**: package is NOT published there. Distributed
   only via GitHub Releases tarballs.
@@ -195,6 +195,28 @@ In addition to the global rules in `~/.config/opencode/AGENTS.md`:
   npm. Fixed in v2.0.6: `install` no longer writes the entry, and
   detects/offers removal of v2.0.5-era stale entries on upgrade.
   `uninstall` auto-removes stale entries as part of cleanup.
+- Sending `child.kill("SIGTERM")` (or any signal) to a Node.js
+  ChildProcess reference after the child has already exited. Symptom
+  was `Worker exited: code=null sig=SIGTERM` for the new leader's
+  worker right after a leadership handoff. Linux reuses PIDs as
+  soon as a process exits, so the old leader's cached reference
+  could resolve to an unrelated new process and signal-kill it.
+  Fixed in v2.0.8: `shutdownWorker()` polls `child.exitCode` and
+  `child.signalCode` for up to 2s and only force-kills if the
+  worker is genuinely still alive. Use this same polling pattern
+  whenever sending a signal to a child process; do not assume the
+  child is still alive just because the reference exists.
+- Handoff-on-every-event oscillation. Symptom was Discord presence
+  flickering every few seconds with multiple active OpenCode
+  windows. Every instance received every SDK event, so every event
+  triggered `requestHandoff()` from any standby instance, and the
+  leader yielded as soon as the standby's `lastActivity` was
+  fresher. Fixed in v2.0.8: `LEADER_COOLDOWN_MS` (8s) prevents the
+  freshly-promoted leader from yielding for that window, and only
+  user-initiated events (`chat.message`, `permission.asked`,
+  `permission.replied`) request handoff via `noteActivity()` without
+  `requestHandoff: false`. Agent-side events (`message.part.updated`,
+  `message.updated`, `session.status busy`) only `markActive`.
 - First-wins leader election. Symptom: a previously idle leader
   shows stale Discord presence while another instance is actively
   chatting. Pre-v2.0.7 held the lock indefinitely until exit or

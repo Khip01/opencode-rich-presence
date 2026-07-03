@@ -34,22 +34,44 @@ function getCurrentVersion() {
     }
 }
 
-async function fetchLatestRelease() {
-    const res = await fetch(`https://api.github.com/repos/${OWNER}/${REPO}/releases/latest`, {
+async function fetchLatestRelease({ includePrerelease = false } = {}) {
+    if (!includePrerelease) {
+        const res = await fetch(`https://api.github.com/repos/${OWNER}/${REPO}/releases/latest`, {
+            headers: { "User-Agent": "opencode-rich-presence-cli" },
+        });
+        if (!res.ok) throw new Error(`GitHub API returned ${res.status}: ${res.statusText}`);
+        return await res.json();
+    }
+    // With --prerelease, list all releases and pick the highest semver, even
+    // if GitHub marks it as prerelease. This lets the user opt in to testing
+    // builds that have not been promoted to "Latest".
+    const res = await fetch(`https://api.github.com/repos/${OWNER}/${REPO}/releases?per_page=30`, {
         headers: { "User-Agent": "opencode-rich-presence-cli" },
     });
     if (!res.ok) throw new Error(`GitHub API returned ${res.status}: ${res.statusText}`);
-    return await res.json();
+    const releases = await res.json();
+    if (!Array.isArray(releases) || releases.length === 0) {
+        throw new Error("No releases found");
+    }
+    const valid = releases
+        .map((r) => ({ tag: r.tag_name || "", ver: parseSemver(r.tag_name), release: r }))
+        .filter((x) => x.ver && !x.release.draft);
+    if (valid.length === 0) throw new Error("No valid releases found");
+    valid.sort((a, b) => compareSemver(b.ver, a.ver));
+    return valid[0].release;
 }
 
-export async function update() {
+export async function update(args = []) {
+    const includePrerelease = args.includes("--prerelease") || args.includes("--pre");
+
     const current = getCurrentVersion();
     console.log(`\nCurrent version: v${current}`);
+    if (includePrerelease) console.log("Including prereleases in update check.");
     console.log("Checking for updates...\n");
 
     let release;
     try {
-        release = await fetchLatestRelease();
+        release = await fetchLatestRelease({ includePrerelease });
     } catch (e) {
         console.error(`Failed to fetch release info: ${e.message}`);
         process.exit(1);
@@ -69,7 +91,11 @@ export async function update() {
         return;
     }
 
-    console.log(`Update available: v${current} -> ${latestTag}\n`);
+    if (release.prerelease) {
+        console.log(`Update available: v${current} -> ${latestTag} (prerelease)\n`);
+    } else {
+        console.log(`Update available: v${current} -> ${latestTag}\n`);
+    }
 
     const asset = (release.assets || []).find((a) => a.name.endsWith(".tgz"));
     if (!asset) {

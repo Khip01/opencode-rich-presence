@@ -336,6 +336,37 @@ cat ~/.config/opencode/.opencode-rich-presence.lock
 
 **Fix:** Upgrade to v2.0.7. As soon as you send a chat message in any window, that window writes a handoff signal and takes over leadership within ~7 seconds. The previously idle leader yields and becomes standby.
 
+### Discord presence flickers every few seconds with multiple OpenCode windows
+
+**Symptom:** Two or more OpenCode windows open. Discord presence flips between them every few seconds, briefly disconnecting and reconnecting. Sometimes the new leader's worker exits with `code=null sig=SIGTERM` and the presence goes away entirely.
+
+**Root cause:** Pre-v2.0.8 leadership ping-pong. Every instance saw every SDK event (`message.part.updated`, `session.status`, etc.), so every event triggered a handoff request from any standby instance. The leader yielded as soon as the standby's `lastActivity` was fresher, which happened every 5 seconds. The kill signal in `shutdownWorker` could also hit the new leader's worker via PID reuse.
+
+**How to verify:**
+```bash
+# Watch the leader PID change every few seconds
+watch -n 1 'cat ~/.config/opencode/.opencode-rich-presence.lock'
+# Also check the debug log for repeated "Handoff requested" and "Worker exited: code=null sig=SIGTERM"
+tail -50 /tmp/opencode-rich-presence-debug.log
+```
+
+**Fix:** Upgrade to v2.0.8. The leader now ignores handoff signals for 8 seconds after becoming leader (`LEADER_COOLDOWN_MS`), and only user-initiated events (`chat.message`, `permission.asked`, `permission.replied`) request handoff. `shutdownWorker` polls for actual exit before signaling.
+
+### Display stuck at "Typing" after handoff to a new leader
+
+**Symptom:** After a leadership change, Discord shows the new leader's presence but the state stays at "Typing" even after the model has finished. The actual chat has progressed to completion.
+
+**Root cause:** Pre-v2.0.8, standby instances did not poll the server for activity (only the leader did). When a standby instance took over leadership, its in-memory `SessionState` objects could be stale. State transitions like `Typing -> Waiting for command` happen via events, and `session.idle` might not have arrived yet for the new leader.
+
+**How to verify:**
+```bash
+# Check the presence-state.txt for the current state
+cat ~/.config/opencode/presence-state.txt | head -20
+# If it shows "Typing" but the chat is actually finished, you have this issue
+```
+
+**Fix:** Upgrade to v2.0.8. The new leader now calls `checkAllSessionsActivity()` after gaining leadership, which fetches the latest message for each known session and updates the state (e.g., to `Waiting for command` if the latest message is a completed assistant message).
+
 ---
 
 ## Quick Diagnostic Checklist

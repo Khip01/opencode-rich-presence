@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.8] - 2026-07-03
+
+### Fixed
+
+- `discord-service.js:shutdownWorker()` no longer SIGTERMs (or SIGKILLs) the old worker after it has already exited. The previous implementation sent `kill("SIGTERM")` 200ms after the shutdown command regardless of whether the worker had exited. Because Linux reuses PIDs, the new leader's worker could spawn with the same PID as the old one and then receive a stray SIGTERM from the old leader's cached ChildProcess reference, killing it with `code=null sig=SIGTERM`. The new implementation polls `child.exitCode` and `child.signalCode` for up to 2s and only force-kills if the worker is genuinely still alive. Removes the "display closes when leader changes" symptom.
+- Multi-instance leader oscillation is dampened with a leader cooldown. Previously, every instance saw every SDK event (`message.part.updated`, `session.status`, etc.), so any active instance would write a handoff signal every event, and the leader would yield as soon as its standby's `lastActivity` was fresher. With multiple active windows, leadership ping-ponged back and forth, causing visible Discord presence flicker every 5 seconds. The leader now ignores handoff signals for `LEADER_COOLDOWN_MS` (8 seconds) after becoming leader, so the active window keeps Discord presence for at least that long.
+- `chat.message`, `session.created/updated`, `session.status`, `message.updated`, and `message.part.updated` now opt out of the handoff request by default (`noteActivity({ requestHandoff: false })`). Only `chat.message`, `permission.asked`, and `permission.replied` request handoff, because those are the events that indicate the user is actively interacting with this instance. Agent-side events still mark the instance active but do not request leadership, which further reduces oscillation.
+- The new leader now waits 2 seconds before connecting to Discord, so the previous leader's worker has time to fully release the Discord IPC socket. Without this delay, the new worker could race against the still-cleaning-up old connection and fail its first login (it retries with backoff, but the user sees a presence gap).
+- The new leader now forces `checkAllSessionsActivity()` after gaining leadership, so the in-memory session states are refreshed from the server. Previously, standby instances did not poll for activity (only the leader did), so a freshly-promoted standby could be showing a stale `Typing` state even though the model had already finished.
+
+### Added
+
+- `opencode-rpc update --prerelease` (alias `--pre`) opts in to GitHub releases marked as prerelease. Tags containing `-rc`, `-beta`, or `-alpha` are now marked prerelease in `.github/workflows/release.yml` so stable `opencode-rpc update` does not pick them up. Use this flag to test pre-release builds before they are promoted to stable.
+
 ## [2.0.7] - 2026-07-01
 
 ### Fixed
@@ -149,6 +163,7 @@ v1.0.0 is preserved as `opencode-rich-presence-v1.0.0-legacy-linux-only` on the 
 - Configurable via `discord-config.json` + env vars.
 - Documentation: README, SETUP, ARCHITECTURE, CUSTOMIZATION, TROUBLESHOOTING.
 
+[2.0.7]: https://github.com/Khip01/opencode-rich-presence/releases/tag/v2.0.7
 [2.0.7]: https://github.com/Khip01/opencode-rich-presence/releases/tag/v2.0.7
 [2.0.5]: https://github.com/Khip01/opencode-rich-presence/releases/tag/v2.0.5
 [2.0.0]: https://github.com/Khip01/opencode-rich-presence/releases/tag/v2.0.0

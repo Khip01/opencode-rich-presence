@@ -1,6 +1,6 @@
 import { writeFile, readFile, unlink } from "node:fs/promises";
 import { LOCK_FILE, HANDOFF_REQUEST } from "../shared/paths.js";
-import { HEARTBEAT_INTERVAL, HEARTBEAT_TIMEOUT, HANDOFF_CHECK_INTERVAL } from "../shared/constants.js";
+import { HEARTBEAT_INTERVAL, HEARTBEAT_TIMEOUT, HANDOFF_CHECK_INTERVAL, LEADER_COOLDOWN_MS } from "../shared/constants.js";
 import { log } from "../shared/logger.js";
 
 // Activity-based leader election. The first instance to start acquires the
@@ -14,11 +14,17 @@ import { log } from "../shared/logger.js";
 // This way the actively-chatting instance always wins leadership, regardless
 // of which OpenCode window opened first. An idle leader yields to an active
 // standby; a leader that is also active keeps the lock.
+//
+// LEADER_COOLDOWN_MS prevents ping-pong oscillation when several instances
+// all see the same SDK events. Right after becoming leader, the instance
+// ignores handoff signals for the cooldown window. After the cooldown, it
+// yields if the standby's last-activity timestamp is fresher than its own.
 
 let isLeader = false;
 let heartbeatTimer = null;
 let standbyTimer = null;
 let myLastActivity = 0;
+let becameLeaderAt = 0;
 let onLeadershipChange = null;
 const myPid = process.pid;
 
@@ -45,6 +51,7 @@ async function tryAcquireLock() {
     try {
         await writeFile(LOCK_FILE, payload, { flag: "wx" });
         isLeader = true;
+        becameLeaderAt = now;
         log(`Acquired leader lock (pid ${myPid})`);
         return true;
     } catch (e) {
@@ -74,13 +81,18 @@ async function tryAcquireLock() {
 async function heartbeatLoop() {
     if (!isLeader) return;
     try {
-        // Hand off leadership if another instance has fresher activity.
-        const req = await readHandoffSafe();
-        if (req && req.pid !== myPid && req.requestedAt > myLastActivity) {
-            log(`Handoff requested by pid ${req.pid} (their activity: ${new Date(req.requestedAt).toISOString()}, mine: ${myLastActivity ? new Date(myLastActivity).toISOString() : "never"})`);
-            await unlink(HANDOFF_REQUEST).catch(() => {});
-            await releaseLock();
-            return;
+        // Hand off leadership if another instance has fresher activity AND
+        // we are past the cooldown window. The cooldown prevents ping-pong
+        // when multiple instances all see the same SDK events.
+        const leaderAge = Date.now() - becameLeaderAt;
+        if (leaderAge >= LEADER_COOLDOWN_MS) {
+            const req = await readHandoffSafe();
+            if (req && req.pid !== myPid && req.requestedAt > myLastActivity) {
+                log(`Handoff requested by pid ${req.pid} (their activity: ${new Date(req.requestedAt).toISOString()}, mine: ${myLastActivity ? new Date(myLastActivity).toISOString() : "never"})`);
+                await unlink(HANDOFF_REQUEST).catch(() => {});
+                await releaseLock();
+                return;
+            }
         }
 
         await writeFile(LOCK_FILE, JSON.stringify({ pid: myPid, started: Date.now(), lastActivity: myLastActivity }), "utf-8");
