@@ -1,6 +1,13 @@
 import { writeFile, readFile, unlink } from "node:fs/promises";
 import { LOCK_FILE, HANDOFF_REQUEST } from "../shared/paths.js";
-import { HEARTBEAT_INTERVAL, HEARTBEAT_TIMEOUT, HANDOFF_CHECK_INTERVAL, LEADER_COOLDOWN_MS } from "../shared/constants.js";
+import {
+    HEARTBEAT_INTERVAL,
+    HEARTBEAT_TIMEOUT,
+    HANDOFF_CHECK_INTERVAL,
+    ACTIVE_HANDSHAKE_INTERVAL,
+    FAST_POLL_WINDOW_MS,
+    LEADER_COOLDOWN_MS,
+} from "../shared/constants.js";
 import { log } from "../shared/logger.js";
 
 // Activity-based leader election. The first instance to start acquires the
@@ -19,6 +26,11 @@ import { log } from "../shared/logger.js";
 // all see the same SDK events. Right after becoming leader, the instance
 // ignores handoff signals for the cooldown window. After the cooldown, it
 // yields if the standby's last-activity timestamp is fresher than its own.
+//
+// The standby uses two polling intervals: a fast one (ACTIVE_HANDSHAKE_INTERVAL)
+// for FAST_POLL_WINDOW_MS after its last activity, then a slow one
+// (HANDOFF_CHECK_INTERVAL). This keeps idle instances cheap while letting an
+// active standby acquire the lock within ~1-2s of the leader releasing.
 
 let isLeader = false;
 let heartbeatTimer = null;
@@ -27,6 +39,23 @@ let myLastActivity = 0;
 let becameLeaderAt = 0;
 let onLeadershipChange = null;
 const myPid = process.pid;
+
+function standbyPollDelay() {
+    return myLastActivity && Date.now() - myLastActivity < FAST_POLL_WINDOW_MS
+        ? ACTIVE_HANDSHAKE_INTERVAL
+        : HANDOFF_CHECK_INTERVAL;
+}
+
+function rescheduleStandbyPoll() {
+    if (standbyTimer) clearTimeout(standbyTimer);
+    const delay = standbyPollDelay();
+    standbyTimer = setTimeout(() => {
+        standbyTimer = null;
+        standbyPoll().catch((e) => log("standbyPoll error:", e?.message || e));
+        rescheduleStandbyPoll();
+    }, delay);
+    if (standbyTimer.unref) standbyTimer.unref();
+}
 
 async function readLockSafe() {
     try {
@@ -148,13 +177,12 @@ async function standbyPoll() {
 
 function startStandbyPolling() {
     if (standbyTimer) return;
-    standbyTimer = setInterval(standbyPoll, HANDOFF_CHECK_INTERVAL);
-    standbyTimer.unref?.();
+    rescheduleStandbyPoll();
 }
 
 function stopStandbyPolling() {
     if (standbyTimer) {
-        clearInterval(standbyTimer);
+        clearTimeout(standbyTimer);
         standbyTimer = null;
     }
 }
@@ -171,6 +199,7 @@ async function onGainedLeadership() {
 // case the leader has already released.
 async function requestHandoff() {
     myLastActivity = Date.now();
+    if (standbyTimer) rescheduleStandbyPoll();
     try {
         await writeFile(HANDOFF_REQUEST, JSON.stringify({ pid: myPid, requestedAt: myLastActivity }), "utf-8");
         log(`Handoff requested (pid ${myPid})`);
@@ -185,6 +214,7 @@ async function requestHandoff() {
 
 function markActive() {
     myLastActivity = Date.now();
+    if (standbyTimer) rescheduleStandbyPoll();
 }
 
 function setLeadershipChangeCallback(cb) {

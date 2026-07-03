@@ -9,6 +9,11 @@ import { CONFIG_PATH } from "../shared/paths.js";
 
 const CONNECT_TIMEOUT = 30000;
 const MAX_RETRIES = 100;
+// v2.0.8-rc2: reduced initial and max backoff so the new leader's worker
+// reconnects faster after a handoff. Previous values (3000ms initial,
+// 30000ms max) made the user wait several seconds per leadership change.
+const INITIAL_RETRY_MS = 500;
+const MAX_RETRY_MS = 5000;
 
 let appId = null;
 let client = null;
@@ -58,7 +63,10 @@ function scheduleReconnect() {
         return;
     }
     retryCount++;
-    const backoff = Math.min(30000, 3000 * Math.pow(1.5, Math.min(retryCount - 1, 8)));
+    // Exponential backoff capped at MAX_RETRY_MS. Starts fast (INITIAL_RETRY_MS)
+    // so handoff reconnects feel snappy, then slows down if Discord is genuinely
+    // unreachable so we do not hammer it.
+    const backoff = Math.min(MAX_RETRY_MS, INITIAL_RETRY_MS * Math.pow(1.5, Math.min(retryCount - 1, 8)));
     send({ type: "attempt", retryCount, maxRetries: MAX_RETRIES, backoffMs: backoff });
     log(`Reconnect in ${backoff}ms (${retryCount}/${MAX_RETRIES})`);
     reconnectTimer = setTimeout(() => {

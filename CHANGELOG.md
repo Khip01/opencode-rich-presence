@@ -5,7 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [2.0.8] - 2026-07-03
+## [2.0.8-rc2] - 2026-07-03
+
+### Fixed
+
+- Handoff latency reduced from ~5-8s to ~250ms-1s. v2.0.8-rc1 had a 2-second fixed delay before the new leader connected to Discord, plus an 8-second `LEADER_COOLDOWN_MS` window where the leader ignored handoff signals, plus a 5-second leader heartbeat that bounded how often the handoff check ran. v2.0.8-rc2 removes the fixed delay (the previous leader's worker exits in milliseconds via the shutdown command, so no extra wait is needed), drops `LEADER_COOLDOWN_MS` to 3 seconds (just enough to debounce rapid chat bursts from the same user), and reduces `HEARTBEAT_INTERVAL` to 2 seconds so the handoff check fires twice as often.
+- Standby polling switches to a fast 250ms interval (`ACTIVE_HANDSHAKE_INTERVAL`) for 8 seconds after the standby marks itself active. An actively-requesting standby now acquires the lock within a fraction of a second of the leader releasing, instead of waiting up to 2 seconds on the slow `HANDOFF_CHECK_INTERVAL` poll.
+- Discord worker retry backoff is now much faster. Initial retry dropped from 3000ms to 500ms, and the cap dropped from 30000ms to 5000ms. The previous values made the new leader's worker sit idle for 3+ seconds after a Discord IPC handshake failed before retrying, which compounded the visible presence gap during handoff.
+
+## [2.0.8-rc1] - 2026-07-03
 
 ### Fixed
 
@@ -164,6 +172,8 @@ v1.0.0 is preserved as `opencode-rich-presence-v1.0.0-legacy-linux-only` on the 
 - Documentation: README, SETUP, ARCHITECTURE, CUSTOMIZATION, TROUBLESHOOTING.
 
 [2.0.7]: https://github.com/Khip01/opencode-rich-presence/releases/tag/v2.0.7
+[2.0.8-rc2]: https://github.com/Khip01/opencode-rich-presence/releases/tag/v2.0.8-rc2
+[2.0.8-rc1]: https://github.com/Khip01/opencode-rich-presence/releases/tag/v2.0.8-rc1
 [2.0.7]: https://github.com/Khip01/opencode-rich-presence/releases/tag/v2.0.7
 [2.0.5]: https://github.com/Khip01/opencode-rich-presence/releases/tag/v2.0.5
 [2.0.0]: https://github.com/Khip01/opencode-rich-presence/releases/tag/v2.0.0

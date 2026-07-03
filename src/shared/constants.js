@@ -6,17 +6,28 @@ export const STATE = {
     WAITING: "Waiting for command",
 };
 
-export const HEARTBEAT_INTERVAL = 5000;
+export const HEARTBEAT_INTERVAL = 2000;
 export const HEARTBEAT_TIMEOUT = 15000;
 // Standby instances poll at this interval to check whether the leader has
 // released the lock (either due to a handoff request or because the leader
-// exited). Also used for the lock-stale takeover path.
-export const HANDOFF_CHECK_INTERVAL = 2000;
+// exited). Also used for the lock-stale takeover path. v2.0.8-rc2 reduced
+// this from 2000 to 1000 so the active standby acquires the lock faster.
+export const HANDOFF_CHECK_INTERVAL = 1000;
+// For a short window after the standby requested handoff (or marked active),
+// it polls at this faster interval so it acquires the lock almost as soon as
+// the leader releases. Reduces handoff latency from ~5s to ~1-2s.
+export const ACTIVE_HANDSHAKE_INTERVAL = 250;
+// How long the standby keeps using the fast-poll interval after its last
+// activity before falling back to the slow HANDOFF_CHECK_INTERVAL.
+export const FAST_POLL_WINDOW_MS = 8000;
 // Right after becoming leader, the instance ignores handoff signals for this
 // long. Without it, all instances see the same SDK events and ping-pong
-// leadership back and forth. 8s gives the user enough time to actually type
-// something in the now-leading window before anyone else can take over.
-export const LEADER_COOLDOWN_MS = 8000;
+// leadership back and forth. v2.0.8-rc2 dropped this from 8s to 3s because
+// the longer cooldown made the new leader's worker take too long to connect,
+// and the only events that now request handoff are user-initiated
+// (chat.message, permission events), so the cooldown window is mostly there
+// to debounce rapid chat bursts from the same user.
+export const LEADER_COOLDOWN_MS = 3000;
 export const REFRESH_INTERVAL = 5000;
 export const FILE_WRITE_DEBOUNCE_MS = 250;
 export const DISCORD_DEBOUNCE_MS = 300;

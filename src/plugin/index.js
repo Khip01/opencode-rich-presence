@@ -300,12 +300,12 @@ export const OpencodeRichPresence = async ({ client, directory }) => {
     coordinator.setLeadershipChangeCallback(async (nowLeader) => {
         if (nowLeader) {
             log("Gained leadership, connecting to Discord");
-            // Wait 2s for the previous leader's worker to fully release the
-            // Discord IPC socket. Without this delay, our worker can race
-            // against the still-cleaning-up old connection and fail to log
-            // in. The worker does retry with backoff, but the user sees a
-            // visible "no presence" gap.
-            await new Promise((r) => setTimeout(r, 2000));
+            // v2.0.8-rc2: no fixed IPC delay. The previous leader's
+            // shutdownWorker sends the shutdown command and polls for actual
+            // exit (with up to 2s grace) before any force-kill, so by the
+            // time we run, the old worker's Discord IPC socket should be
+            // released. If the new worker still fails to connect, it will
+            // retry with the fast backoff configured in discord-worker.mjs.
             try { startConnect(config); } catch (e) { log("startConnect:", e?.message || e); }
             // Force a state refresh from the server so the new leader's
             // session states reflect reality, not stale in-memory snapshots
