@@ -22,6 +22,11 @@ let retryCount = 0;
 let reconnectTimer = null;
 let clientGeneration = 0;
 let disposed = false;
+// Set by gracefulExit() and the shutdown command so that the
+// `disconnected` event (which fires after clearActivity) does not trigger
+// scheduleReconnect() and keep the worker alive past the point where we want
+// to exit.
+let shuttingDown = false;
 let pushDebounceTimer = null;
 let pendingActivity = null;
 
@@ -114,6 +119,11 @@ async function connect() {
             connected = false;
             log("Discord disconnected");
             send({ type: "disconnected" });
+            // Suppress reconnect if we are in the middle of shutting down.
+            // clearActivity() in @xhayper/discord-rpc triggers a disconnect
+            // event, and we do not want that to spawn a reconnect attempt
+            // before our explicit process.exit(0) lands.
+            if (shuttingDown) return;
             scheduleReconnect();
         });
 
@@ -195,6 +205,13 @@ async function handleCommand(msg) {
         send({ type: "pong", connected, retryCount });
     } else if (cmd === "shutdown") {
         log("Shutdown requested");
+        shuttingDown = true;
+        // v2.0.8-rc3: explicitly tell Discord to clear the presence BEFORE
+        // destroying the client. Without this, Discord keeps showing the
+        // last activity after the worker exits because it never received a
+        // clear-presence command. The user sees a "stuck" presence until
+        // they manually quit+reopen Discord.
+        try { await clearActivity(); } catch (e) { log("clearActivity on shutdown:", e?.message || e); }
         if (client) {
             try { await client.destroy(); } catch {}
         }
@@ -202,8 +219,17 @@ async function handleCommand(msg) {
     }
 }
 
-process.on("SIGINT", () => process.exit(0));
-process.on("SIGTERM", () => process.exit(0));
+// Best-effort clear on signal: Discord would otherwise keep showing the
+// last activity. We do not await because the signal handler should return
+// quickly, and the in-flight clearActivity IPC frame usually lands before
+// the process exits within the 200ms grace the parent gives us.
+function gracefulExit() {
+    shuttingDown = true;
+    try { clearActivity().catch(() => {}); } catch {}
+    setTimeout(() => process.exit(0), 150).unref?.();
+}
+process.on("SIGINT", gracefulExit);
+process.on("SIGTERM", gracefulExit);
 
 async function main() {
     try {

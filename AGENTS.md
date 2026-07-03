@@ -9,7 +9,7 @@ need to navigate this codebase safely.
 
 - **Plugin name**: `opencode-rich-presence`
 - **CLI command**: `opencode-rpc`
-- **Latest version**: v2.0.8-rc2
+- **Latest version**: v2.0.8-rc3
 - **Node.js**: 18+ required, tested with 24.x
 - **npm registry**: package is NOT published there. Distributed
   only via GitHub Releases tarballs.
@@ -217,6 +217,25 @@ In addition to the global rules in `~/.config/opencode/AGENTS.md`:
   `permission.replied`) request handoff via `noteActivity()` without
   `requestHandoff: false`. Agent-side events (`message.part.updated`,
   `message.updated`, `session.status busy`) only `markActive`.
+- Worker exits without sending `clearActivity` to Discord. Symptom
+  was Discord presence staying visible after OpenCode exited (the
+  "stuck display" the user had to quit-and-reopen Discord to fix).
+  Fixed in v2.0.8-rc3: the worker's `shutdown` command handler and
+  `SIGINT`/`SIGTERM` handlers now call `clearActivity()` before
+  `client.destroy()`. A `shuttingDown` flag suppresses the resulting
+  `disconnected` event's reconnect attempt so the worker exits
+  cleanly. Same pattern applies whenever you add a new exit path to
+  the worker: set `shuttingDown = true` first to prevent the
+  reconnect loop.
+- `destroy()` (plugin dispose path) sending `SIGTERM` 200ms after
+  shutdown command regardless of exit state. Symptom was
+  `Worker exited: code=null sig=SIGKILL` in the debug log during
+  plugin dispose (similar to the SIGTERM-after-exit race in
+  `shutdownWorker` that v2.0.8-rc1 fixed). v2.0.8-rc3 also fixed
+  `destroy()` to use the same poll-for-exit pattern: poll
+  `child.exitCode` / `child.signalCode` for up to 2s and only
+  force-kill if still alive. Use this polling pattern whenever you
+  send a signal to a Node.js `ChildProcess`.
 - First-wins leader election. Symptom: a previously idle leader
   shows stale Discord presence while another instance is actively
   chatting. Pre-v2.0.7 held the lock indefinitely until exit or

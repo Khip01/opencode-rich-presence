@@ -37,9 +37,15 @@ function handleWorkerMsg(msg) {
         state.connected = false;
     } else if (msg.type === "error") {
         state.lastError = msg.error;
+        log(`[worker error] ${msg.error}`);
     } else if (msg.type === "attempt") {
         state.lastAttemptAt = Date.now();
         state.retryCount = msg.retryCount ?? 0;
+    } else if (msg.type === "log") {
+        // v2.0.8-rc3: forward the worker's own log lines into the parent's
+        // debug log so we can see "Activity sent", "Replay activity failed",
+        // "Shutdown requested" without re-running with extra logging.
+        log(`[worker] ${msg.msg || ""}`);
     }
 }
 
@@ -119,13 +125,26 @@ export function pushActivity(session, config, isLeader) {
 export async function destroy() {
     state.disposed = true;
     if (state.pushTimer) { clearTimeout(state.pushTimer); state.pushTimer = null; }
-    if (state.workerProcess) {
-        sendCmd({ cmd: "shutdown" });
-        await new Promise(r => setTimeout(r, 200));
-        try { state.workerProcess.kill("SIGTERM"); } catch {}
-        await new Promise(r => setTimeout(r, 500));
-        try { state.workerProcess.kill("SIGKILL"); } catch {}
-        state.workerProcess = null;
+    const wp = state.workerProcess;
+    state.workerProcess = null;
+    state.connected = false;
+    if (!wp) return;
+
+    // v2.0.8-rc3: same pattern as shutdownWorker. Poll the child's exitCode
+    // so a SIGTERM-after-exit can never hit a recycled PID. The earlier
+    // fixed 200ms wait + unconditional SIGTERM was the source of the
+    // `Worker exited: code=null sig=SIGTERM` we hit in v2.0.7.
+    try { sendCmd({ cmd: "shutdown" }); } catch {}
+
+    const start = Date.now();
+    const graceMs = 2000;
+    while (Date.now() - start < graceMs) {
+        if (wp.exitCode !== null || wp.signalCode !== null) return;
+        await new Promise((r) => setTimeout(r, 50));
+    }
+
+    if (wp.exitCode === null && wp.signalCode === null) {
+        try { wp.kill("SIGKILL"); } catch {}
     }
 }
 

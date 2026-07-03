@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.8-rc3] - 2026-07-03
+
+### Fixed
+
+- Discord presence was "stuck" after OpenCode exited. The worker's shutdown handler called `client.destroy()` without first sending a `clearActivity` IPC frame, so Discord never received a clear-presence command and kept showing the last activity. The user had to quit and reopen Discord to clear it. v2.0.8-rc3 makes the worker's `shutdown` command handler and the `SIGINT`/`SIGTERM` signal handlers call `clearActivity()` first, then `client.destroy()`. A `shuttingDown` flag suppresses the resulting `disconnected` event's reconnect attempt so the worker exits cleanly instead of looping on a reconnect timer.
+- `discord-service.js:destroy()` had the same SIGTERM-after-exit race as `shutdownWorker()` did pre-rc1: it sent `SIGTERM` 200ms after the shutdown command regardless of whether the worker had exited. Replaced with the same poll-for-exit pattern used by `shutdownWorker` (poll `child.exitCode` / `child.signalCode` for up to 2s, only force-kill if still alive). This was the source of `Worker exited: code=null sig=SIGKILL` logs appearing during plugin dispose.
+
+### Added
+
+- Worker log messages are now forwarded into the parent's debug log. The parent plugin's debug file now shows `[worker] ...` lines for "Worker started", "Activity sent", "Replay activity failed", "Shutdown requested", "Discord READY event", "Discord disconnected", etc. This makes it possible to diagnose connection problems without enabling extra debug flags.
+
 ## [2.0.8-rc2] - 2026-07-03
 
 ### Fixed
@@ -172,6 +183,7 @@ v1.0.0 is preserved as `opencode-rich-presence-v1.0.0-legacy-linux-only` on the 
 - Documentation: README, SETUP, ARCHITECTURE, CUSTOMIZATION, TROUBLESHOOTING.
 
 [2.0.7]: https://github.com/Khip01/opencode-rich-presence/releases/tag/v2.0.7
+[2.0.8-rc3]: https://github.com/Khip01/opencode-rich-presence/releases/tag/v2.0.8-rc3
 [2.0.8-rc2]: https://github.com/Khip01/opencode-rich-presence/releases/tag/v2.0.8-rc2
 [2.0.8-rc1]: https://github.com/Khip01/opencode-rich-presence/releases/tag/v2.0.8-rc1
 [2.0.7]: https://github.com/Khip01/opencode-rich-presence/releases/tag/v2.0.7
