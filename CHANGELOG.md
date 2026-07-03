@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.7] - 2026-07-01
+
+### Fixed
+
+- Multi-instance leader election now uses activity-based handoff. Previously, the first OpenCode instance to start held the leader lock until exit or 15s of staleness. Standby instances never pushed to Discord, even when actively chatting. Result: a previously idle leader kept showing stale presence while another instance was actively generating messages.
+- When a standby instance receives a `chat.message` (or any other activity-implying event), it writes a handoff signal at `~/.config/opencode/.opencode-rich-presence-handoff`. The current leader's heartbeat loop reads the signal on each tick and releases the lock if it sees a fresher request from a different PID. The standby then acquires the lock on its next 2s poll and starts pushing to Discord.
+- A leadership-change callback in `index.js` calls `startConnect()` on gain and `shutdownWorker()` on loss so the new leader's Discord worker actually starts and the old leader's worker actually stops (without permanently disposing the service, so the instance can re-acquire leadership later).
+- Added `discord-service.js:shutdownWorker()` for temporary teardown on leadership loss. Distinct from `destroy()` which is permanent and used only on plugin dispose. The new function sets an `intentionalShutdown` flag that the worker `onExit` handler reads to skip its respawn/retry logic.
+- Added `src/plugin/coordinator.js:requestHandoff()` for standby instances to signal they want leadership, and `markActive()` to record local activity timestamps. Standby instances also poll every 2s for lock release or staleness so they take over automatically when the leader yields or crashes.
+- Lock file format now includes `lastActivity` (timestamp). The leader's heartbeat writes its current `lastActivity` on each tick; the heartbeat uses this to decide whether a handoff request is fresher than its own activity.
+
+### Changed
+
+- The plugin's event handlers (`chat.message`, `message.part.updated`, `permission.asked`, `permission.replied`, `session.status` when busy, etc.) now call a `noteActivity()` helper that updates the local `lastActivity` timestamp and triggers a handoff request if the instance is a standby. Previously these events updated only the per-session state.
+
 ## [2.0.6] - 2026-07-01
 
 ### Fixed
@@ -134,6 +149,7 @@ v1.0.0 is preserved as `opencode-rich-presence-v1.0.0-legacy-linux-only` on the 
 - Configurable via `discord-config.json` + env vars.
 - Documentation: README, SETUP, ARCHITECTURE, CUSTOMIZATION, TROUBLESHOOTING.
 
+[2.0.7]: https://github.com/Khip01/opencode-rich-presence/releases/tag/v2.0.7
 [2.0.5]: https://github.com/Khip01/opencode-rich-presence/releases/tag/v2.0.5
 [2.0.0]: https://github.com/Khip01/opencode-rich-presence/releases/tag/v2.0.0
 [1.0.0]: https://github.com/Khip01/opencode-rich-presence/releases/tag/v1.0.0

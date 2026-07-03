@@ -54,23 +54,36 @@ src/
 
 ## Multi-instance Coordinator
 
-Discord IPC allows only one active connection per Application ID. When multiple OpenCode instances run, only one should push to Discord.
+Discord IPC allows only one active connection per Application ID. When multiple OpenCode instances run, only one should push to Discord. v2.0.7+ uses **activity-based leader election**: the actively-chatting instance wins leadership, regardless of which OpenCode window opened first.
 
 **Algorithm** (in `coordinator.js`):
 
-1. Try to create `~/.config/opencode/.opencode-rich-presence.lock` with `wx` (exclusive).
-2. If success: become leader. Start heartbeat (every 5s, rewrites lock).
-3. If file exists: read it, check age. If fresh (< 15s) and not our PID: standby.
-4. If stale: unlink and retry from step 1.
+1. Try to create `~/.config/opencode/.opencode-rich-presence.lock` with `wx` (exclusive). Payload: `{pid, started, lastActivity}`.
+2. If success: become leader. Start heartbeat (every 5s, rewrites lock with current `lastActivity`).
+3. If file exists and is fresh (< 15s) and owned by a different PID: become standby. Start polling (every 2s).
+4. If file is stale (>= 15s old): unlink and retry from step 1.
+
+**Activity handoff** (v2.0.7+):
+
+When a standby instance receives an event that implies user/agent activity (`chat.message`, `message.part.updated`, `permission.asked`, `permission.replied`, etc.), it:
+
+1. Writes a handoff signal to `~/.config/opencode/.opencode-rich-presence-handoff` containing `{pid, requestedAt: timestamp}`.
+2. Tries to acquire the lock immediately in case the leader has already released.
+
+The leader's heartbeat loop reads the handoff signal on each tick. If it sees a request from a different PID with a `requestedAt` newer than its own `lastActivity`, the leader releases the lock. The standby's next poll (within 2s) acquires it. A leadership-change callback in `index.js` calls `startConnect()` / `shutdownWorker()` so the new leader starts pushing to Discord.
+
+**Standby polling** (v2.0.7+):
+
+Every 2s, a standby instance checks the lock. If the lock is missing (leader released) or stale (leader died), the standby attempts to acquire it. This handles the "leader crashed without releasing" case as well as the handoff case.
 
 **Lock file format:**
 ```json
-{ "pid": 12345, "started": 1719123456789 }
+{ "pid": 12345, "started": 1719123456789, "lastActivity": 1719123500000 }
 ```
 
 **Heartbeat:** Leader rewrites lock every 5s. Stale threshold: 15s (3x heartbeat).
 
-**Cleanup:** Leader releases lock on dispose. Standby instances never touch the lock.
+**Cleanup:** Leader releases lock on dispose. Standby instances never touch the lock, only the handoff signal and the polling loop.
 
 ## Subprocess Worker
 

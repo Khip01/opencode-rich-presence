@@ -86,10 +86,18 @@ Look for `Discord connected via worker` message. If you see retry attempts, the 
 
 **Fix:**
 
-This is expected behavior. Only one instance pushes to Discord at a time. If you want a specific instance to be leader:
-1. Close all other OpenCode windows.
-2. The remaining instance becomes leader automatically after the lock expires (15s).
-3. Or, run `opencode-rpc restart` to force an immediate leader re-election.
+v2.0.7+ uses activity-based leader election: as soon as you send a chat message in this window, it writes a handoff signal, the current leader yields within 5 seconds, and this window becomes leader and starts pushing to Discord. You should see the switch within ~7 seconds of your first message.
+
+If the handoff does not happen within 10 seconds:
+
+1. Verify the other OpenCode window is not actively chatting in the same Discord-target session. If both are active, the one with the most recent activity wins; the other becomes standby.
+2. Run `opencode-rpc info` in this window and look for the `Lock (leader instance)` section. If you see `YOU are leader`, this window is the leader.
+3. If neither window shows `YOU are leader`, no OpenCode instance currently holds the leader lock. Restart OpenCode.
+4. As a last resort, force a leader re-election:
+   ```bash
+   opencode-rpc restart
+   ```
+   This kills the worker subprocess so the plugin respawns it. Standby instances also become eligible to take over on their next poll.
 
 Check leader status. The `Lock (leader instance)` section only appears in `opencode-rpc info` output when a lock file is currently held. If you see it:
 ```
@@ -311,6 +319,22 @@ grep "//" ~/.config/opencode/opencode.jsonc
 **How to verify:** Check the warnings include `current: { node: 'v24.13.1' }` and the install still completes with `added N packages`.
 
 **Fix:** Safe to ignore. If you want clean output, upgrade Node.js to the version listed in the warning. The plugin itself works fine on the older Node version.
+
+### Idle leader keeps showing stale presence while another instance is actively chatting
+
+**Symptom:** OpenCode instance #1 opened first and is the current leader (Discord shows its presence). OpenCode instance #2 opens later. When you send a message in #2, Discord keeps showing #1's stale idle presence instead of #2's activity.
+
+**Root cause:** Pre-v2.0.7 leader election was first-wins. The first instance to acquire the leader lock held it indefinitely (until exit or 15s stale). Standby instances could not push to Discord even when actively chatting. Fixed in v2.0.7 with activity-based handoff.
+
+**How to verify:**
+```bash
+# In a stale-presence scenario, check the leader lock's lastActivity
+cat ~/.config/opencode/.opencode-rich-presence.lock
+# Expected (v2.0.7+): includes "lastActivity" timestamp that updates when the leader receives chat.message
+# Pre-v2.0.7 lock has only pid + started; standby's chat.message events do not reach it.
+```
+
+**Fix:** Upgrade to v2.0.7. As soon as you send a chat message in any window, that window writes a handoff signal and takes over leadership within ~7 seconds. The previously idle leader yields and becomes standby.
 
 ---
 

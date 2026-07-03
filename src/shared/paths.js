@@ -14,6 +14,11 @@ export const CONFIG_PATH = join(OPENCODE_DIR, "discord-config.json");
 export const OUTPUT_FILE = join(OPENCODE_DIR, "presence-state.txt");
 export const RESTART_SIGNAL = join(OPENCODE_DIR, ".discord-restart-request");
 export const LOCK_FILE = join(OPENCODE_DIR, ".opencode-rich-presence.lock");
+// Written by a standby instance when it has chat activity and wants to take over
+// the leader role. The leader's heartbeat loop reads this on each tick and
+// releases the lock if it sees a fresher request from a different PID. Cleared
+// once the leader has acted on it. See coordinator.js for the full handoff flow.
+export const HANDOFF_REQUEST = join(OPENCODE_DIR, ".opencode-rich-presence-handoff");
 
 // Debug log uses OS temp directory (cross-platform: /tmp on Linux, /var/folders/... on macOS, %TEMP% on Windows).
 export const DEBUG_LOG = join(tmpdir(), "opencode-rich-presence-debug.log");

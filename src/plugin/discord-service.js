@@ -15,6 +15,10 @@ const state = {
     retryCount: 0,
     pushTimer: null,
     stdoutBuf: "",
+    // Set before killing the worker when the shutdown is intentional (e.g.
+    // losing leadership). The onExit handler reads this and skips its
+    // respawn/retry logic so the worker stays dead until a new connect().
+    intentionalShutdown: false,
 };
 
 function sendCmd(cmd) {
@@ -57,6 +61,15 @@ function spawn(config) {
 
             if (state.disposed) return;
 
+            // Intentional shutdown (e.g. on leadership loss): kill the worker
+            // cleanly and do not respawn. A future connect() will spawn a new
+            // one when this instance becomes leader again.
+            if (state.intentionalShutdown) {
+                state.intentionalShutdown = false;
+                state.lastError = null;
+                return;
+            }
+
             if (isIntentionalRestart) {
                 state.retryCount = 0;
                 state.lastError = null;
@@ -67,7 +80,7 @@ function spawn(config) {
                 }, 2000).unref?.();
             } else {
                 setTimeout(() => {
-                    if (!state.disposed && !state.workerProcess) spawn(config);
+                    if (!state.disposed && !state.workerProcess && !state.intentionalShutdown) spawn(config);
                 }, 3000).unref?.();
             }
         },
@@ -114,6 +127,23 @@ export async function destroy() {
         try { state.workerProcess.kill("SIGKILL"); } catch {}
         state.workerProcess = null;
     }
+}
+
+// Tear the worker down because we lost leadership (or otherwise no longer want
+// to push to Discord). Unlike destroy() this does NOT mark the service as
+// permanently disposed; a subsequent connect() will spawn a new worker.
+export async function shutdownWorker() {
+    state.intentionalShutdown = true;
+    if (state.pushTimer) { clearTimeout(state.pushTimer); state.pushTimer = null; }
+    if (state.workerProcess) {
+        sendCmd({ cmd: "shutdown" });
+        await new Promise(r => setTimeout(r, 200));
+        try { state.workerProcess.kill("SIGTERM"); } catch {}
+        await new Promise(r => setTimeout(r, 500));
+        try { state.workerProcess.kill("SIGKILL"); } catch {}
+        state.workerProcess = null;
+    }
+    state.connected = false;
 }
 
 // Internal: track current config for respawn

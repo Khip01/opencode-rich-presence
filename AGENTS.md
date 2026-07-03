@@ -9,7 +9,7 @@ need to navigate this codebase safely.
 
 - **Plugin name**: `opencode-rich-presence`
 - **CLI command**: `opencode-rpc`
-- **Latest version**: v2.0.6
+- **Latest version**: v2.0.7
 - **Node.js**: 18+ required, tested with 24.x
 - **npm registry**: package is NOT published there. Distributed
   only via GitHub Releases tarballs.
@@ -89,6 +89,41 @@ comments:
 This handles URLs like `"https://opencode.ai/config.json"` correctly.
 Always preserve this lookbehind when modifying JSONC handling.
 
+### Multi-instance Leader Election
+
+The plugin uses activity-based leader election since v2.0.7. Pre-v2.0.7
+was first-wins and broke multi-window workflows: a previously idle
+leader kept showing stale presence while another instance was
+actively generating messages.
+
+The flow (in `coordinator.js`):
+
+- Lock at `~/.config/opencode/.opencode-rich-presence.lock` carries
+  `{pid, started, lastActivity}`. Leader heartbeat rewrites it every
+  5s with current `lastActivity`.
+- Standby instances poll every 2s (`HANDOFF_CHECK_INTERVAL`) for lock
+  release or staleness. Stale threshold: 15s (`HEARTBEAT_TIMEOUT`).
+- When a standby receives a chat.activity event
+  (`chat.message`, `message.part.updated`, `permission.asked`,
+  `permission.replied`, busy `session.status`), it calls
+  `coordinator.markActive()` to update its local `lastActivity` and
+  `coordinator.requestHandoff()` to write the handoff signal at
+  `~/.config/opencode/.opencode-rich-presence-handoff`.
+- Leader's heartbeat reads the handoff signal each tick. If the
+  request is from a different PID with `requestedAt` newer than the
+  leader's `lastActivity`, the leader releases the lock. The standby
+  picks it up on its next poll.
+
+`index.js` registers a leadership-change callback that calls
+`startConnect()` on gain and `shutdownWorker()` on loss so the
+Discord worker actually starts/stops on transitions. `shutdownWorker()`
+is distinct from `destroy()`: it does NOT permanently dispose the
+service so the instance can re-acquire leadership later.
+
+The `chat.message` and event handlers use a `noteActivity()` helper
+that combines `markActive()` + `requestHandoff()`. Add new activity
+events there, not directly in `coordinator`.
+
 ### Restart Command
 
 `opencode-rpc restart` only writes the restart signal and kills
@@ -160,6 +195,13 @@ In addition to the global rules in `~/.config/opencode/AGENTS.md`:
   npm. Fixed in v2.0.6: `install` no longer writes the entry, and
   detects/offers removal of v2.0.5-era stale entries on upgrade.
   `uninstall` auto-removes stale entries as part of cleanup.
+- First-wins leader election. Symptom: a previously idle leader
+  shows stale Discord presence while another instance is actively
+  chatting. Pre-v2.0.7 held the lock indefinitely until exit or
+  15s stale; standby could not push. Fixed in v2.0.7 with
+  activity-based handoff (standby writes handoff signal on
+  chat.message, leader's heartbeat reads it and yields if the
+  request is fresher than its own activity).
 
 ## Documentation Maintenance
 

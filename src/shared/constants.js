@@ -8,6 +8,10 @@ export const STATE = {
 
 export const HEARTBEAT_INTERVAL = 5000;
 export const HEARTBEAT_TIMEOUT = 15000;
+// Standby instances poll at this interval to check whether the leader has
+// released the lock (either due to a handoff request or because the leader
+// exited). Also used for the lock-stale takeover path.
+export const HANDOFF_CHECK_INTERVAL = 2000;
 export const REFRESH_INTERVAL = 5000;
 export const FILE_WRITE_DEBOUNCE_MS = 250;
 export const DISCORD_DEBOUNCE_MS = 300;

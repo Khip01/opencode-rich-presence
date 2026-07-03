@@ -8,7 +8,7 @@ import { loadConfig } from "./config-resolver.js";
 import { coordinator } from "./coordinator.js";
 import { SessionState } from "./session-state.js";
 import { withTimeout, formatDuration } from "./template-engine.js";
-import { pushActivity, destroy as discordDestroy, startConnect, getStatus } from "./discord-service.js";
+import { pushActivity, destroy as discordDestroy, shutdownWorker, startConnect, getStatus } from "./discord-service.js";
 
 // ─── Global State ──────────────────────────────────────────────────────────
 
@@ -18,6 +18,17 @@ let displayedSessionID = null;
 const providerModels = new Map();
 let writeTimer = null;
 let config = null;
+
+// Record that this instance is doing something. Updates the local lastActivity
+// timestamp so the leader's heartbeat knows we are fresher than it. If we are
+// a standby, also request leadership so we push to Discord instead of the
+// idle leader.
+function noteActivity(opts = {}) {
+    coordinator.markActive();
+    if (!coordinator.isLeader && opts.requestHandoff !== false) {
+        coordinator.requestHandoff().catch((e) => log("requestHandoff:", e?.message || e));
+    }
+}
 
 // ─── File Output ───────────────────────────────────────────────────────────
 
@@ -277,6 +288,20 @@ export const OpencodeRichPresence = async ({ client, directory }) => {
 
     config = await loadConfig();
 
+    // React to leadership transitions: connect to Discord on gain, tear the
+    // worker down on loss. This is what makes a standby instance that takes
+    // over leadership via activity handoff actually start pushing presence.
+    coordinator.setLeadershipChangeCallback(async (nowLeader) => {
+        if (nowLeader) {
+            log("Gained leadership, connecting to Discord");
+            try { startConnect(config); } catch (e) { log("startConnect:", e?.message || e); }
+            scheduleWrite();
+        } else {
+            log("Lost leadership, disconnecting from Discord");
+            try { await shutdownWorker(); } catch (e) { log("shutdownWorker:", e?.message || e); }
+        }
+    });
+
     await coordinator.tryAcquire();
 
     loadFallbackLimits();
@@ -297,7 +322,8 @@ export const OpencodeRichPresence = async ({ client, directory }) => {
         coordinator.startHeartbeat();
         startConnect(config);
     } else {
-        log("Not leader - skipping Discord connect (another instance is handling it)");
+        log("Standby - waiting for leadership opportunity");
+        coordinator.startStandbyPolling();
     }
 
     scheduleWrite();
@@ -320,6 +346,7 @@ export const OpencodeRichPresence = async ({ client, directory }) => {
             log("Disposing...");
             clearInterval(refreshTimer);
             clearInterval(activityTimer);
+            coordinator.stopStandbyPolling();
             await coordinator.release();
             await discordDestroy();
         },
@@ -336,6 +363,7 @@ export const OpencodeRichPresence = async ({ client, directory }) => {
                 s.lastActivity = Date.now();
                 s.promptCount++;
                 s.state = STATE.WORKING;
+                noteActivity();
                 updateDisplay();
                 scheduleWrite();
                 restoreSessionMessages(client, sid, directory).catch(() => {});
@@ -353,6 +381,7 @@ export const OpencodeRichPresence = async ({ client, directory }) => {
                     const s = ensureSession(i.id);
                     if (i.time?.created) s.startedAt = i.time.created;
                     s.lastActivity = Date.now();
+                    noteActivity();
                     updateDisplay();
                     scheduleWrite();
                     restoreSessionMessages(client, i.id, directory).catch(() => {});
@@ -380,6 +409,7 @@ export const OpencodeRichPresence = async ({ client, directory }) => {
                     s.lastActivity = Date.now();
                     if ((st === "idle" || et === "session.idle") && s.state !== STATE.ASKING) s.state = STATE.WAITING;
                     else if (st === "busy" && ![STATE.TYPING, STATE.THINKING, STATE.ASKING].includes(s.state)) s.state = STATE.WORKING;
+                    if (st === "busy") noteActivity();
                     updateDisplay();
                     scheduleWrite();
                     return;
@@ -395,6 +425,7 @@ export const OpencodeRichPresence = async ({ client, directory }) => {
                     if (i.mode) s.mode = i.mode;
                     s.modelLimit = getModelLimit(s.model) ?? s.modelLimit;
                     s.lastActivity = Date.now();
+                    noteActivity();
                     updateDisplay();
                     scheduleWrite();
                     return;
@@ -415,6 +446,7 @@ export const OpencodeRichPresence = async ({ client, directory }) => {
                         const ctxT = (p.tokens.input || 0) + (p.tokens.cache?.read || 0);
                         if (ctxT > 0) s._latestContextTokens = ctxT;
                     }
+                    noteActivity();
                     updateDisplay();
                     scheduleWrite();
                     return;
@@ -427,6 +459,7 @@ export const OpencodeRichPresence = async ({ client, directory }) => {
                     if (!s) return;
                     s.state = STATE.ASKING;
                     s.lastActivity = Date.now();
+                    noteActivity();
                     updateDisplay();
                     scheduleWrite();
                     return;
@@ -439,6 +472,7 @@ export const OpencodeRichPresence = async ({ client, directory }) => {
                     if (!s) return;
                     s.state = STATE.WORKING;
                     s.lastActivity = Date.now();
+                    noteActivity();
                     updateDisplay();
                     scheduleWrite();
                     return;
