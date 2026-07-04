@@ -86,7 +86,17 @@ export async function update(args = []) {
         process.exit(1);
     }
 
-    if (compareSemver(latestVer, currentVer) <= 0) {
+    // v2.0.8-rc5: with --prerelease, still update when the base version is
+    // equal but the tag differs (e.g. user is on v2.0.8 stable and the
+    // latest tag is v2.0.8-rc4). parseSemver strips the prerelease suffix,
+    // so compareSemver alone would say "equal" and skip the update.
+    const sameBase = compareSemver(latestVer, currentVer) === 0;
+    const sameTag = latestTag.replace(/^v/, "") === current.replace(/^v/, "");
+    if (!includePrerelease && sameBase) {
+        console.log(`Already up-to-date (latest: ${latestTag}).`);
+        return;
+    }
+    if (sameBase && sameTag) {
         console.log(`Already up-to-date (latest: ${latestTag}).`);
         return;
     }

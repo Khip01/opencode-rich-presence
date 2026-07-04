@@ -9,7 +9,7 @@ need to navigate this codebase safely.
 
 - **Plugin name**: `opencode-rich-presence`
 - **CLI command**: `opencode-rpc`
-- **Latest version**: v2.0.8-rc4
+- **Latest version**: v2.0.8-rc5
 - **Node.js**: 18+ required, tested with 24.x
 - **npm registry**: package is NOT published there. Distributed
   only via GitHub Releases tarballs.
@@ -247,6 +247,26 @@ In addition to the global rules in `~/.config/opencode/AGENTS.md`:
   retrying Discord login by the time leadership transfers. When
   adding a new user-initiated event handler that should pre-spawn,
   call `prepareConnect(config)` inside the handler.
+- `opencode-rpc update --prerelease` reporting "Already up-to-date"
+  when the user's installed package was a stable `v2.0.8` and the
+  latest GitHub release was a prerelease like `v2.0.8-rc4`. Root
+  cause: `parseSemver` strips the `-rc4` suffix and the numeric
+  comparison returned 0. Fixed in v2.0.8-rc5: when `--prerelease`
+  is set, also compare the tag itself so a stable-to-prerelease
+  upgrade on the same base version is detected.
+- Sending `SIGKILL` to a Node.js ChildProcess reference after the
+  worker has actually exited. Even with the polling pattern added in
+  v2.0.8-rc1/v2.0.8-rc3, there is a window where the worker process
+  has exited at the OS level but Node.js has not yet dispatched the
+  `exit` event to the parent. `wp.exitCode` is still `null` during
+  this window, the parent would still send `SIGKILL`, and Linux
+  could have already recycled the PID to the next leader's worker.
+  The user observed the new leader's worker dying with
+  `code=null sig=SIGKILL` right after a handoff. Fixed in v2.0.8-rc5:
+  remove the SIGKILL-after-grace fallback. If the worker hangs, it
+  becomes an orphan (cleaned up when its parent exits) but we never
+  risk killing an unrelated process. NEVER call `child.kill()`
+  after the worker has logically exited.
 - First-wins leader election. Symptom: a previously idle leader
   shows stale Discord presence while another instance is actively
   chatting. Pre-v2.0.7 held the lock indefinitely until exit or

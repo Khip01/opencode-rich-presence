@@ -61,6 +61,16 @@ async function loadAppId() {
     throw new Error(msg);
 }
 
+// Bound a Discord IPC call so a slow / hung Discord side cannot keep the
+// worker alive past the parent's grace window. Returns the wrapped
+// promise's resolved value, or "timeout" if it does not settle in `ms`.
+function withTimeout(promise, ms, label) {
+    return Promise.race([
+        promise.then((v) => ({ ok: true, value: v })).catch((e) => ({ ok: false, error: e })),
+        new Promise((resolve) => setTimeout(() => resolve({ ok: false, error: new Error(`${label || "operation"} timed out after ${ms}ms`) }), ms)),
+    ]);
+}
+
 function scheduleReconnect() {
     if (reconnectTimer || disposed) return;
     if (retryCount >= MAX_RETRIES) {
@@ -211,9 +221,16 @@ async function handleCommand(msg) {
         // last activity after the worker exits because it never received a
         // clear-presence command. The user sees a "stuck" presence until
         // they manually quit+reopen Discord.
-        try { await clearActivity(); } catch (e) { log("clearActivity on shutdown:", e?.message || e); }
+        //
+        // v2.0.8-rc5: bound clearActivity and client.destroy with a 1s
+        // timeout each. Without this, a hung Discord IPC connection would
+        // keep the worker alive past the parent's 2s grace window, after
+        // which the parent sends SIGKILL (PID-reuse race risk).
+        const r1 = await withTimeout(clearActivity(), 1000, "clearActivity");
+        if (!r1.ok) log("clearActivity on shutdown:", r1.error?.message || r1.error);
         if (client) {
-            try { await client.destroy(); } catch {}
+            const r2 = await withTimeout(client.destroy?.() ?? Promise.resolve(), 1000, "client.destroy");
+            if (!r2.ok) log("client.destroy on shutdown:", r2.error?.message || r2.error);
         }
         process.exit(0);
     }
@@ -225,7 +242,10 @@ async function handleCommand(msg) {
 // the process exits within the 200ms grace the parent gives us.
 function gracefulExit() {
     shuttingDown = true;
-    try { clearActivity().catch(() => {}); } catch {}
+    try {
+        withTimeout(clearActivity(), 1000, "clearActivity").catch(() => {});
+        if (client) withTimeout(client.destroy?.() ?? Promise.resolve(), 1000, "client.destroy").catch(() => {});
+    } catch {}
     setTimeout(() => process.exit(0), 150).unref?.();
 }
 process.on("SIGINT", gracefulExit);

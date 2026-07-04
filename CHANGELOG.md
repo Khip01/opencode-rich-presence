@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.8-rc5] - 2026-07-03
+
+### Fixed
+
+- `opencode-rpc update --prerelease` was reporting "Already up-to-date" when the user's installed package was `v2.0.8` (stable) and the latest GitHub release was `v2.0.8-rc4` (prerelease) because `parseSemver` strips the `-rc4` suffix and the numeric comparison returned `0` (equal). v2.0.8-rc5 compares both the numeric version AND the tag, so a stable-to-prerelease upgrade on the same base version is now detected and offered.
+- Discord worker was hanging for >2s during shutdown. The `shutdown` command handler called `await clearActivity()` followed by `await client.destroy()`, both of which could hang indefinitely if Discord's IPC socket was in a bad state. Without timeouts, the parent's `destroy()` / `shutdownWorker()` polled for 2s and then sent `SIGKILL`. v2.0.8-rc5 bounds both calls with a 1s timeout each, so the worker always exits within ~2.2s of receiving the shutdown command.
+- Removed the `SIGKILL`-after-grace fallback from `discord-service.js:destroy()` and `shutdownWorker()`. Even with the polling pattern added in v2.0.8-rc3, there is a window where the worker process has exited at the OS level but Node.js has not yet dispatched the `exit` event to the parent. `wp.exitCode` is still `null` during this window, the parent would still send `SIGKILL`, and Linux could have already recycled the PID to the next leader's worker. The user observed exactly this symptom: the new leader's worker dying with `code=null sig=SIGKILL` (or `SIGTERM`) right after a handoff. v2.0.8-rc5 leaves the worker to exit naturally on its own; if it does hang, it becomes an orphan that gets cleaned up when its parent eventually exits.
+
 ## [2.0.8-rc4] - 2026-07-03
 
 ### Fixed
@@ -190,6 +198,7 @@ v1.0.0 is preserved as `opencode-rich-presence-v1.0.0-legacy-linux-only` on the 
 - Documentation: README, SETUP, ARCHITECTURE, CUSTOMIZATION, TROUBLESHOOTING.
 
 [2.0.7]: https://github.com/Khip01/opencode-rich-presence/releases/tag/v2.0.7
+[2.0.8-rc5]: https://github.com/Khip01/opencode-rich-presence/releases/tag/v2.0.8-rc5
 [2.0.8-rc4]: https://github.com/Khip01/opencode-rich-presence/releases/tag/v2.0.8-rc4
 [2.0.8-rc3]: https://github.com/Khip01/opencode-rich-presence/releases/tag/v2.0.8-rc3
 [2.0.8-rc2]: https://github.com/Khip01/opencode-rich-presence/releases/tag/v2.0.8-rc2
