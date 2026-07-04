@@ -1,6 +1,6 @@
 {
   "name": "opencode-rich-presence",
-  "version": "2.1.0",
+  "version": "2.1.1",
   "description": "Cross-platform Discord Rich Presence plugin for OpenCode AI. Displays your AI session status in Discord.",
   "type": "module",
   "main": "./src/plugin/index.js",

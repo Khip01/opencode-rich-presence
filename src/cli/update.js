@@ -1,5 +1,5 @@
 import { spawnSync, execSync } from "node:child_process";
-import { lstatSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -53,36 +53,49 @@ async function fetchLatestCommit(branch = "main") {
     return data.sha || null;
 }
 
+// Resolve where `npm install -g` would place this package. We prefer
+// `npm root -g` (authoritative, works for nvm/asdf/volta/custom prefixes)
+// and fall back to environment-variable guesses when npm is unavailable
+// on PATH (minimal containers, etc.).
+function resolveGlobalInstallPath() {
+    try {
+        const result = spawnSync("npm", ["root", "-g"], { encoding: "utf-8" });
+        if (result.status === 0) {
+            const root = result.stdout.trim();
+            if (root) return join(root, REPO);
+        }
+    } catch {}
+
+    if (process.env.npm_config_prefix) {
+        return join(process.env.npm_config_prefix, "lib", "node_modules", REPO);
+    }
+    if (process.env.NVM_BIN) {
+        return join(process.env.NVM_BIN, "..", "..", "lib", "node_modules", REPO);
+    }
+    return join(dirname(process.execPath), "..", "lib", "node_modules", REPO);
+}
+
 // Remove the previously-installed package directory if present, including
 // broken symlinks left over by npm v11's git-dep handling. npm install
 // renames the existing target as a backup before installing the new one;
 // if the existing target is a broken symlink pointing at a deleted npm
 // cache temp dir, the rename fails with ENOTDIR. Removing the broken
 // symlink up-front avoids this.
+//
+// `rmSync(target, { recursive: true, force: true })` is safe for all
+// target types: no-op when missing (force), unlinks symlinks without
+// following them, recursively removes directories.
 function cleanExistingInstall() {
+    const target = resolveGlobalInstallPath();
+    if (!target) return null;
     try {
-        // Resolve the install dir from this script's location. Works for both
-        // npm-global and nvm installs because both place the package under
-        // <prefix>/lib/node_modules/<name>/.
-        const candidates = [
-            join(process.env.npm_config_prefix || "", "lib", "node_modules", REPO),
-            join(process.env.NVM_BIN, "..", "..", "lib", "node_modules", REPO),
-            join(dirname(process.execPath), "..", "lib", "node_modules", REPO),
-        ];
-        for (const target of candidates) {
-            try {
-                const stat = lstatSync(target);
-                unlinkSync(target);
-                return target;
-            } catch {
-                // Path does not exist or could not be stat'd, try next candidate.
-            }
-        }
-    } catch (e) {
-        // Best-effort; install will fail downstream with a clear error if the
-        // path really exists and we could not remove it.
+        rmSync(target, { recursive: true, force: true });
+        return target;
+    } catch {
+        // Permission denied or similar; let `npm install` try and surface
+        // a real error to the user.
+        return null;
     }
-    return null;
 }
 
 // npm v11 installs git deps as symlinks pointing to ~/.npm/_cacache/tmp/<id>,

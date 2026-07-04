@@ -5,20 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.1.1] - 2026-07-04
+
+Patch release. v2.1.0 was tagged with a broken `src/cli/update.js` (see "Fixed" below), so this release also ships the originally-intended fix plus the four features that landed on `main` between the v2.1.0 tag and this commit: the `--stable` flag, the `.install-channel` marker written by `update`, the channel suffix in `version` output, and the marker bootstrap in `bin/opencode-rpc.js`.
 
 ### Added
 
 - `opencode-rpc update --stable` flag. Skips version comparison and always installs the latest stable release tag. Use this to switch back to the stable channel when you have been running on `update --dev` mode and want to pin to a tagged release without manually looking up the tag yourself. `--stable` and `--dev` are mutually exclusive: passing both exits with code 2 and a clear error message, following POSIX Guideline 11 and modern CLI conventions (cargo, kubectl, npm).
+- `opencode-rpc update` (all paths: default, `--stable`, `--dev`) writes a `.install-channel` marker file inside the installed package recording the install channel (`stable` for tag installs, `dev` for SHA installs), the ref used, and the install timestamp.
+- `opencode-rpc version` reads the marker and appends the channel info to its output: e.g. `opencode-rich-presence v2.1.1 (stable)` or `opencode-rich-presence v2.1.1 (dev: 0f39f8a)`. Pre-v2.0.9 installs without a marker still show just the version. The marker lives inside the package directory (resolved via `npm root -g` rather than `import.meta.url` because the package is replaced during install and `import.meta.url` keeps the pre-install path).
+- `bin/opencode-rpc.js` bootstraps a `.install-channel` marker on every CLI invocation if one doesn't already exist (defaults to `channel: "stable"`). This ensures `opencode-rpc version` shows channel info even for users who installed via `npm install -g <tarball>` directly without going through `opencode-rpc update`, and for pre-v2.0.9 installs that were upgraded in place. `.gitignore` excludes `.install-channel` as a safety net in case the marker is ever written into the repo working directory.
 
 ### Fixed
 
-- `opencode-rpc update` (all paths: default, `--stable`, `--dev`) no longer fails with `ENOTDIR: not a directory, rename ...` on npm v11. The previous implementation ran `npm install -g <repo>#<ref>` directly, which on npm v11 creates a symlink under `lib/node_modules/` pointing to a temp dir under `~/.npm/_cacache/tmp/`. After npm cleans that temp dir, the symlink is broken and the next install fails because npm cannot rename a broken symlink. The new implementation clones the repo to a temp dir, checks out the requested ref, runs `npm pack`, and installs the resulting local tarball via `npm install -g <path>.tgz`. Tarballs are not affected by the git-dep symlink bug. Also cleans up any leftover broken symlink at `lib/node_modules/opencode-rich-presence` before the install, so users with a broken state from v2.0.8-rc5 / v2.0.8-rc4 / etc. recover automatically.
+- v2.1.0's `src/cli/update.js` was tagged with the broken implementation that called `npm install -g <repo>#<ref>` directly. The clone+pack+install-from-tarball fix was committed AFTER the v2.1.0 tag was cut, so users who installed v2.1.0 and then ran `opencode-rpc update --dev` (or any other update path) hit `ENOTDIR: not a directory, rename ...` on npm v11. v2.1.1's `update.js` contains the intended fix for all paths: clone the repo, check out the requested ref, run `npm pack`, and `npm install -g` the resulting local tarball. Tarballs are not affected by the npm-v11 git-dep symlink bug. Also cleans up any leftover broken symlink at `lib/node_modules/opencode-rich-presence` before the install, so users with a broken state from v2.0.x or v2.1.0 recover automatically.
 
 ### Changed
 
-- `opencode-rpc update` (all paths) writes a `.install-channel` marker file inside the installed package recording the install channel (`stable` for tag installs, `dev` for SHA installs), the ref used, and the install timestamp. `opencode-rpc version` now reads this marker and appends the channel info to its output: e.g. `opencode-rich-presence v2.1.0` (stable) or `opencode-rich-presence v2.1.0 (dev: 0f39f8a)`. Pre-v2.0.9 installs without a marker still show just the version. The marker lives inside the package directory (resolved via `npm root -g` rather than `import.meta.url` because the package is replaced during install and `import.meta.url` keeps the pre-install path).
-- `bin/opencode-rpc.js` bootstraps a `.install-channel` marker on every CLI invocation if one doesn't already exist (defaults to `channel: "stable"`). This ensures `opencode-rpc version` shows channel info even for users who installed via `npm install -g <tarball>` directly without going through `opencode-rpc update`, and for pre-v2.0.9 installs that were upgraded in place. `.gitignore` excludes `.install-channel` as a safety net in case the marker is ever written into the repo working directory.
+- `src/cli/update.js cleanExistingInstall()` now resolves the install path via `npm root -g` (authoritative, works for nvm/asdf/volta/custom prefixes) instead of guessing from `NVM_BIN` / `process.execPath` / `npm_config_prefix`. Also uses `rmSync(..., { recursive: true, force: true })` which handles real directories, broken symlinks, and stale files uniformly (previously only unlinked the target, which silently failed for real directories).
+- `src/cli/help.js` Update section now includes the `opencode-rpc update --stable` example alongside the existing `--dev` example; install example uses v2.1.1.
+
+### Documentation
+
+- `docs/INSTALL.md` adds a zsh quoting callout. zsh interprets `#` as a glob qualifier, so `npm install -g Khip01/opencode-rich-presence#v2.1.1` errors with "no matches found". The URL must be single-quoted: `npm install -g 'Khip01/opencode-rich-presence#v2.1.1'`. bash and fish users are unaffected.
+- `docs/TROUBLESHOOTING.md` adds a new section "`opencode-rpc`: command not found after install" documenting how to recover from a broken-symlink state left by v2.1.0 (or by manual `npm install -g <repo>` without a ref).
+
+## [Unreleased]
+
+(none yet; current work is in [2.1.1])
 
 ## [2.1.0] - 2026-07-04
 

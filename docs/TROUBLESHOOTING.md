@@ -134,8 +134,52 @@ If no Lock section is shown, no instance currently holds the leader lock (no Ope
 1. Wait a few minutes and retry.
 2. Manual fallback:
    ```bash
-   npm install -g Khip01/opencode-rich-presence#v2.1.0
+   npm install -g 'Khip01/opencode-rich-presence#v2.1.1'
    ```
+   (zsh users: quote the URL, see INSTALL.md.)
+
+---
+
+## `opencode-rpc: command not found` after install
+
+**Symptom:** `npm list -g` shows `opencode-rich-presence@` in the list, but running `opencode-rpc` errors with `command not found` or `zsh: command not found: opencode-rpc`. The package is "installed" according to npm but no CLI binary is on PATH.
+
+**Cause:** npm v11 (Node 24.x) installs git deps as symlinks under `lib/node_modules/<name>` that point at a temp directory under `~/.npm/_cacache/tmp/<id>`. After npm cleans up that temp dir, the symlink becomes broken. `npm list` reports the symlink as installed, but the `bin` link in `<prefix>/bin/opencode-rpc` is never created, so the CLI is unreachable. This affects:
+- `npm install -g <repo>` (no `#ref`) on npm v11.
+- v2.1.0's `opencode-rpc update --dev` and `opencode-rpc update --stable`, which called `npm install -g <repo>#<ref>` directly. v2.1.0 is the last version with this bug; v2.1.1+ uses clone+pack+install-from-tarball internally and is unaffected.
+
+**How to verify:**
+```bash
+# npm thinks it's installed:
+npm list -g opencode-rich-presence
+# -> opencode-rich-presence@ -> ./../../../../../.npm/_cacache/tmp/git-cloneXXXXXXXX
+# But the symlink target does not exist:
+ls -la "$(npm root -g)/opencode-rich-presence"
+# -> lrwxrwxrwx ... opencode-rich-presence -> /home/<user>/.npm/_cacache/tmp/git-cloneXXXXXXXX
+# -> /home/<user>/.npm/_cacache/tmp/git-cloneXXXXXXXX: No such file or directory
+```
+
+**Fix (recovery):**
+1. Uninstall the broken install:
+   ```bash
+   npm uninstall -g opencode-rich-presence
+   ```
+2. Install the latest tarball from the GitHub release. Tarballs install as a real directory (no symlink), so the bug does not apply:
+   ```bash
+   # Download from: https://github.com/Khip01/opencode-rich-presence/releases/latest
+   # Pick the opencode-rich-presence-X.Y.Z.tgz asset under "Assets"
+   npm install -g ./Downloads/opencode-rich-presence-2.1.1.tgz   # adjust path
+   ```
+3. Verify:
+   ```bash
+   opencode-rpc version
+   # -> opencode-rich-presence v2.1.1 (stable)
+   which opencode-rpc
+   # -> /home/<user>/.nvm/versions/node/v24.13.1/bin/opencode-rpc
+   ```
+4. If `opencode-rpc version` does not show `(stable)` / `(dev: <sha>)`, the `.install-channel` marker is missing. Run any `opencode-rpc` command; the CLI bootstraps a fresh marker on first run.
+
+**Prevention:** v2.1.1+ uses a tarball-based install flow inside `opencode-rpc update`. As long as the installed CLI is v2.1.1 or later, future `update` calls will not reproduce this bug.
 
 ---
 
@@ -175,7 +219,7 @@ If you run OpenCode in WSL but install the plugin in native Windows, the paths w
 **Fix:** Install the plugin inside WSL:
 ```bash
 # Inside WSL
-npm install -g Khip01/opencode-rich-presence#v2.1.0
+npm install -g Khip01/opencode-rich-presence#v2.1.1
 ```
 
 **Check 2: PowerShell execution policy**

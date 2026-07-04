@@ -1,6 +1,14 @@
 # Installation Guide
 
-Detailed setup for `opencode-rich-presence` v2.1.0+.
+Detailed setup for `opencode-rich-presence` v2.1.1+.
+
+> **zsh users**: zsh treats `#` as a glob qualifier, so the unquoted commands below error with `zsh: no matches found: Khip01/opencode-rich-presence#v2.1.1`. Always wrap the URL in single quotes:
+>
+> ```bash
+> npm install -g 'Khip01/opencode-rich-presence#v2.1.1'
+> ```
+>
+> bash and fish users can run the unquoted form. This is a zsh shell issue, not an npm issue.
 
 ## Prerequisites
 
@@ -15,18 +23,18 @@ Pick one installation method.
 ### A. From a specific release tag (recommended for end users)
 
 ```bash
-npm install -g Khip01/opencode-rich-presence#v2.1.0
+npm install -g 'Khip01/opencode-rich-presence#v2.1.1'
 ```
 
-This installs the `opencode-rpc` CLI globally from the v2.1.0 tag. `npm` clones the repo at that tag and installs from there. No separate tarball download is needed.
+This installs the `opencode-rpc` CLI globally from the v2.1.1 tag. `npm` clones the repo at that tag and installs from there. No separate tarball download is needed.
 
 ### B. Latest stable release
 
 ```bash
-npm install -g Khip01/opencode-rich-presence#semver:^2.0.0
+npm install -g 'Khip01/opencode-rich-presence#semver:^2.0.0'
 ```
 
-`npm` finds the latest tag matching `^2.0.0` (e.g. v2.1.0) and installs from that. Pin to a specific tag (option A) for reproducibility.
+`npm` finds the latest tag matching `^2.0.0` (e.g. v2.1.1) and installs from that. Pin to a specific tag (option A) for reproducibility.
 
 ### C. Dev / bleeding-edge (latest commit on main)
 
@@ -34,7 +42,7 @@ npm install -g Khip01/opencode-rich-presence#semver:^2.0.0
 npm install -g Khip01/opencode-rich-presence
 ```
 
-No `#ref` means `npm` uses the default branch (main), i.e. the latest commit. Use this if you want the newest features/fixes before they are tagged.
+No `#ref` means `npm` uses the default branch (main), i.e. the latest commit. Use this if you want the newest features/fixes before they are tagged. (No `#` in the URL, so zsh quoting is not needed for this command.)
 
 ### D. From local source (for development)
 
@@ -96,7 +104,7 @@ opencode-rpc update --dev            # upgrade to latest commit on main (develop
 opencode-rpc update --stable         # force install latest stable tag (use to switch off dev)
 ```
 
-Fetches the latest tag (or commit, with `--dev`) from GitHub, then runs `npm install -g Khip01/opencode-rich-presence#<ref>` to upgrade in place. `--stable` skips version comparison and always installs the latest tag, useful for switching back from `--dev` mode. `--stable` and `--dev` are mutually exclusive. Restart OpenCode afterwards.
+Fetches the latest tag (or commit, with `--dev`) from GitHub, then clones the repo, runs `npm pack`, and installs the resulting local tarball via `npm install -g <path>.tgz`. This avoids npm v11's git-dep symlink bug (which produces broken symlinks at `lib/node_modules/opencode-rich-presence/` and fails with `ENOTDIR` on subsequent installs). `--stable` skips version comparison and always installs the latest tag, useful for switching back from `--dev` mode. `--stable` and `--dev` are mutually exclusive. Restart OpenCode afterwards.
 
 ## Uninstalling
 
@@ -121,7 +129,7 @@ To complete uninstall, also remove the package itself with `npm uninstall -g Khi
 v1.0.0 used bash scripts (`install`, `uninstall`, `restart-discord.sh`) and was Linux-only.
 
 1. Back up `~/.config/opencode/discord-config.json`.
-2. Install v2.1.0 via the steps above.
+2. Install v2.1.1 via the steps above.
 3. Run `opencode-rpc install` to set up the new config file.
 4. Restore your settings into the new config (App ID, presence templates).
 5. Remove the old v1.0.0 leftovers from `~/.config/opencode/`:

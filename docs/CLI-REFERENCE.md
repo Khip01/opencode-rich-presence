@@ -14,14 +14,14 @@ Prints the installed package version, plus the install channel (stable tag or de
 
 ```
 $ opencode-rpc version
-opencode-rich-presence v2.1.0 (stable)
+opencode-rich-presence v2.1.1 (stable)
 ```
 
 ```
 $ opencode-rpc update --dev    # switch to dev channel
 ...
 $ opencode-rpc version
-opencode-rich-presence v2.1.0 (dev: eac311d)
+opencode-rich-presence v2.1.1 (dev: eac311d)
 ```
 
 ---
@@ -52,7 +52,7 @@ Options (update):
   --stable     Force install latest stable tag (use to switch off dev)
 
 Installation (one-time):
-  npm install -g Khip01/opencode-rich-presence#v2.1.0
+  npm install -g Khip01/opencode-rich-presence#v2.1.1
   opencode-rpc install
 
   # Or install from main (dev / bleeding-edge):
@@ -199,18 +199,18 @@ Use this when you want to apply config changes without restarting OpenCode, or w
 
 ## `opencode-rpc update`
 
-Fetches the latest release from GitHub and reinstalls globally via npm. v2.1.0+ uses `npm install -g <repo>#<ref>` instead of downloading a tarball, so the package always comes from the canonical repo source.
+Fetches the latest release from GitHub and reinstalls globally via npm. v2.1.1+ clones the repo, packs a local tarball, and installs that via `npm install -g <path>.tgz` to bypass npm v11's git-dep symlink bug. v2.1.0 used `npm install -g <repo>#<ref>` directly and was vulnerable to the ENOTDIR-on-rename failure mode.
 
 **Example: already up to date**
 
 ```
 $ opencode-rpc update
 
-Current version: v2.1.0
+Current version: v2.1.1
 Mode: stable (latest release tag)
 Checking for updates...
 
-Already up-to-date (latest: v2.1.0).
+Already up-to-date (latest: v2.1.1).
 ```
 
 **Example: update available**
@@ -222,11 +222,11 @@ Current version: v2.0.9
 Mode: stable (latest release tag)
 Checking for updates...
 
-Update available: v2.0.9 -> v2.1.0
+Update available: v2.0.9 -> v2.1.1
 
-Installing Khip01/opencode-rich-presence#v2.1.0...
+Installing opencode-rich-presence-2.1.1.tgz...
 
-Updated to v2.1.0.
+Updated to v2.1.1.
 Restart OpenCode to apply changes.
 ```
 
@@ -237,12 +237,12 @@ Restart OpenCode to apply changes.
 ```
 $ opencode-rpc update --dev
 
-Current version: v2.1.0
+Current version: v2.1.1
 Mode: dev (latest commit on main)
 Checking for updates...
 
 Latest commit on main: a1b2c3d
-Update available: v2.1.0 -> a1b2c3d (dev)
+Update available: v2.1.1 -> a1b2c3d (dev)
 
 Installing Khip01/opencode-rich-presence#a1b2c3d4...
 
@@ -258,12 +258,12 @@ Restart OpenCode to apply changes.
 $ opencode-rpc update --stable
 
 Current version: a1b2c3d (dev)
-Mode: stable (forcing install of v2.1.0)
-Switching to v2.1.0...
+Mode: stable (forcing install of v2.1.1)
+Switching to v2.1.1...
 
-Installing Khip01/opencode-rich-presence#v2.1.0...
+Installing opencode-rich-presence-2.1.1.tgz...
 
-Now on v2.1.0.
+Now on v2.1.1.
 Restart OpenCode to apply changes.
 ```
 

@@ -9,7 +9,7 @@ need to navigate this codebase safely.
 
 - **Plugin name**: `opencode-rich-presence`
 - **CLI command**: `opencode-rpc`
-- **Latest version**: v2.1.0
+- **Latest version**: v2.1.1
 - **Node.js**: 18+ required, tested with 24.x
 - **npm registry**: package is NOT published there. Distributed
   only via GitHub Releases tarballs.
@@ -52,7 +52,7 @@ Since v2.1.0, this project is distributed via `npm install -g <repo>#<ref>` dire
 
 | Audience | Command |
 |----------|---------|
-| End user (stable) | `npm install -g Khip01/opencode-rich-presence#v2.1.0` |
+| End user (stable) | `npm install -g Khip01/opencode-rich-presence#v2.1.1` |
 | End user (auto-resolve latest stable) | `npm install -g Khip01/opencode-rich-presence#semver:^2.0.0` |
 | Developer (latest commit on main) | `npm install -g Khip01/opencode-rich-presence` |
 | Developer (specific commit) | `npm install -g Khip01/opencode-rich-presence#abc1234` |

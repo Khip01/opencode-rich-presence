@@ -20,8 +20,8 @@ Works on **Linux**, **macOS**, and **Windows**.
 ### 1. Install the package
 
 ```bash
-# Stable release (replace v2.1.0 with the version you want):
-npm install -g Khip01/opencode-rich-presence#v2.1.0
+# Stable release (replace v2.1.1 with the version you want):
+npm install -g Khip01/opencode-rich-presence#v2.1.1
 
 # Dev / bleeding-edge (latest commit on main):
 npm install -g Khip01/opencode-rich-presence

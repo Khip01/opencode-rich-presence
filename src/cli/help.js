@@ -18,8 +18,8 @@ Options (update):
   --stable     Force install latest stable tag (use to switch off dev)
 
 Installation (one-time):
-  # Stable release (replace v2.1.0 with the version you want):
-  npm install -g Khip01/opencode-rich-presence#v2.1.0
+  # Stable release (replace v2.1.1 with the version you want):
+  npm install -g Khip01/opencode-rich-presence#v2.1.1
   opencode-rpc install
 
   # Dev / bleeding-edge (latest commit on main):
@@ -28,6 +28,7 @@ Installation (one-time):
 
 Update:
   opencode-rpc update                  # latest stable release tag
+  opencode-rpc update --stable         # force install latest stable tag (any state)
   opencode-rpc update --dev            # latest commit on main (developer)
 
 Documentation: https://github.com/Khip01/opencode-rich-presence
