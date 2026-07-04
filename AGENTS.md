@@ -9,7 +9,7 @@ need to navigate this codebase safely.
 
 - **Plugin name**: `opencode-rich-presence`
 - **CLI command**: `opencode-rpc`
-- **Latest version**: v2.0.8-rc5
+- **Latest version**: v2.0.8
 - **Node.js**: 18+ required, tested with 24.x
 - **npm registry**: package is NOT published there. Distributed
   only via GitHub Releases tarballs.
@@ -304,3 +304,191 @@ When pushing AGENTS.md to the remote repo:
   shares it
 - The global `~/.config/opencode/AGENTS.md` is personal and stays
   local (per OpenCode docs)
+
+## Lessons Learned (across v2.0.x development)
+
+Patterns that bit us during the v2.0.6 -> v2.0.8 redesign cycle.
+Future agents working on this project should keep these in mind,
+especially when adding new worker lifecycle code or
+multi-instance features.
+
+### Study prior versions before redesigning
+
+When the user reports a regression after a redesign, the FIRST thing
+to do is `git log --oneline` and read the previous design (use
+`gh release view <tag>` or `git show <tag>:path`). The user
+explicitly asked the v2.0.8 author to look at v2.0.6 because the
+simpler design worked better for their use case. Several rounds of
+"smart" complex fixes later, we ended up with the simple design
+plus a small set of targeted improvements. If the user pushes back
+on complexity, the answer is usually less, not more.
+
+### Discord IPC is single-connection per Application ID
+
+This is a hard constraint set by Discord, not something we can
+bypass. Every leadership handoff requires:
+1. Old worker disconnects from Discord IPC
+2. Discord sees socket close, may take a moment to consider the
+   presence "stale" (or keeps showing it depending on timing)
+3. New worker opens a new IPC connection
+4. Login handshake with Discord (1-3 seconds typically)
+
+There is no way to "transfer" the connection between processes.
+The ONLY way to make multi-instance handoff look seamless to the
+user is one of:
+- **Daemon architecture**: a long-running worker daemon holds the
+  Discord connection; OpenCode instances connect to it. Most
+  invasive but eliminates reconnect entirely.
+- **Pre-spawned worker** (current v2.0.8+ approach): standby spawns
+  its worker ahead of becoming leader, so it is already mid-login
+  when the leader releases. Reduces the gap to one Discord login
+  handshake (~1-3s, depends on Discord IPC state and network).
+- **Accept the gap**: shows as "display offline then back online"
+  during terminal switching. What v2.0.7 and earlier did.
+
+If a future redesign wants truly seamless handoff, the daemon
+approach is the only option. The pre-spawn approach is a
+reasonable compromise that keeps the architecture simple.
+
+### Node.js ChildProcess + Linux PID reuse = never call .kill() after exit
+
+Even with `wp.exitCode !== null` polling, there is a small window
+where the worker process has exited at the OS level but Node.js
+has not yet dispatched the `exit` event back to the parent. During
+this window, `wp.kill("SIGTERM")` will send the signal to a PID
+that has already been recycled by the OS (Linux reuses PIDs as
+soon as a process exits). The next leader's worker, having spawned
+with the recycled PID, will then die with `code=null sig=SIGKILL`.
+
+Rule: NEVER call `child.kill()` on a Node.js ChildProcess after the
+child has logically exited. If you must signal, check
+`wp.exitCode === null && wp.signalCode === null` AND consider
+the polling window. v2.0.8-rc5 dropped the SIGKILL-after-grace
+fallback entirely because the polling window is unavoidable.
+
+### semver parsing for prerelease
+
+`parseSemver(/^v?(\d+)\.(\d+)\.(\d+)/)` strips everything after
+the patch number, including `-rc4` suffixes. This means
+`v2.0.8` and `v2.0.8-rc4` compare as equal numerically. When the
+update command needs to distinguish them (e.g. for --prerelease
+upgrades on the same base version), also compare the original tag
+string. See the `sameBase && sameTag` check in `update.js`.
+
+When introducing a new prerelease tag scheme, document it in
+`update.js` so the comparison logic stays correct.
+
+### Multi-process coordination requires polling, not events
+
+Standby instances cannot subscribe to "leader released the lock"
+as an event because they are separate processes with no shared
+event bus. They must poll the lock file. Trade-offs:
+- Fast polling (1s) is responsive but uses more CPU/wakeups
+- Slow polling (5s+) saves power but increases handoff latency
+
+v2.0.8-rc2 introduced dual-rate polling: slow (1s) when idle,
+fast (250ms) for 8s after `markActive` / `requestHandoff`. This
+keeps idle instances cheap while letting an active standby
+acquire the lock within ~250ms.
+
+If you change `HANDOFF_CHECK_INTERVAL` or `ACTIVE_HANDSHAKE_INTERVAL`,
+also adjust `FAST_POLL_WINDOW_MS` to match the expected active
+duration. The cooldown (`LEADER_COOLDOWN_MS`) should be roughly
+2x the active poll window or shorter, otherwise the leader
+ignores the standby's handoff request before it has time to
+react.
+
+### Test in multi-process sandbox before shipping
+
+Single-process tests miss most of the multi-instance bugs we hit:
+PID reuse races only manifest with concurrent processes. The
+two-process sandbox test in this codebase is essential:
+
+```js
+// Two processes, separate OPENCODE_CONFIG_DIR, run in parallel,
+// have B request handoff after A becomes leader.
+const leader = spawnNode(leaderScript);
+sleep(1);
+const standby = spawnNode(standbyScript);
+waitFor(standby); // wait for handoff completion
+```
+
+Future agents adding features that touch the coordinator should
+add a sandbox test before shipping.
+
+### User's UX expectations beat clever engineering
+
+The user explicitly said: "v2.0.6 was smooth, v2.0.7+ flickers."
+That is the most important feedback. Smoothness of state
+transitions matters more than the technical correctness of
+leader election. If the user's UX expectation is "state updates
+should feel real-time without display restart", work backward
+from there:
+
+- v2.0.6 achieved this by never changing leaders (first-wins)
+- v2.0.8+ achieves this by pre-spawning workers so handoff
+  latency is dominated by Discord IPC handshake, not worker
+  lifecycle
+
+If a future agent proposes a redesign that introduces a new
+"display restart" feel, expect pushback. Document the change in
+CHANGELOG and AGENTS.md so the trade-off is visible.
+
+### Pre-release workflow for risky changes
+
+The user requested `--prerelease` workflow for the v2.0.8 series
+specifically because each iteration needed real-world testing
+before promotion to stable. This pattern is now part of the
+release pipeline (see `.github/workflows/release.yml`):
+
+- Tags with `-rc`, `-beta`, `-alpha` suffixes are marked as
+  prerelease on GitHub
+- `opencode-rpc update` (no flag) does NOT pick them up
+- `opencode-rpc update --prerelease` picks them up
+
+When making a non-trivial change, default to:
+1. Commit + tag as `v2.0.X-rc1`
+2. Wait for user testing
+3. Iterate with `-rc2`, `-rc3`, etc.
+4. Tag the same (or final) commit as `v2.0.X` for stable
+
+Do NOT skip straight to stable for changes that touch worker
+lifecycle or leader election. The user has explicit "test before
+stable" preference.
+
+### Build, Test, and Verify requires an actual Discord IPC handshake
+
+`node scripts/smoke-test.js` and `scripts/syntax-check.js` only
+verify file structure and basic CLI behavior. They DO NOT verify
+the worker actually connects to Discord. To verify the worker
+logic end-to-end, you need:
+- A running Discord Desktop with the App ID
+- A real IPC socket (`/tmp/discord-ipc-0` on Linux)
+- The worker process spawned via the plugin
+
+If you can't run a real Discord connection, at minimum verify:
+- Worker starts and logs "Worker started, APP_ID=..."
+- `client.login()` is called
+- shutdown handler exits within 2s
+
+The plugin's debug log at `/tmp/opencode-rich-presence-debug.log`
+is your friend here. `grep "Worker exited" /tmp/opencode-rich-presence-debug.log`
+will show you every worker exit and its exit code.
+
+### Plugin dispose fires `dispose` async; everything inside must await
+
+`index.js`'s dispose is an async function. If you add async work
+in the dispose callback (e.g. cleanup, worker teardown), it MUST
+be awaited or the Node.js process will exit before the cleanup
+completes. The current dispose does:
+- `clearInterval(refreshTimer)` (sync)
+- `clearInterval(activityTimer)` (sync)
+- `coordinator.stopStandbyPolling()` (sync)
+- `await coordinator.release()` (await!)
+- `await discordDestroy()` (await!)
+
+If you add new async cleanup (e.g. flushing state to disk), add
+it before the two awaits and remember to test that the Node.js
+process does not exit before the cleanup finishes. The debug log
+will help: if you see "Disposing..." but no "Released leader
+lock", the process exited before the await completed.

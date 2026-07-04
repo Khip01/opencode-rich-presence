@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.8] - 2026-07-03
+
+Stable release. Cumulative fixes since v2.0.7 across five pre-release candidates (rc1 through rc5), all of which the user confirmed working in multi-instance testing:
+
+### Fixed
+
+- `discord-service.js:shutdownWorker()` no longer signal-kills an already-exited worker (PID-reuse race that was killing the new leader's worker with `code=null sig=SIGKILL` / `SIGTERM` right after a handoff).
+- Multi-instance leader oscillation is dampened with `LEADER_COOLDOWN_MS` and by restricting handoff requests to user-initiated events only (`chat.message`, `permission.asked`, `permission.replied`). Agent-side events still `markActive` but do not request leadership.
+- Multi-instance handoff latency reduced from ~5-8 seconds to ~250ms-1s by removing the 2-second fixed IPC delay, dropping `LEADER_COOLDOWN_MS` to 3s, reducing `HEARTBEAT_INTERVAL` to 2s, adding `ACTIVE_HANDSHAKE_INTERVAL` (250ms fast-poll) for standbys that recently marked themselves active, and reducing Discord worker retry backoff (initial 500ms, cap 5000ms).
+- `discord-service.js:destroy()` now uses the same poll-for-exit pattern as `shutdownWorker()`, fixing `Worker exited: code=null sig=SIGKILL` during plugin dispose.
+- New leader now waits 2 seconds before connecting (REMOVED in rc5 — the SIGTERM-after-exit fix made it unnecessary), and forces `checkAllSessionsActivity()` after gaining leadership to refresh stale in-memory session states.
+- Discord presence was "stuck" after OpenCode exited. Worker shutdown now calls `clearActivity()` before destroying the Discord client, and `SIGINT`/`SIGTERM` signal handlers do the same.
+- New leader pre-spawns its worker via `prepareConnect()` on user-initiated events when standby, eliminating the "display torn down and rebuilt" feeling during terminal switching.
+- `opencode-rpc update --prerelease` was reporting "Already up-to-date" when upgrading stable v2.0.8 to a prerelease on the same base version, because `parseSemver` stripped the prerelease suffix. Now compares both numeric and tag.
+
+### Added
+
+- Worker log messages are now forwarded into the parent's debug log (`[worker] ...` lines).
+- `opencode-rpc update --prerelease` (alias `--pre`) opts in to GitHub releases marked as prerelease. Tags containing `-rc`, `-beta`, or `-alpha` are marked prerelease in `.github/workflows/release.yml` so stable `opencode-rpc update` does not pick them up. Use this flag to test pre-release builds before they are promoted to stable.
+
 ## [2.0.8-rc5] - 2026-07-03
 
 ### Fixed
@@ -198,6 +218,7 @@ v1.0.0 is preserved as `opencode-rich-presence-v1.0.0-legacy-linux-only` on the 
 - Documentation: README, SETUP, ARCHITECTURE, CUSTOMIZATION, TROUBLESHOOTING.
 
 [2.0.7]: https://github.com/Khip01/opencode-rich-presence/releases/tag/v2.0.7
+[2.0.8]: https://github.com/Khip01/opencode-rich-presence/releases/tag/v2.0.8
 [2.0.8-rc5]: https://github.com/Khip01/opencode-rich-presence/releases/tag/v2.0.8-rc5
 [2.0.8-rc4]: https://github.com/Khip01/opencode-rich-presence/releases/tag/v2.0.8-rc4
 [2.0.8-rc3]: https://github.com/Khip01/opencode-rich-presence/releases/tag/v2.0.8-rc3
