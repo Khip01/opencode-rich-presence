@@ -1,0 +1,87 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build & publish GitHub release
+    runs-on: ubuntu-latest
+    # Only run for STABLE tags. Tags containing -rc, -beta, or -alpha are
+    # skipped here — they were historically used for pre-release testing
+    # but v2.1.0+ no longer uses them. This is a safety net in case
+    # someone tags an -rc tag anyway: no GitHub Release noise.
+    if: |
+      !contains(github.ref_name, '-rc') &&
+      !contains(github.ref_name, '-beta') &&
+      !contains(github.ref_name, '-alpha')
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Smoke tests
+        run: |
+          node bin/opencode-rpc.js help
+          node bin/opencode-rpc.js version
+
+      - name: Build tarball
+        run: |
+          npm pack
+          mv opencode-rich-presence-*.tgz opencode-rich-presence-${{ github.ref_name }}.tgz
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ github.ref_name }}
+          files: opencode-rich-presence-*.tgz
+          body: |
+            ## Installation
+
+            ### Stable (recommended for end users)
+
+            ```bash
+            # Pin to a specific version:
+            npm install -g Khip01/opencode-rich-presence#v${{ github.ref_name }}
+
+            # Or auto-resolve the latest stable matching ^v0:
+            npm install -g Khip01/opencode-rich-presence#semver:^${{ github.ref_name }}
+
+            opencode-rpc install
+            ```
+
+            ### Dev / bleeding-edge (developers only)
+
+            ```bash
+            npm install -g Khip01/opencode-rich-presence
+            opencode-rpc install
+            ```
+
+            ### Update
+
+            ```bash
+            opencode-rpc update                  # upgrade to latest stable tag
+            opencode-rpc update --dev            # upgrade to latest commit on main
+            ```
+
+            Note: `npm install -g <repo>#<ref>` clones the repo and installs
+            from there. The tarball attached to this release is provided as
+            a fallback for offline / air-gapped installs; the git URL is the
+            canonical install path.
+
+            ## What's in ${{ github.ref_name }}
+
+            See [CHANGELOG.md](https://github.com/Khip01/opencode-rich-presence/blob/main/CHANGELOG.md) for full details.
