@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.8-rc4] - 2026-07-03
+
+### Fixed
+
+- Multi-instance handoff no longer restarts the Discord presence. Previously, every time the standby instance took over leadership, it would kill the old worker's Discord IPC connection (Discord sees this as the user going offline), spawn a new worker, and reconnect from scratch. Discord would briefly show no presence, then re-show it after the new login completed (1-3 seconds). From the user's perspective this looked like the display was being torn down and rebuilt on every terminal switch.
+- v2.0.8-rc4 adds `prepareConnect()` in `discord-service.js`. When a standby instance receives a user-initiated event (`chat.message`, `permission.asked`, `permission.replied`), it pre-spawns its worker BEFORE becoming leader. The worker immediately tries to log in to Discord, fails (the IPC socket is still held by the current leader), and retries with the fast backoff (initial 500ms, cap 5s) configured in `discord-worker.mjs`. When the standby eventually becomes leader, its worker is already running and the next retry tick lands on a free IPC socket, so the only remaining delay is the Discord IPC handshake itself.
+
 ## [2.0.8-rc3] - 2026-07-03
 
 ### Fixed
@@ -183,6 +190,7 @@ v1.0.0 is preserved as `opencode-rich-presence-v1.0.0-legacy-linux-only` on the 
 - Documentation: README, SETUP, ARCHITECTURE, CUSTOMIZATION, TROUBLESHOOTING.
 
 [2.0.7]: https://github.com/Khip01/opencode-rich-presence/releases/tag/v2.0.7
+[2.0.8-rc4]: https://github.com/Khip01/opencode-rich-presence/releases/tag/v2.0.8-rc4
 [2.0.8-rc3]: https://github.com/Khip01/opencode-rich-presence/releases/tag/v2.0.8-rc3
 [2.0.8-rc2]: https://github.com/Khip01/opencode-rich-presence/releases/tag/v2.0.8-rc2
 [2.0.8-rc1]: https://github.com/Khip01/opencode-rich-presence/releases/tag/v2.0.8-rc1

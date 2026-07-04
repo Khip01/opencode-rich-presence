@@ -9,7 +9,7 @@ need to navigate this codebase safely.
 
 - **Plugin name**: `opencode-rich-presence`
 - **CLI command**: `opencode-rpc`
-- **Latest version**: v2.0.8-rc3
+- **Latest version**: v2.0.8-rc4
 - **Node.js**: 18+ required, tested with 24.x
 - **npm registry**: package is NOT published there. Distributed
   only via GitHub Releases tarballs.
@@ -236,6 +236,17 @@ In addition to the global rules in `~/.config/opencode/AGENTS.md`:
   `child.exitCode` / `child.signalCode` for up to 2s and only
   force-kill if still alive. Use this polling pattern whenever you
   send a signal to a Node.js `ChildProcess`.
+- Spawning the worker only AFTER becoming leader. Symptom was
+  Discord presence being torn down and rebuilt on every terminal
+  switch (the standby that took over leadership had to spawn a fresh
+  worker, log into Discord, and only then push its first activity,
+  causing a 1-3s "display gone" gap every handoff). Fixed in
+  v2.0.8-rc4 with `prepareConnect()`: standby instances pre-spawn
+  their worker on user-initiated events (`chat.message`,
+  `permission.asked`, `permission.replied`) so the worker is already
+  retrying Discord login by the time leadership transfers. When
+  adding a new user-initiated event handler that should pre-spawn,
+  call `prepareConnect(config)` inside the handler.
 - First-wins leader election. Symptom: a previously idle leader
   shows stale Discord presence while another instance is actively
   chatting. Pre-v2.0.7 held the lock indefinitely until exit or

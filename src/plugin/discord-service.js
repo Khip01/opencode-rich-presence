@@ -189,6 +189,23 @@ export function startConnect(config) {
     connect();
 }
 
+// Spawn the worker and start its Discord connection attempt without requiring
+// the calling process to be the leader. Standby instances that have just
+// received user activity call this so their worker is already running and
+// retrying the login by the time the leader releases. The worker's first
+// login will fail (Discord IPC held by the current leader) and it will
+// retry with the fast backoff configured in discord-worker.mjs. When the
+// standby eventually becomes leader, the worker is already in place and
+// the only remaining delay is the Discord IPC handshake itself.
+export function prepareConnect(config) {
+    _currentConfig = config;
+    if (state.disposed) return;
+    if (!state.workerProcess) {
+        spawn(config);
+        try { sendCmd({ cmd: "connect" }); } catch {}
+    }
+}
+
 export function getStatus() {
     return {
         connected: state.connected,

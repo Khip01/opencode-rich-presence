@@ -8,7 +8,7 @@ import { loadConfig } from "./config-resolver.js";
 import { coordinator } from "./coordinator.js";
 import { SessionState } from "./session-state.js";
 import { withTimeout, formatDuration } from "./template-engine.js";
-import { pushActivity, destroy as discordDestroy, shutdownWorker, startConnect, getStatus } from "./discord-service.js";
+import { pushActivity, destroy as discordDestroy, shutdownWorker, startConnect, prepareConnect, getStatus } from "./discord-service.js";
 
 // ─── Global State ──────────────────────────────────────────────────────────
 
@@ -380,6 +380,11 @@ export const OpencodeRichPresence = async ({ client, directory }) => {
                 s.promptCount++;
                 s.state = STATE.WORKING;
                 noteActivity();
+                // v2.0.8-rc4: pre-spawn the worker so the handoff gap is
+                // shorter. The worker starts retrying Discord login while we
+                // are still standby; by the time the leader releases, the
+                // worker's next retry tick already has a free IPC socket.
+                if (!coordinator.isLeader) prepareConnect(config);
                 updateDisplay();
                 scheduleWrite();
                 restoreSessionMessages(client, sid, directory).catch(() => {});
@@ -476,6 +481,7 @@ export const OpencodeRichPresence = async ({ client, directory }) => {
                     s.state = STATE.ASKING;
                     s.lastActivity = Date.now();
                     noteActivity();
+                    if (!coordinator.isLeader) prepareConnect(config);
                     updateDisplay();
                     scheduleWrite();
                     return;
@@ -489,6 +495,7 @@ export const OpencodeRichPresence = async ({ client, directory }) => {
                     s.state = STATE.WORKING;
                     s.lastActivity = Date.now();
                     noteActivity();
+                    if (!coordinator.isLeader) prepareConnect(config);
                     updateDisplay();
                     scheduleWrite();
                     return;
