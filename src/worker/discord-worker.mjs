@@ -216,6 +216,20 @@ async function handleCommand(msg) {
     } else if (cmd === "shutdown") {
         log("Shutdown requested");
         shuttingDown = true;
+        // v2.1.2: kill switch. Guarantees the worker exits within 2s even
+        // if clearActivity and client.destroy both hang. Without this, an
+        // orphaned worker keeps the Discord IPC socket bound after the
+        // plugin has disposed (e.g. user closed OpenCode with /exit), and
+        // Discord continues showing the last activity because the IPC
+        // client never disconnected. Self-targeted process.exit() is safe
+        // (no PID-reuse concerns like the parent's SIGKILL fallback that
+        // v2.0.8-rc5 removed). The unref() lets Node exit even if this
+        // timer somehow keeps the loop alive.
+        const killSwitch = setTimeout(() => {
+            log("Shutdown kill switch (2s elapsed, forcing exit)");
+            process.exit(0);
+        }, 2000);
+        if (killSwitch.unref) killSwitch.unref();
         // v2.0.8-rc3: explicitly tell Discord to clear the presence BEFORE
         // destroying the client. Without this, Discord keeps showing the
         // last activity after the worker exits because it never received a
@@ -230,10 +244,8 @@ async function handleCommand(msg) {
         // v2.1.2: try clearActivity up to twice (1000ms then 500ms). The
         // first attempt's IPC frame may be dropped if Discord is busy
         // (e.g. mid-rendering the previous activity update); a quick retry
-        // usually lands cleanly. If both fail, log and move on — the parent
-        // will spawn a fresh worker if/when leadership changes, and the
-        // fresh worker's first setActivity overwrites whatever Discord is
-        // still showing.
+        // usually lands cleanly. If both fail, the kill switch above will
+        // still force the worker to exit so the IPC socket is released.
         let r1 = await withTimeout(clearActivity(), 1000, "clearActivity");
         if (!r1.ok) {
             log("clearActivity on shutdown (attempt 1):", r1.error?.message || r1.error);
@@ -252,13 +264,17 @@ async function handleCommand(msg) {
 // last activity. We do not await because the signal handler should return
 // quickly, and the in-flight clearActivity IPC frame usually lands before
 // the process exits within the 200ms grace the parent gives us.
+//
+// v2.1.2: kill switch bumped from 150ms to 1500ms so clearActivity (1s
+// timeout) has time to land before we force-exit. Without this, an
+// abrupt exit could skip the clear and leave Discord with the activity.
 function gracefulExit() {
     shuttingDown = true;
     try {
         withTimeout(clearActivity(), 1000, "clearActivity").catch(() => {});
         if (client) withTimeout(client.destroy?.() ?? Promise.resolve(), 1000, "client.destroy").catch(() => {});
     } catch {}
-    setTimeout(() => process.exit(0), 150).unref?.();
+    setTimeout(() => process.exit(0), 1500).unref?.();
 }
 process.on("SIGINT", gracefulExit);
 process.on("SIGTERM", gracefulExit);
