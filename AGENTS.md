@@ -470,6 +470,44 @@ reflects the new file path). This split-resolve pattern is
 asymmetric by design but is the correct way to bridge install-time
 and runtime state.
 
+### Bootstrap runtime state on first CLI run, not just at install
+
+A sidecar marker file is only useful if it exists when the CLI
+runs. `update.js` writes the marker when the user explicitly
+upgrades or switches channel, but a user who installs via
+`npm install -g <tarball>` directly bypasses `update.js` and
+ends up with no marker. `version` then degrades gracefully (just
+shows the version) but the user loses the channel info.
+
+Fix: have the CLI entry point (`bin/opencode-rpc.js`) bootstrap the
+marker on every invocation if it does not already exist. Default
+to the most likely channel (here, "stable" since fresh tarball
+installs are tagged releases). Explicit channels via `update --dev`
+or `update --stable` overwrite the marker with the actual ref. The
+bootstrap is best-effort and must NEVER fail the CLI invocation —
+wrap it in try/catch and silently swallow filesystem errors. Apply
+this pattern any time you have runtime state that depends on an
+optional install-time write: prefer "compute if missing" at
+runtime over "must exist or fail".
+
+### Add `.gitignore` entries for runtime artifacts BEFORE they leak
+
+When `update.js` writes the `.install-channel` marker via
+`npm root -g`, it should never land in the repo's working directory.
+But if the CLI is ever invoked from inside the repo (common during
+development), `npm root -g` returns the global modules path which
+normally does NOT match the cwd, so the marker goes to the
+intended global location. Edge cases where the marker DOES end up
+in the cwd (e.g. `npm root -g` returns a relative path, or a test
+runs from the repo root) will cause a stray `.install-channel` file
+to appear next to `package.json`. The fix is to add a
+`.gitignore` entry for the marker filename as a safety net, before
+that stray file gets committed by accident. Apply this pattern to
+any runtime artifact a CLI might write from inside the repo:
+install paths, log files, lock files, sockets, PIDs. Better to
+gitignore the name proactively than to discover it via `git status`
+after the fact.
+
 ### semver parsing for prerelease
 
 `parseSemver(/^v?(\d+)\.(\d+)\.(\d+)/)` strips everything after

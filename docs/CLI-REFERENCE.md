@@ -10,11 +10,18 @@ All commands work the same on Linux, macOS, and Windows. Output below shows real
 
 ## `opencode-rpc version`
 
-Prints the installed package version.
+Prints the installed package version, plus the install channel (stable tag or dev commit) read from a `.install-channel` marker file inside the installed package. The marker is written by `opencode-rpc update` (any path) and bootstrapped on the first CLI run after a fresh install. Pre-v2.0.9 installs without a marker show just the version (no suffix).
 
 ```
 $ opencode-rpc version
-opencode-rich-presence v2.1.0
+opencode-rich-presence v2.1.0 (stable)
+```
+
+```
+$ opencode-rpc update --dev    # switch to dev channel
+...
+$ opencode-rpc version
+opencode-rich-presence v2.1.0 (dev: eac311d)
 ```
 
 ---

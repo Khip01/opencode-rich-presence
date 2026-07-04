@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - `opencode-rpc update` (all paths) writes a `.install-channel` marker file inside the installed package recording the install channel (`stable` for tag installs, `dev` for SHA installs), the ref used, and the install timestamp. `opencode-rpc version` now reads this marker and appends the channel info to its output: e.g. `opencode-rich-presence v2.1.0` (stable) or `opencode-rich-presence v2.1.0 (dev: 0f39f8a)`. Pre-v2.0.9 installs without a marker still show just the version. The marker lives inside the package directory (resolved via `npm root -g` rather than `import.meta.url` because the package is replaced during install and `import.meta.url` keeps the pre-install path).
+- `bin/opencode-rpc.js` bootstraps a `.install-channel` marker on every CLI invocation if one doesn't already exist (defaults to `channel: "stable"`). This ensures `opencode-rpc version` shows channel info even for users who installed via `npm install -g <tarball>` directly without going through `opencode-rpc update`, and for pre-v2.0.9 installs that were upgraded in place. `.gitignore` excludes `.install-channel` as a safety net in case the marker is ever written into the repo working directory.
 
 ## [2.1.0] - 2026-07-04
 

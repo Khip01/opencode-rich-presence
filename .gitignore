@@ -23,3 +23,8 @@ Thumbs.db
 # Sensitive / personal
 .env
 .env.local
+
+# Install-channel marker (runtime artifact written by update.js, never
+# committed — this is a safety net in case the marker is ever written
+# into the repo working directory by mistake).
+.install-channel
