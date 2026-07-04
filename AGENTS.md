@@ -9,7 +9,7 @@ need to navigate this codebase safely.
 
 - **Plugin name**: `opencode-rich-presence`
 - **CLI command**: `opencode-rpc`
-- **Latest version**: v2.0.8
+- **Latest version**: v2.0.9
 - **Node.js**: 18+ required, tested with 24.x
 - **npm registry**: package is NOT published there. Distributed
   only via GitHub Releases tarballs.
@@ -371,12 +371,28 @@ fallback entirely because the polling window is unavoidable.
 `parseSemver(/^v?(\d+)\.(\d+)\.(\d+)/)` strips everything after
 the patch number, including `-rc4` suffixes. This means
 `v2.0.8` and `v2.0.8-rc4` compare as equal numerically. When the
-update command needs to distinguish them (e.g. for --prerelease
-upgrades on the same base version), also compare the original tag
-string. See the `sameBase && sameTag` check in `update.js`.
+update command needs to distinguish them, also compare the tag
+itself AND check the prerelease status separately.
+
+Decision rules in `update.js` (v2.0.9):
+- `cmp > 0` (strict numeric upgrade) -> update.
+- `cmp < 0` (current is newer) -> skip.
+- `cmp === 0`, current is prerelease, latest is stable -> update (prerelease -> stable is a normal upgrade; does NOT require `--prerelease`).
+- `cmp === 0`, current is stable, latest is prerelease -> only update with `--prerelease` (do not auto-bump a stable user to a prerelease).
+- `cmp === 0`, both are prereleases, `--prerelease` set -> update only if the tag suffix differs (rc4 -> rc5).
+
+The previous "skip if sameBase" logic in v2.0.8 and earlier had a
+bug where a user on `v2.0.8-rc5` running `opencode-rpc update`
+(no flag) would be told "Already up-to-date" even though the
+matching `v2.0.8` stable was available, because `parseSemver`
+returned `[2,0,8]` for both and `compareSemver` returned 0. The
+user had to run `opencode-rpc update --prerelease` to upgrade
+from rc to stable, which was the opposite of the intended UX.
 
 When introducing a new prerelease tag scheme, document it in
-`update.js` so the comparison logic stays correct.
+`update.js` so the comparison logic stays correct, and add a
+test case to `scripts/test-update.mjs` (or wherever you keep
+comparison logic tests).
 
 ### Multi-process coordination requires polling, not events
 

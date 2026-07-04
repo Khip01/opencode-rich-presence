@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.9] - 2026-07-04
+
+### Fixed
+
+- `opencode-rpc update` (without `--prerelease`) reported "Already up-to-date" when the user was on a prerelease build (e.g. `v2.0.8-rc5`) and the latest GitHub release was the matching stable (`v2.0.8`). Root cause: the previous version-comparison logic skipped any update where the numeric versions matched, without considering prerelease-to-stable transitions as a normal upgrade path. v2.0.9 replaces the binary "sameBase -> skip" with explicit decision rules:
+  - `cmp > 0` (strict numeric upgrade) -> update.
+  - `cmp < 0` (current is newer) -> skip.
+  - `cmp === 0`, current is prerelease, latest is stable -> update (prerelease -> stable is a normal upgrade; does not require `--prerelease`).
+  - `cmp === 0`, current is stable, latest is prerelease -> only update with `--prerelease` (so a user on stable v2.0.8 is not auto-bumped to v2.0.8-rc9).
+  - `cmp === 0`, both are prereleases, `--prerelease` set -> update only if the tag suffix differs (e.g. rc4 -> rc5).
+  - Otherwise -> up-to-date.
+
 ## [2.0.8] - 2026-07-03
 
 Stable release. Cumulative fixes since v2.0.7 across five pre-release candidates (rc1 through rc5), all of which the user confirmed working in multi-instance testing:
@@ -218,6 +230,7 @@ v1.0.0 is preserved as `opencode-rich-presence-v1.0.0-legacy-linux-only` on the 
 - Documentation: README, SETUP, ARCHITECTURE, CUSTOMIZATION, TROUBLESHOOTING.
 
 [2.0.7]: https://github.com/Khip01/opencode-rich-presence/releases/tag/v2.0.7
+[2.0.9]: https://github.com/Khip01/opencode-rich-presence/releases/tag/v2.0.9
 [2.0.8]: https://github.com/Khip01/opencode-rich-presence/releases/tag/v2.0.8
 [2.0.8-rc5]: https://github.com/Khip01/opencode-rich-presence/releases/tag/v2.0.8-rc5
 [2.0.8-rc4]: https://github.com/Khip01/opencode-rich-presence/releases/tag/v2.0.8-rc4

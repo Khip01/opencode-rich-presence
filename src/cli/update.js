@@ -24,6 +24,12 @@ function compareSemver(a, b) {
     return 0;
 }
 
+// Detect whether a tag is a prerelease (has `-` in the version portion,
+// per semver 2.0.0: 1.2.3-pre.1). We strip a leading "v" before checking.
+function isPrereleaseTag(tag) {
+    return /-\w/.test(String(tag || "").replace(/^v/, ""));
+}
+
 function getCurrentVersion() {
     try {
         const pkgPath = join(dirname(dirname(fileURLToPath(import.meta.url))), "..", "package.json");
@@ -86,17 +92,44 @@ export async function update(args = []) {
         process.exit(1);
     }
 
-    // v2.0.8-rc5: with --prerelease, still update when the base version is
-    // equal but the tag differs (e.g. user is on v2.0.8 stable and the
-    // latest tag is v2.0.8-rc4). parseSemver strips the prerelease suffix,
-    // so compareSemver alone would say "equal" and skip the update.
-    const sameBase = compareSemver(latestVer, currentVer) === 0;
-    const sameTag = latestTag.replace(/^v/, "") === current.replace(/^v/, "");
-    if (!includePrerelease && sameBase) {
-        console.log(`Already up-to-date (latest: ${latestTag}).`);
-        return;
+    const cmp = compareSemver(latestVer, currentVer);
+    const currentIsPre = isPrereleaseTag(current);
+    const latestIsPre = isPrereleaseTag(latestTag);
+    const currentStripped = current.replace(/^v/, "");
+    const latestStripped = latestTag.replace(/^v/, "");
+
+    // v2.0.9: replace the previous "skip if sameBase" logic with explicit
+    // decision rules. compareSemver strips the prerelease suffix so we have
+    // to break ties manually.
+    let hasUpdate = false;
+    if (cmp > 0) {
+        // Strict numeric upgrade available.
+        hasUpdate = true;
+    } else if (cmp < 0) {
+        // Current is newer than latest (e.g. user installed an unreleased
+        // build). Don't downgrade.
+        hasUpdate = false;
+    } else {
+        // Same numeric version.
+        if (currentIsPre && !latestIsPre) {
+            // User is on a prerelease, latest is stable. Upgrade to stable
+            // (this is the normal prerelease -> release path and should
+            // NOT require --prerelease).
+            hasUpdate = true;
+        } else if (!currentIsPre && latestIsPre) {
+            // User is on stable, latest is prerelease. Only upgrade with
+            // --prerelease (so a user on stable v2.0.8 does not get
+            // auto-bumped to a v2.0.8-rc9 they never asked for).
+            hasUpdate = includePrerelease;
+        } else if (currentIsPre && latestIsPre && includePrerelease) {
+            // Both prereleases on the same base. Update only if the tag
+            // suffix differs (e.g. rc4 -> rc5).
+            hasUpdate = currentStripped !== latestStripped;
+        }
+        // else: same numeric, both stable -> no update (handled below).
     }
-    if (sameBase && sameTag) {
+
+    if (!hasUpdate) {
         console.log(`Already up-to-date (latest: ${latestTag}).`);
         return;
     }
