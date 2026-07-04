@@ -41,7 +41,6 @@ const REQUIRED_FILES = [
     "src/cli/platform/windows.js",
     "config/discord-config.example.json",
     ".github/workflows/test.yml",
-    ".github/workflows/release.yml",
 ];
 
 let errors = 0;

@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.0] - 2026-07-04
+
+### Changed
+
+- **BREAKING for maintainers**: Removed the GitHub Releases workflow (`.github/workflows/release.yml` deleted). The plugin is no longer distributed as a `.tgz` asset attached to a GitHub Release, and there is no longer a separate "pre-release" channel (`-rc`, `-beta`, `-alpha` tags). The repo itself is now the single source of truth.
+- **Install workflow changed**: end users now install via `npm install -g Khip01/opencode-rich-presence#v2.1.0` instead of downloading a tarball from a GitHub Release URL. The repo at a specific tag is the install source, so there is no separate artifact to keep in sync with the source.
+
+### Updated
+
+- `opencode-rpc update` now runs `npm install -g Khip01/opencode-rich-presence#<latest-stable-tag>` instead of downloading a tarball from the GitHub Release API. The internal download / extract / install pipeline is gone.
+- Added `opencode-rpc update --dev` for developers: fetches the latest commit SHA on `main` and runs `npm install -g Khip01/opencode-rich-presence#<sha>`. No more waiting for a release tag to test a fix.
+- Removed the `--prerelease` / `--pre` flag from `opencode-rpc update` (no more pre-release channel exists).
+
+### Documentation
+
+- All install instructions across README.md, docs/INSTALL.md, docs/CLI-REFERENCE.md, docs/TROUBLESHOOTING.md, and CHANGELOG.md updated to use the git-based install command.
+- docs/CLI-REFERENCE.md `opencode-rpc update` section rewritten with three examples (up-to-date, stable update, dev update).
+
 ## [2.0.9] - 2026-07-04
 
 ### Fixed
@@ -209,7 +227,7 @@ v1.0.0 is preserved as `opencode-rich-presence-v1.0.0-legacy-linux-only` on the 
 1. Back up `~/.config/opencode/discord-config.json`.
 2. Install v2.0.0:
    ```bash
-   npm install -g https://github.com/Khip01/opencode-rich-presence/releases/latest/download/opencode-rich-presence-latest.tgz
+   npm install -g Khip01/opencode-rich-presence#v2.0.0
    ```
 3. Run `opencode-rpc install`.
 4. Restore your settings into the new config (App ID, presence templates).
@@ -230,6 +248,7 @@ v1.0.0 is preserved as `opencode-rich-presence-v1.0.0-legacy-linux-only` on the 
 - Documentation: README, SETUP, ARCHITECTURE, CUSTOMIZATION, TROUBLESHOOTING.
 
 [2.0.7]: https://github.com/Khip01/opencode-rich-presence/releases/tag/v2.0.7
+[2.1.0]: https://github.com/Khip01/opencode-rich-presence/releases/tag/v2.1.0
 [2.0.9]: https://github.com/Khip01/opencode-rich-presence/releases/tag/v2.0.9
 [2.0.8]: https://github.com/Khip01/opencode-rich-presence/releases/tag/v2.0.8
 [2.0.8-rc5]: https://github.com/Khip01/opencode-rich-presence/releases/tag/v2.0.8-rc5

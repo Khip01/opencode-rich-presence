@@ -134,7 +134,7 @@ If no Lock section is shown, no instance currently holds the leader lock (no Ope
 1. Wait a few minutes and retry.
 2. Manual fallback:
    ```bash
-   npm install -g https://github.com/Khip01/opencode-rich-presence/releases/latest/download/opencode-rich-presence-latest.tgz
+   npm install -g Khip01/opencode-rich-presence#v2.1.0
    ```
 
 ---
@@ -175,7 +175,7 @@ If you run OpenCode in WSL but install the plugin in native Windows, the paths w
 **Fix:** Install the plugin inside WSL:
 ```bash
 # Inside WSL
-npm install -g https://github.com/Khip01/opencode-rich-presence/releases/latest/download/opencode-rich-presence-latest.tgz
+npm install -g Khip01/opencode-rich-presence#v2.1.0
 ```
 
 **Check 2: PowerShell execution policy**

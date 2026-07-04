@@ -20,10 +20,14 @@ Works on **Linux**, **macOS**, and **Windows**.
 ### 1. Install the package
 
 ```bash
-npm install -g https://github.com/Khip01/opencode-rich-presence/releases/latest/download/opencode-rich-presence-latest.tgz
+# Stable release (replace v2.1.0 with the version you want):
+npm install -g Khip01/opencode-rich-presence#v2.1.0
+
+# Dev / bleeding-edge (latest commit on main):
+npm install -g Khip01/opencode-rich-presence
 ```
 
-This installs the `opencode-rpc` CLI globally. The plugin code is bundled inside the tarball and OpenCode will auto-load it once registered (next step).
+This installs the `opencode-rpc` CLI globally. The plugin code lives in the repo itself (no separate tarball needed), so `npm` clones the repo and installs from there.
 
 ### 2. Set up the config
 
@@ -31,21 +35,11 @@ This installs the `opencode-rpc` CLI globally. The plugin code is bundled inside
 opencode-rpc install
 ```
 
-This creates `~/.config/opencode/discord-config.json` from the example. Edit it to set your Discord App ID and customize templates.
+This creates `~/.config/opencode/discord-config.json` from the example, creates the symlink that OpenCode needs to auto-load the plugin, and installs the `@xhayper/discord-rpc` dependency under `~/.config/opencode/node_modules/`.
 
-### 3. Register the plugin with OpenCode
+### 3. Restart OpenCode
 
-Add the plugin to `~/.config/opencode/opencode.json` (or `.jsonc`):
-
-```json
-{
-  "plugin": ["opencode-rich-presence"]
-}
-```
-
-### 4. Restart OpenCode
-
-OpenCode auto-installs the plugin via Bun on startup. After restart, check status:
+The plugin is loaded automatically via the symlink at `~/.config/opencode/plugins/opencode-rich-presence.js`. After OpenCode restart, check status:
 
 ```bash
 opencode-rpc info
@@ -61,11 +55,11 @@ opencode-rpc <command>
 
 | Command | Description |
 |---------|-------------|
-| `install` | Create config file from example, print setup steps |
+| `install` | Set up Rich Presence for OpenCode (config, symlink, deps) |
 | `uninstall` | Remove generated files (lock, output, restart signal); backup config |
 | `restart` | Reload the plugin worker (does not touch Discord Desktop) |
-| `update` | Check GitHub Releases for new version, self-update |
-| `info` | Show diagnostic info: paths, config, lock status, plugin registration |
+| `update` | Upgrade to latest stable release (or `--dev` for latest commit) |
+| `info` | Show diagnostic info: paths, config, lock status, plugin symlink |
 | `version` | Print package version |
 | `help` | Show usage |
 
@@ -74,10 +68,11 @@ Full reference: [`docs/CLI-REFERENCE.md`](./docs/CLI-REFERENCE.md)
 ## Update
 
 ```bash
-opencode-rpc update
+opencode-rpc update                  # upgrade to latest stable release
+opencode-rpc update --dev            # upgrade to latest commit on main (developer)
 ```
 
-Checks the latest GitHub release, downloads the new tarball, and reinstalls globally. No manual steps needed.
+Fetches the latest tag (or commit, with `--dev`) from GitHub, then runs `npm install -g Khip01/opencode-rich-presence#<ref>` to upgrade in place. No manual steps needed.
 
 ## Customization
 

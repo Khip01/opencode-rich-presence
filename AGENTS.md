@@ -9,7 +9,7 @@ need to navigate this codebase safely.
 
 - **Plugin name**: `opencode-rich-presence`
 - **CLI command**: `opencode-rpc`
-- **Latest version**: v2.0.9
+- **Latest version**: v2.1.0
 - **Node.js**: 18+ required, tested with 24.x
 - **npm registry**: package is NOT published there. Distributed
   only via GitHub Releases tarballs.
@@ -41,8 +41,42 @@ need to navigate this codebase safely.
   - `PLATFORM-NOTES.md`, `TROUBLESHOOTING.md`, `CUSTOMIZATION.md`
 - `.github/workflows/`: CI
   - `test.yml`: runs matrix on linux/macos/windows x node 18/20/22
-  - `release.yml`: runs on tag push, builds tarball, creates GitHub release
 - `scripts/`: `smoke-test.js`, `syntax-check.js`, `check-pkg.js`
+
+## Distribution Workflow
+
+Since v2.1.0, this project is distributed via `npm install -g <repo>#<ref>` directly from the GitHub repo, not via a `.tgz` asset attached to GitHub Releases.
+
+**Install paths**:
+
+| Audience | Command |
+|----------|---------|
+| End user (stable) | `npm install -g Khip01/opencode-rich-presence#v2.1.0` |
+| End user (auto-resolve latest stable) | `npm install -g Khip01/opencode-rich-presence#semver:^2.0.0` |
+| Developer (latest commit on main) | `npm install -g Khip01/opencode-rich-presence` |
+| Developer (specific commit) | `npm install -g Khip01/opencode-rich-presence#abc1234` |
+
+The five CLI commands are:
+
+1. `npm install -g <spec>` — install the package (above table).
+2. `opencode-rpc install` — one-time setup: symlink the plugin into `~/.config/opencode/plugins/`, write the example config, install `@xhayper/discord-rpc` under `~/.config/opencode/node_modules/`. Works after any of the npm install variants above. Does NOT touch npm.
+3. `opencode-rpc update` — upgrade an existing installation to the latest stable release tag. Runs `npm install -g Khip01/opencode-rich-presence#<latest-tag>` and preserves the existing config / symlink / deps.
+4. `opencode-rpc update --dev` — developer-only upgrade: skips the version check and always installs the latest commit on `main`. Runs `npm install -g Khip01/opencode-rich-presence#<latest-sha>`.
+5. `opencode-rpc uninstall` + `npm uninstall -g Khip01/opencode-rich-presence` — full removal.
+
+**Why no GitHub Releases**:
+
+- The repo is the single source of truth; no separate tarball artifact to keep in sync with the source.
+- Frequent pre-release tags (`-rc1`, `-rc2`, ...) cluttered the GitHub Releases sidebar and made it hard to find the latest stable version.
+- npm's git URL install (`<owner>/<repo>#<ref>`) supports tag / branch / commit / semver-range refs natively, so a separate release workflow is unnecessary.
+
+**When to add back a release workflow**:
+
+Add one (`.tgz` attached to GitHub Release) only if you need offline / air-gapped installs, CDN-backed download metrics, or signed releases. For a small npm-distributed plugin like this, git install is simpler and equivalent.
+
+**Do NOT** tag every commit as `-rcN` or `-betaN` "to be safe". Pre-release channels are for actual pre-release channels (alpha software, beta testers). For "I want to test a fix locally before tagging stable", use `--dev`.
+
+See the global `~/.config/opencode/AGENTS.md` "Git-Based NPM Install/Distribution Workflow" section for the general principles that apply to any npm project.
 
 ## Critical Implementation Details
 
@@ -274,6 +308,18 @@ In addition to the global rules in `~/.config/opencode/AGENTS.md`:
   activity-based handoff (standby writes handoff signal on
   chat.message, leader's heartbeat reads it and yields if the
   request is fresher than its own activity).
+- Adding a `.github/workflows/release.yml` that builds a `.tgz`
+  and attaches it to every GitHub Release, plus tagging every
+  commit as `-rcN` / `-betaN` / `-alphaN`. Symptom was the GitHub
+  Releases sidebar becoming unreadable (every "fixed one bug" tag
+  showed up as a pre-release). Fixed in v2.1.0 by deleting
+  `release.yml` entirely and switching to `npm install -g
+  <repo>#<ref>` from the GitHub repo. Do not reintroduce the
+  release workflow; if you really need a tarball for offline
+  install, document the need in CHANGELOG.md first and only then
+  add it back as a single-purpose workflow (build tarball, attach
+  to manually-triggered release on a stable tag only, not on every
+  push).
 
 ## Documentation Maintenance
 

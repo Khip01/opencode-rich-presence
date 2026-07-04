@@ -14,17 +14,20 @@ Commands:
   version      Print version
 
 Options (update):
-  --prerelease, --pre    Include prerelease versions when checking for updates
+  --dev        Install latest commit from main branch (developer)
 
 Installation (one-time):
-  npm install -g https://github.com/Khip01/opencode-rich-presence/releases/latest/download/opencode-rich-presence-latest.tgz
+  # Stable release (replace v2.1.0 with the version you want):
+  npm install -g Khip01/opencode-rich-presence#v2.1.0
   opencode-rpc install
-  # The installer creates a symlink at ~/.config/opencode/plugins/opencode-rich-presence.js
-  # that OpenCode auto-loads. No need to edit opencode.jsonc.
+
+  # Dev / bleeding-edge (latest commit on main):
+  npm install -g Khip01/opencode-rich-presence
+  opencode-rpc install
 
 Update:
-  opencode-rpc update                  # stable releases only
-  opencode-rpc update --prerelease     # include prerelease builds
+  opencode-rpc update                  # latest stable release tag
+  opencode-rpc update --dev            # latest commit on main (developer)
 
 Documentation: https://github.com/Khip01/opencode-rich-presence
 `;

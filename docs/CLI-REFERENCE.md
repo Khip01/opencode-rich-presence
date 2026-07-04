@@ -14,7 +14,7 @@ Prints the installed package version.
 
 ```
 $ opencode-rpc version
-opencode-rich-presence v2.0.5
+opencode-rich-presence v2.1.0
 ```
 
 ---
@@ -40,13 +40,20 @@ Commands:
   help         Show this message
   version      Print version
 
+Options (update):
+  --dev        Install latest commit from main branch (developer)
+
 Installation (one-time):
-  npm install -g https://github.com/Khip01/opencode-rich-presence/releases/latest/download/opencode-rich-presence-latest.tgz
+  npm install -g Khip01/opencode-rich-presence#v2.1.0
   opencode-rpc install
-  # Plugin loads from ~/.config/opencode/plugins/opencode-rich-presence.js (symlink)
+
+  # Or install from main (dev / bleeding-edge):
+  npm install -g Khip01/opencode-rich-presence
+  opencode-rpc install
 
 Update:
-  opencode-rpc update
+  opencode-rpc update                  # latest stable release tag
+  opencode-rpc update --dev            # latest commit on main (developer)
 
 Documentation: https://github.com/Khip01/opencode-rich-presence
 ```
@@ -183,17 +190,18 @@ Use this when you want to apply config changes without restarting OpenCode, or w
 
 ## `opencode-rpc update`
 
-Fetches the latest release from GitHub and reinstalls globally via npm.
+Fetches the latest release from GitHub and reinstalls globally via npm. v2.1.0+ uses `npm install -g <repo>#<ref>` instead of downloading a tarball, so the package always comes from the canonical repo source.
 
 **Example: already up to date**
 
 ```
 $ opencode-rpc update
 
-Current version: v2.0.5
+Current version: v2.1.0
+Mode: stable (latest release tag)
 Checking for updates...
 
-Already up-to-date (latest: v2.0.5).
+Already up-to-date (latest: v2.1.0).
 ```
 
 **Example: update available**
@@ -201,15 +209,35 @@ Already up-to-date (latest: v2.0.5).
 ```
 $ opencode-rpc update
 
-Current version: v2.0.4
+Current version: v2.0.9
+Mode: stable (latest release tag)
 Checking for updates...
 
-Update available: v2.0.4 -> v2.0.5
+Update available: v2.0.9 -> v2.1.0
 
-Downloading opencode-rich-presence-2.0.5.tgz...
-Installing v2.0.5...
+Installing Khip01/opencode-rich-presence#v2.1.0...
 
-Updated to v2.0.5.
+Updated to v2.1.0.
+Restart OpenCode to apply changes.
+```
+
+**Example: developer upgrade (`--dev` flag)**
+
+`--dev` skips version comparison and always installs the latest commit on `main`. Use this to test a fix before it is tagged.
+
+```
+$ opencode-rpc update --dev
+
+Current version: v2.1.0
+Mode: dev (latest commit on main)
+Checking for updates...
+
+Latest commit on main: a1b2c3d
+Update available: v2.1.0 -> a1b2c3d (dev)
+
+Installing Khip01/opencode-rich-presence#a1b2c3d4...
+
+Updated to dev build at a1b2c3d.
 Restart OpenCode to apply changes.
 ```
 
