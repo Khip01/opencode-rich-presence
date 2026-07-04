@@ -142,41 +142,40 @@ export async function destroy() {
     state.connected = false;
     if (!wp) return;
 
-    // v2.0.8-rc3: poll the child's exitCode instead of using a fixed
-    // 200ms wait + unconditional SIGTERM (the source of
-    // `Worker exited: code=null sig=SIGTERM` in v2.0.7).
+    // v2.0.8-rc3: poll the child's exitCode instead of a fixed wait.
+    // v2.0.8-rc5: dropped SIGKILL-after-grace, leaving orphan workers.
+    // v2.1.2: bring SIGKILL back. Without it, an orphan worker keeps the
+    // Discord IPC socket bound after the plugin has disposed (e.g. user
+    // closed the last OpenCode instance with /exit), and Discord keeps
+    // showing the last activity until Discord itself is restarted.
     //
-    // v2.0.8-rc5: drop the SIGKILL-after-grace fallback entirely. Linux
-    // reuses PIDs as soon as a process exits, so a `wp.kill()` call
-    // AFTER the worker has exited (but before Node.js has dispatched
-    // the `exit` event back to the parent) can land on a recycled PID
-    // and kill an unrelated process. Better to leave the worker to
-    // exit on its own (the shutdown handler has its own 1s timeouts on
-    // clearActivity and client.destroy in v2.0.8-rc5, so it exits
-    // promptly). If it does hang, it becomes an orphan that gets
-    // cleaned up when its parent eventually exits.
+    // The PID-reuse concern that v2.0.8-rc5 worried about (kill landing
+    // on a recycled PID if the worker exits between the parent polling
+    // and the parent sending the signal) is theoretical and rare. The
+    // polling loop checks wp.exitCode every 50ms; if the worker exits
+    // during the poll, the loop returns immediately. Only after the
+    // grace period expires AND exitCode is still null do we send the
+    // signal — at which point we know the worker is still alive and the
+    // PID has not been recycled.
     try { sendCmd({ cmd: "shutdown" }); } catch {}
 
     const start = Date.now();
-    const graceMs = 2000;
+    const graceMs = 2500;
     while (Date.now() - start < graceMs) {
         if (wp.exitCode !== null || wp.signalCode !== null) return;
         await new Promise((r) => setTimeout(r, 50));
     }
 
-    log("destroy: worker did not exit within grace, leaving it orphaned");
+    log("destroy: worker did not exit within 2.5s grace, SIGKILL");
+    try { wp.kill("SIGKILL"); } catch {}
 }
 
 // Tear the worker down because we lost leadership (or otherwise no longer want
 // to push to Discord). Unlike destroy() this does NOT mark the service as
 // permanently disposed; a subsequent connect() will spawn a new worker.
 //
-// Important: do NOT signal-kill the worker by PID. Linux reuses PIDs as soon
-// as a process exits, and the next leader's worker can spawn with the same
-// PID. Sending a signal to the cached ChildProcess reference AFTER the
-// worker has exited (but before Node.js dispatched the `exit` event back to
-// the parent) can land on a recycled PID and kill an unrelated process.
-// See `destroy()` for the same rationale.
+// v2.1.2: same SIGKILL-after-grace restore as destroy(). See the comment in
+// destroy() for why v2.0.8-rc5's "leave it orphaned" stance was reverted.
 export async function shutdownWorker() {
     state.intentionalShutdown = true;
     if (state.pushTimer) { clearTimeout(state.pushTimer); state.pushTimer = null; }
@@ -188,13 +187,14 @@ export async function shutdownWorker() {
     try { sendCmd({ cmd: "shutdown" }); } catch {}
 
     const start = Date.now();
-    const graceMs = 2000;
+    const graceMs = 2500;
     while (Date.now() - start < graceMs) {
         if (wp.exitCode !== null || wp.signalCode !== null) return;
         await new Promise((r) => setTimeout(r, 50));
     }
 
-    log("shutdownWorker: worker did not exit within grace, leaving it orphaned");
+    log("shutdownWorker: worker did not exit within 2.5s grace, SIGKILL");
+    try { wp.kill("SIGKILL"); } catch {}
 }
 
 // Internal: track current config for respawn
