@@ -36,6 +36,19 @@ export const DISCORD_MAX_RETRIES = 100;
 export const RESTORE_TIMEOUT_MS = 5000;
 export const MAX_DISCORD_FIELD = 128;
 
+// v2.1.2: self-healing worker. If the leader's worker has been failing to
+// connect for this long, the plugin kills it and spawns a fresh one. Without
+// this, a worker stuck in its retry loop (e.g. Discord IPC socket stale after
+// the previous leader exited or the system rebooted) holds the leader slot
+// but never pushes presence, and the user has to run `opencode-rpc restart`
+// manually. The threshold is conservative — long enough that a normal slow
+// first connect (cold start, large Discord install) is not interrupted, short
+// enough that the user is not left staring at an empty display for minutes.
+export const STALE_WORKER_THRESHOLD_MS = 15000;
+// v2.1.2: how often the leader checks for a stale worker. Runs inside the
+// existing heartbeat interval so we do not add another timer.
+export const STALE_CHECK_INTERVAL_MS = 3000;
+
 // Developer's verified Discord App ID (used as fallback so the plugin works out-of-box).
 export const FALLBACK_APP_ID = "1512803991300476989";
 export const FALLBACK_IMAGE_KEY = "opencode-logo-too-opencode-rpc";

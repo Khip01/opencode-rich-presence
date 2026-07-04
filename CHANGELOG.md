@@ -32,7 +32,19 @@ Patch release. v2.1.0 was tagged with a broken `src/cli/update.js` (see "Fixed" 
 
 ## [Unreleased]
 
-(none yet; current work is in [2.1.1])
+### Added
+
+- Self-healing worker watchdog in the plugin. When a standby instance becomes the new leader, the plugin now kills the existing worker (if any) and spawns a fresh one — mirrors what `opencode-rpc restart` does, but automatic. Short-circuits if the worker is already connected (avoids the 2s wait on healthy handoffs).
+- Per-leader health check: if the worker's last reported event is older than `STALE_WORKER_THRESHOLD_MS` (15s) and the worker is not connected, the plugin kills and respawns it. Catches the "stuck worker" failure mode from any cause (reboot, Discord restart, IPC in an unexpected state), not just leadership handoff.
+
+### Fixed
+
+- Multi-instance leader handoff between OpenCode terminals often failed to update the Discord presence until the user ran `opencode-rpc restart` manually. Root cause: when a standby instance took over leadership, its existing worker (already spawned by `prepareConnect` on the user's first message) might be stuck in a retry loop because Discord's IPC socket was still held by the previous leader's worker (a normal "wait 2s for socket release" gap). The new leader's `startConnect` only sent a `connect` command to the stuck worker — it did not kill and respawn it, so the worker kept retrying with no progress.
+- Discord presence "stuck" after OpenCode exits: in rare cases where Discord's IPC socket is busy or unresponsive, the worker's single `clearActivity` attempt (1s timeout) on shutdown could be dropped. Now retries `clearActivity` once with a 500ms timeout before giving up. The retry usually lands cleanly because the first attempt frees the IPC channel. Worst case (both fail) the parent spawns a fresh worker on the next leadership change and the new `setActivity` overwrites the stale display.
+
+### Documentation
+
+- Pending: `docs/TROUBLESHOOTING.md` will get a new section "Leader handoff does not update Discord display" once this fix is verified end-to-end.
 
 ## [2.1.0] - 2026-07-04
 

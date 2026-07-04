@@ -8,7 +8,7 @@ import { loadConfig } from "./config-resolver.js";
 import { coordinator } from "./coordinator.js";
 import { SessionState } from "./session-state.js";
 import { withTimeout, formatDuration } from "./template-engine.js";
-import { pushActivity, destroy as discordDestroy, shutdownWorker, startConnect, prepareConnect, getStatus } from "./discord-service.js";
+import { pushActivity, destroy as discordDestroy, shutdownWorker, startConnect, startConnectAsLeader, prepareConnect, getStatus, checkWorkerHealth } from "./discord-service.js";
 
 // ─── Global State ──────────────────────────────────────────────────────────
 
@@ -299,14 +299,18 @@ export const OpencodeRichPresence = async ({ client, directory }) => {
     // over leadership via activity handoff actually start pushing presence.
     coordinator.setLeadershipChangeCallback(async (nowLeader) => {
         if (nowLeader) {
-            log("Gained leadership, connecting to Discord");
-            // v2.0.8-rc2: no fixed IPC delay. The previous leader's
-            // shutdownWorker sends the shutdown command and polls for actual
-            // exit (with up to 2s grace) before any force-kill, so by the
-            // time we run, the old worker's Discord IPC socket should be
-            // released. If the new worker still fails to connect, it will
-            // retry with the fast backoff configured in discord-worker.mjs.
-            try { startConnect(config); } catch (e) { log("startConnect:", e?.message || e); }
+            log("Gained leadership, starting fresh worker");
+            // v2.1.2: use startConnectAsLeader() instead of startConnect() so
+            // the new leader always starts with a fresh worker. The previous
+            // leader's worker may have left the Discord IPC socket in a
+            // state where a reused worker cannot connect (e.g. socket still
+            // bound by a zombie process, stale after a system reboot). The
+            // fresh-worker path mirrors the manual `opencode-rpc restart`
+            // recovery: kill -> wait for exit -> wait 2s for IPC release ->
+            // spawn fresh. When the worker is already connected (rare on a
+            // leadership change but possible if the previous leader was
+            // healthy), this short-circuits and skips the 2s wait.
+            try { startConnectAsLeader(config); } catch (e) { log("startConnectAsLeader:", e?.message || e); }
             // Force a state refresh from the server so the new leader's
             // session states reflect reality, not stale in-memory snapshots
             // from when we were standby (standby does not poll for activity).
@@ -347,6 +351,12 @@ export const OpencodeRichPresence = async ({ client, directory }) => {
     const activityTimer = setInterval(() => {
         if (coordinator.isLeader) {
             checkAllSessionsActivity(client, directory).catch((e) => log(`Activity check failed: ${e?.message || e}`));
+            // v2.1.2: self-heal stuck worker. If the leader's worker has been
+            // failing to connect for STALE_WORKER_THRESHOLD_MS (Discord IPC
+            // socket in a bad state the worker cannot recover from on its
+            // own), kill and respawn it. Mirrors what `opencode-rpc restart`
+            // does, but automatic.
+            checkWorkerHealth();
         }
     }, REFRESH_INTERVAL);
     activityTimer.unref?.();

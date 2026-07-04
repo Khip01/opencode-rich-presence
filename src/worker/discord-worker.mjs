@@ -226,8 +226,20 @@ async function handleCommand(msg) {
         // timeout each. Without this, a hung Discord IPC connection would
         // keep the worker alive past the parent's 2s grace window, after
         // which the parent sends SIGKILL (PID-reuse race risk).
-        const r1 = await withTimeout(clearActivity(), 1000, "clearActivity");
-        if (!r1.ok) log("clearActivity on shutdown:", r1.error?.message || r1.error);
+        //
+        // v2.1.2: try clearActivity up to twice (1000ms then 500ms). The
+        // first attempt's IPC frame may be dropped if Discord is busy
+        // (e.g. mid-rendering the previous activity update); a quick retry
+        // usually lands cleanly. If both fail, log and move on — the parent
+        // will spawn a fresh worker if/when leadership changes, and the
+        // fresh worker's first setActivity overwrites whatever Discord is
+        // still showing.
+        let r1 = await withTimeout(clearActivity(), 1000, "clearActivity");
+        if (!r1.ok) {
+            log("clearActivity on shutdown (attempt 1):", r1.error?.message || r1.error);
+            r1 = await withTimeout(clearActivity(), 500, "clearActivity");
+            if (!r1.ok) log("clearActivity on shutdown (attempt 2):", r1.error?.message || r1.error);
+        }
         if (client) {
             const r2 = await withTimeout(client.destroy?.() ?? Promise.resolve(), 1000, "client.destroy");
             if (!r2.ok) log("client.destroy on shutdown:", r2.error?.message || r2.error);
