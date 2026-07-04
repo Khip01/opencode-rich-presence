@@ -337,6 +337,33 @@ In addition to the global rules in `~/.config/opencode/AGENTS.md`:
   When you add a new flag, check whether it conflicts with
   existing ones and reject with `process.exit(2)` plus a one-line
   explanation if so. Do NOT silently last-one-wins.
+- Running `npm install -g <git_url>#<ref>` directly from the CLI
+  for git deps on npm v11 (Node 24.x). Symptom was the install
+  appearing to succeed but the bin symlink ending up broken
+  (`opencode-rpc: command not found`), and the NEXT install of
+  the same package failing with
+  `ENOTDIR: not a directory, rename <lib>/node_modules/<name>
+  -> <lib>/node_modules/.<name>-<rand>`. Root cause: npm v11
+  installs git deps as a symlink under `lib/node_modules/<name>/`
+  pointing to a clone dir under `~/.npm/_cacache/tmp/<id>/`.
+  npm cleans up that temp dir at some point (cache pressure, idle
+  eviction, or between operations), and the symlink becomes
+  dangling. The next install tries to `rename()` the existing
+  symlink to a backup name, which fails because the symlink's
+  target does not exist (rename on a dangling symlink errors with
+  ENOTDIR). Fix: in `src/cli/update.js`, do not call `npm install
+  -g <repo>#<ref>` directly for git deps. Instead, `git clone`
+  the repo to a temp dir, `git fetch --depth=1 origin <ref>` and
+  `git checkout FETCH_HEAD` (works for both tags and SHAs), then
+  `npm pack` to produce a real tarball, then
+  `npm install -g <tarball>`. Tarballs are not affected by the
+  git-dep symlink bug. Also clean up any existing broken symlink
+  at the global install path before installing, so users with
+  leftover broken state from earlier v2.0.8-rcX installs recover
+  automatically. If you ever revisit this code, do NOT go back
+  to the direct `npm install -g <repo>#<ref>` approach without
+  verifying against the user's specific npm version: this bug
+  is npm-version-dependent and may change in future npm releases.
 
 ## Documentation Maintenance
 
@@ -428,6 +455,20 @@ child has logically exited. If you must signal, check
 `wp.exitCode === null && wp.signalCode === null` AND consider
 the polling window. v2.0.8-rc5 dropped the SIGKILL-after-grace
 fallback entirely because the polling window is unavoidable.
+
+### After-install state goes in a sidecar marker file, not `import.meta.url`
+
+When `update.js` writes install-channel info (stable tag vs dev
+SHA), it cannot use `import.meta.url` to find the install path:
+the package directory was just replaced by `npm install`, so the
+URL still points at the pre-install location. Resolve the install
+location via `npm root -g` (or `process.execPath`-relative
+fallback) and write the marker there. `version.js` then reads
+the marker relative to its own `import.meta.url` (because it runs
+in a fresh process after the install completes, and its URL
+reflects the new file path). This split-resolve pattern is
+asymmetric by design but is the correct way to bridge install-time
+and runtime state.
 
 ### semver parsing for prerelease
 
