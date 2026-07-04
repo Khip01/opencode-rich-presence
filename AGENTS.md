@@ -41,6 +41,7 @@ need to navigate this codebase safely.
   - `PLATFORM-NOTES.md`, `TROUBLESHOOTING.md`, `CUSTOMIZATION.md`
 - `.github/workflows/`: CI
   - `test.yml`: runs matrix on linux/macos/windows x node 18/20/22
+  - `release.yml`: runs on tag push, builds tarball + GitHub Release for STABLE tags only (skips `-rc` / `-beta` / `-alpha`)
 - `scripts/`: `smoke-test.js`, `syntax-check.js`, `check-pkg.js`
 
 ## Distribution Workflow
@@ -62,19 +63,23 @@ The five CLI commands are:
 2. `opencode-rpc install` — one-time setup: symlink the plugin into `~/.config/opencode/plugins/`, write the example config, install `@xhayper/discord-rpc` under `~/.config/opencode/node_modules/`. Works after any of the npm install variants above. Does NOT touch npm.
 3. `opencode-rpc update` — upgrade an existing installation to the latest stable release tag. Runs `npm install -g Khip01/opencode-rich-presence#<latest-tag>` and preserves the existing config / symlink / deps.
 4. `opencode-rpc update --dev` — developer-only upgrade: skips the version check and always installs the latest commit on `main`. Runs `npm install -g Khip01/opencode-rich-presence#<latest-sha>`.
-5. `opencode-rpc uninstall` + `npm uninstall -g Khip01/opencode-rich-presence` — full removal.
+5. `opencode-rpc update --stable` — force install the latest stable tag, skipping version comparison. Use this to switch back to the stable channel after running on `--dev` mode (the regular `update` flow would say "already up-to-date" because the numeric version compares equal, even though the source is a different commit on `main`). `--stable` and `--dev` are mutually exclusive (exit 2 if both passed).
+6. `opencode-rpc uninstall` + `npm uninstall -g Khip01/opencode-rich-presence` — full removal.
 
-**Why no GitHub Releases**:
+**Why git install is the primary install path**:
 
 - The repo is the single source of truth; no separate tarball artifact to keep in sync with the source.
 - Frequent pre-release tags (`-rc1`, `-rc2`, ...) cluttered the GitHub Releases sidebar and made it hard to find the latest stable version.
-- npm's git URL install (`<owner>/<repo>#<ref>`) supports tag / branch / commit / semver-range refs natively, so a separate release workflow is unnecessary.
+- npm's git URL install (`<owner>/<repo>#<ref>`) supports tag / branch / commit / semver-range refs natively.
 
-**When to add back a release workflow**:
+**GitHub Releases (stable only, for fallback / offline installs)**:
 
-Add one (`.tgz` attached to GitHub Release) only if you need offline / air-gapped installs, CDN-backed download metrics, or signed releases. For a small npm-distributed plugin like this, git install is simpler and equivalent.
+`.github/workflows/release.yml` is preserved and runs on tag pushes, but with a job-level `if` condition that skips any tag containing `-rc`, `-beta`, or `-alpha`. It builds a `.tgz` and creates a GitHub Release whose install instructions point users to the git URL (the tarball is provided as a fallback for offline / air-gapped installs, not as the primary install path).
 
-**Do NOT** tag every commit as `-rcN` or `-betaN` "to be safe". Pre-release channels are for actual pre-release channels (alpha software, beta testers). For "I want to test a fix locally before tagging stable", use `--dev`.
+If you tag `v2.1.0`, the workflow runs and creates a stable GitHub Release.
+If you tag `v2.1.0-rc1`, the workflow is skipped — no GitHub Release noise.
+
+**Do NOT** tag every commit as `-rcN` or `-betaN` "to be safe". Pre-release channels are for actual pre-release channels (alpha software, beta testers). For "I want to test a fix locally before tagging stable", use `opencode-rpc update --dev`.
 
 See the global `~/.config/opencode/AGENTS.md` "Git-Based NPM Install/Distribution Workflow" section for the general principles that apply to any npm project.
 
@@ -312,14 +317,26 @@ In addition to the global rules in `~/.config/opencode/AGENTS.md`:
   and attaches it to every GitHub Release, plus tagging every
   commit as `-rcN` / `-betaN` / `-alphaN`. Symptom was the GitHub
   Releases sidebar becoming unreadable (every "fixed one bug" tag
-  showed up as a pre-release). Fixed in v2.1.0 by deleting
-  `release.yml` entirely and switching to `npm install -g
-  <repo>#<ref>` from the GitHub repo. Do not reintroduce the
-  release workflow; if you really need a tarball for offline
-  install, document the need in CHANGELOG.md first and only then
-  add it back as a single-purpose workflow (build tarball, attach
-  to manually-triggered release on a stable tag only, not on every
-  push).
+  showed up as a pre-release). Fixed in v2.1.0 by switching the
+  CLI install path to `npm install -g <repo>#<ref>` from the
+   GitHub repo (the tarball is now a fallback, not the primary
+  path) AND by gating `release.yml` with an `if` condition that
+  skips any tag containing `-rc` / `-beta` / `-alpha`. Do NOT
+  remove that `if` condition; it is the only thing preventing
+  the sidebar pollution. If you tag a prerelease by accident,
+  no GitHub Release is created — clean.
+- Letting two mutually-exclusive flags (`--stable` and `--dev` in
+  `opencode-rpc update`) silently pick one. Symptom would be the
+  user running `update --stable --dev` and getting unexpected
+  behavior depending on argument-order parse rules. The fix
+  applied here: detect both flags in the handler and exit with
+  code 2 plus a clear error message before doing any work.
+  Follows POSIX Guideline 11 ("unless the options are documented
+  as mutually-exclusive") and matches the pattern used by
+  `cargo`, `kubectl`, and `npm` for genuinely incompatible flags.
+  When you add a new flag, check whether it conflicts with
+  existing ones and reject with `process.exit(2)` plus a one-line
+  explanation if so. Do NOT silently last-one-wins.
 
 ## Documentation Maintenance
 

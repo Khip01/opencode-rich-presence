@@ -5,12 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- `opencode-rpc update --stable` flag. Skips version comparison and always installs the latest stable release tag. Use this to switch back to the stable channel when you have been running on `update --dev` mode and want to pin to a tagged release without manually looking up the tag yourself. `--stable` and `--dev` are mutually exclusive: passing both exits with code 2 and a clear error message, following POSIX Guideline 11 and modern CLI conventions (cargo, kubectl, npm).
+
 ## [2.1.0] - 2026-07-04
 
 ### Changed
 
-- **BREAKING for maintainers**: Removed the GitHub Releases workflow (`.github/workflows/release.yml` deleted). The plugin is no longer distributed as a `.tgz` asset attached to a GitHub Release, and there is no longer a separate "pre-release" channel (`-rc`, `-beta`, `-alpha` tags). The repo itself is now the single source of truth.
-- **Install workflow changed**: end users now install via `npm install -g Khip01/opencode-rich-presence#v2.1.0` instead of downloading a tarball from a GitHub Release URL. The repo at a specific tag is the install source, so there is no separate artifact to keep in sync with the source.
+- **Install workflow changed**: end users now install via `npm install -g Khip01/opencode-rich-presence#v2.1.0` instead of downloading a tarball from a GitHub Release URL. The repo at a specific tag is the install source, so there is no separate artifact to keep in sync with the source. The GitHub Releases workflow is preserved but its job-level `if` condition skips any tag containing `-rc` / `-beta` / `-alpha`; only stable tags create a GitHub Release (which now points users to the git install command and provides the tarball as a fallback for offline installs).
+- There is no longer a separate "pre-release" channel (`-rc`, `-beta`, `-alpha` tags). Use `opencode-rpc update --dev` to test a fix before tagging stable.
 
 ### Updated
 

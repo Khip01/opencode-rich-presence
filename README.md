@@ -58,7 +58,7 @@ opencode-rpc <command>
 | `install` | Set up Rich Presence for OpenCode (config, symlink, deps) |
 | `uninstall` | Remove generated files (lock, output, restart signal); backup config |
 | `restart` | Reload the plugin worker (does not touch Discord Desktop) |
-| `update` | Upgrade to latest stable release (or `--dev` for latest commit) |
+| `update` | Upgrade to latest stable release (or `--dev` for latest commit, `--stable` to force-reinstall latest stable tag) |
 | `info` | Show diagnostic info: paths, config, lock status, plugin symlink |
 | `version` | Print package version |
 | `help` | Show usage |
@@ -68,11 +68,12 @@ Full reference: [`docs/CLI-REFERENCE.md`](./docs/CLI-REFERENCE.md)
 ## Update
 
 ```bash
-opencode-rpc update                  # upgrade to latest stable release
+opencode-rpc update                  # upgrade to latest stable release (if newer)
 opencode-rpc update --dev            # upgrade to latest commit on main (developer)
+opencode-rpc update --stable         # force install latest stable tag (use to switch off dev)
 ```
 
-Fetches the latest tag (or commit, with `--dev`) from GitHub, then runs `npm install -g Khip01/opencode-rich-presence#<ref>` to upgrade in place. No manual steps needed.
+Fetches the latest tag (or commit, with `--dev`) from GitHub, then runs `npm install -g Khip01/opencode-rich-presence#<ref>` to upgrade in place. `--stable` skips version comparison and always installs the latest tag, useful for switching back from `--dev` mode. `--stable` and `--dev` are mutually exclusive. No manual steps needed.
 
 ## Customization
 

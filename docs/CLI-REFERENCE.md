@@ -42,6 +42,7 @@ Commands:
 
 Options (update):
   --dev        Install latest commit from main branch (developer)
+  --stable     Force install latest stable tag (use to switch off dev)
 
 Installation (one-time):
   npm install -g Khip01/opencode-rich-presence#v2.1.0
@@ -52,8 +53,9 @@ Installation (one-time):
   opencode-rpc install
 
 Update:
-  opencode-rpc update                  # latest stable release tag
+  opencode-rpc update                  # latest stable release tag (if newer)
   opencode-rpc update --dev            # latest commit on main (developer)
+  opencode-rpc update --stable         # force install latest stable tag (any state)
 
 Documentation: https://github.com/Khip01/opencode-rich-presence
 ```
@@ -239,6 +241,33 @@ Installing Khip01/opencode-rich-presence#a1b2c3d4...
 
 Updated to dev build at a1b2c3d.
 Restart OpenCode to apply changes.
+```
+
+**Example: force stable (`--stable` flag)**
+
+`--stable` skips version comparison and always installs the latest release tag, regardless of whether the user is on a different version, on a prerelease, or on a dev build. Use this to switch back to the stable channel after running on `--dev` mode.
+
+```
+$ opencode-rpc update --stable
+
+Current version: a1b2c3d (dev)
+Mode: stable (forcing install of v2.1.0)
+Switching to v2.1.0...
+
+Installing Khip01/opencode-rich-presence#v2.1.0...
+
+Now on v2.1.0.
+Restart OpenCode to apply changes.
+```
+
+**Example: mutually exclusive flags**
+
+`--stable` and `--dev` are mutually exclusive. Passing both is an error (exit code 2).
+
+```
+$ opencode-rpc update --stable --dev
+Error: --stable and --dev are mutually exclusive.
+Use one or the other, not both.
 ```
 
 ---

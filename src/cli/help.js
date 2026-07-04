@@ -15,6 +15,7 @@ Commands:
 
 Options (update):
   --dev        Install latest commit from main branch (developer)
+  --stable     Force install latest stable tag (use to switch off dev)
 
 Installation (one-time):
   # Stable release (replace v2.1.0 with the version you want):

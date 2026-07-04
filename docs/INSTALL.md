@@ -91,11 +91,12 @@ opencode
 ## Updating
 
 ```bash
-opencode-rpc update                  # upgrade to latest stable release
+opencode-rpc update                  # upgrade to latest stable release (if newer)
 opencode-rpc update --dev            # upgrade to latest commit on main (developer)
+opencode-rpc update --stable         # force install latest stable tag (use to switch off dev)
 ```
 
-Fetches the latest tag (or commit, with `--dev`) from GitHub, then runs `npm install -g Khip01/opencode-rich-presence#<ref>` to upgrade in place. Restart OpenCode afterwards.
+Fetches the latest tag (or commit, with `--dev`) from GitHub, then runs `npm install -g Khip01/opencode-rich-presence#<ref>` to upgrade in place. `--stable` skips version comparison and always installs the latest tag, useful for switching back from `--dev` mode. `--stable` and `--dev` are mutually exclusive. Restart OpenCode afterwards.
 
 ## Uninstalling
 
