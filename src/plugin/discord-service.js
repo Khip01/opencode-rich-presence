@@ -31,9 +31,22 @@ const state = {
     restarting: false,
 };
 
-function sendCmd(cmd) {
-    if (!state.workerProcess?.stdin?.writable) return false;
-    try { state.workerProcess.stdin.write(JSON.stringify(cmd) + "\n"); return true; } catch { return false; }
+function sendCmd(cmd, wp = state.workerProcess) {
+    // v2.1.2: take wp as parameter so callers that null out state.workerProcess
+    // BEFORE calling us (e.g. shutdownWorker, destroy) can still send the cmd.
+    // The previous code read `state.workerProcess?.stdin?.writable` after
+    // the caller had nulled it, which silently dropped every shutdown command.
+    // The worker was then SIGKILLed without ever receiving "Shutdown requested"
+    // or running clearActivity, leaving Discord showing the last activity
+    // until Discord itself was restarted.
+    if (!wp?.stdin?.writable) {
+        log(`sendCmd: cannot send ${cmd?.cmd} (stdin not writable)`);
+        return false;
+    }
+    try { wp.stdin.write(JSON.stringify(cmd) + "\n"); return true; } catch (e) {
+        log(`sendCmd(${cmd?.cmd}):`, e?.message || e);
+        return false;
+    }
 }
 
 function handleWorkerMsg(msg) {
@@ -138,9 +151,18 @@ export async function destroy() {
     state.disposed = true;
     if (state.pushTimer) { clearTimeout(state.pushTimer); state.pushTimer = null; }
     const wp = state.workerProcess;
+    if (!wp) return;
+
+    // v2.1.2: send shutdown cmd BEFORE nulling state.workerProcess. The
+    // previous order (null first, then sendCmd) silently dropped the cmd
+    // because sendCmd read `state.workerProcess?.stdin?.writable` which
+    // was undefined once the caller had nulled it. The worker was then
+    // SIGKILLed without ever running clearActivity, leaving Discord
+    // showing the last activity until Discord itself was restarted.
+    try { sendCmd({ cmd: "shutdown" }, wp); } catch {}
+
     state.workerProcess = null;
     state.connected = false;
-    if (!wp) return;
 
     // v2.0.8-rc3: poll the child's exitCode instead of a fixed wait.
     // v2.0.8-rc5: dropped SIGKILL-after-grace, leaving orphan workers.
@@ -155,10 +177,8 @@ export async function destroy() {
     // polling loop checks wp.exitCode every 50ms; if the worker exits
     // during the poll, the loop returns immediately. Only after the
     // grace period expires AND exitCode is still null do we send the
-    // signal — at which point we know the worker is still alive and the
+    // signal, at which point we know the worker is still alive and the
     // PID has not been recycled.
-    try { sendCmd({ cmd: "shutdown" }); } catch {}
-
     const start = Date.now();
     const graceMs = 2500;
     while (Date.now() - start < graceMs) {
@@ -174,17 +194,20 @@ export async function destroy() {
 // to push to Discord). Unlike destroy() this does NOT mark the service as
 // permanently disposed; a subsequent connect() will spawn a new worker.
 //
-// v2.1.2: same SIGKILL-after-grace restore as destroy(). See the comment in
-// destroy() for why v2.0.8-rc5's "leave it orphaned" stance was reverted.
+// v2.1.2: same shutdown-first-then-null order fix as destroy(). Without it
+// the shutdown cmd is silently dropped and the worker never gets to run
+// clearActivity before being SIGKILLed, leaving Discord showing stale
+// activity after the last leader exits.
 export async function shutdownWorker() {
     state.intentionalShutdown = true;
     if (state.pushTimer) { clearTimeout(state.pushTimer); state.pushTimer = null; }
     const wp = state.workerProcess;
-    state.workerProcess = null;
-    state.connected = false;
     if (!wp) return;
 
-    try { sendCmd({ cmd: "shutdown" }); } catch {}
+    try { sendCmd({ cmd: "shutdown" }, wp); } catch {}
+
+    state.workerProcess = null;
+    state.connected = false;
 
     const start = Date.now();
     const graceMs = 2500;
@@ -224,7 +247,9 @@ async function forceRestartWorker() {
         const wp = state.workerProcess;
         if (wp) {
             state.intentionalShutdown = true;
-            try { sendCmd({ cmd: "shutdown" }); } catch {}
+            // v2.1.2: pass wp explicitly because state.workerProcess is
+            // nulled below; without this, sendCmd silently drops the cmd.
+            try { sendCmd({ cmd: "shutdown" }, wp); } catch {}
             const start = Date.now();
             while (Date.now() - start < 2000) {
                 if (wp.exitCode !== null || wp.signalCode !== null) break;

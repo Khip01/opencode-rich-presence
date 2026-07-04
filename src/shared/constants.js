@@ -41,7 +41,7 @@ export const MAX_DISCORD_FIELD = 128;
 // this, a worker stuck in its retry loop (e.g. Discord IPC socket stale after
 // the previous leader exited or the system rebooted) holds the leader slot
 // but never pushes presence, and the user has to run `opencode-rpc restart`
-// manually. The threshold is conservative — long enough that a normal slow
+// manually. The threshold is conservative, long enough that a normal slow
 // first connect (cold start, large Discord install) is not interrupted, short
 // enough that the user is not left staring at an empty display for minutes.
 export const STALE_WORKER_THRESHOLD_MS = 15000;
