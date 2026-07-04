@@ -54,10 +54,10 @@ jobs:
             ### Stable (recommended for end users)
 
             ```bash
-            # Pin to a specific version:
-            npm install -g Khip01/opencode-rich-presence#v${{ github.ref_name }}
+            # Pin to a specific version (github.ref_name already starts with 'v'):
+            npm install -g Khip01/opencode-rich-presence#${{ github.ref_name }}
 
-            # Or auto-resolve the latest stable matching ^v0:
+            # Or auto-resolve the latest stable matching the major version:
             npm install -g Khip01/opencode-rich-presence#semver:^${{ github.ref_name }}
 
             opencode-rpc install
