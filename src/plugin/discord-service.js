@@ -294,24 +294,6 @@ export function startConnect(config) {
     connect();
 }
 
-// v2.1.2: gain-leadership entry point. Unlike startConnect() (which only
-// sends a `connect` command to the existing worker), this guarantees the
-// new leader starts with a fresh worker process. Used by the
-// setLeadershipChangeCallback(true) path so the Discord IPC socket held by
-// the previous leader's worker does not cause the new leader's connect
-// attempts to fail silently.
-export function startConnectAsLeader(config) {
-    _currentConfig = config;
-    // If the worker is already connected, no restart needed. Skipping the
-    // restart saves the 2s IPC-release wait when leadership changes on a
-    // healthy Discord session.
-    if (state.connected) {
-        connect();
-        return;
-    }
-    forceRestartWorker().catch((e) => log("startConnectAsLeader:", e?.message || e));
-}
-
 // Spawn the worker and start its Discord connection attempt without requiring
 // the calling process to be the leader. Standby instances that have just
 // received user activity call this so their worker is already running and

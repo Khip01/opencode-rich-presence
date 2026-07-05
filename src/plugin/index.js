@@ -8,7 +8,7 @@ import { loadConfig } from "./config-resolver.js";
 import { coordinator } from "./coordinator.js";
 import { SessionState } from "./session-state.js";
 import { withTimeout, formatDuration } from "./template-engine.js";
-import { pushActivity, destroy as discordDestroy, shutdownWorker, startConnect, startConnectAsLeader, prepareConnect, getStatus, checkWorkerHealth } from "./discord-service.js";
+import { pushActivity, destroy as discordDestroy, shutdownWorker, startConnect, prepareConnect, getStatus, checkWorkerHealth } from "./discord-service.js";
 
 // ─── Global State ──────────────────────────────────────────────────────────
 
@@ -299,18 +299,18 @@ export const OpencodeRichPresence = async ({ client, directory }) => {
     // over leadership via activity handoff actually start pushing presence.
     coordinator.setLeadershipChangeCallback(async (nowLeader) => {
         if (nowLeader) {
-            log("Gained leadership, starting fresh worker");
-            // v2.1.2: use startConnectAsLeader() instead of startConnect() so
-            // the new leader always starts with a fresh worker. The previous
-            // leader's worker may have left the Discord IPC socket in a
-            // state where a reused worker cannot connect (e.g. socket still
-            // bound by a zombie process, stale after a system reboot). The
-            // fresh-worker path mirrors the manual `opencode-rpc restart`
-            // recovery: kill -> wait for exit -> wait 2s for IPC release ->
-            // spawn fresh. When the worker is already connected (rare on a
-            // leadership change but possible if the previous leader was
-            // healthy), this short-circuits and skips the 2s wait.
-            try { startConnectAsLeader(config); } catch (e) { log("startConnectAsLeader:", e?.message || e); }
+            log("Gained leadership, connecting to Discord");
+            // v2.1.2: just startConnect, not startConnectAsLeader. The latter
+            // forced a fresh worker on every handoff (kill + wait 2s IPC
+            // release + spawn fresh), which made multi-terminal switching
+            // feel like a restart under slow internet. Self-heal watchdog
+            // (checkWorkerHealth, threshold 15s) handles genuinely stuck
+            // workers, so we do not need to force-restart on every handoff.
+            // The standby's prepareConnect() usually already spawned a
+            // worker when the user fired their first message, so by the
+            // time we run, the worker is already trying to connect. We just
+            // send the connect command to keep it going.
+            try { startConnect(config); } catch (e) { log("startConnect:", e?.message || e); }
             // Force a state refresh from the server so the new leader's
             // session states reflect reality, not stale in-memory snapshots
             // from when we were standby (standby does not poll for activity).
