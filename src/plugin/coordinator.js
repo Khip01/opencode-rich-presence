@@ -37,6 +37,16 @@ let heartbeatTimer = null;
 let standbyTimer = null;
 let myLastActivity = 0;
 let becameLeaderAt = 0;
+// v2.1.2 patch: track when we last yielded leadership so we do not
+// immediately re-acquire on the next SDK event. After yielding, the AI
+// session is still active and emits events (message.part.updated, etc),
+// each of which triggers noteActivity -> requestHandoff -> tryAcquireLock.
+// Without this cooldown, the yielding leader races the standby for the
+// lock and usually wins (events fire faster than the standby's poll
+// cycle), so the standby never gets to push presence to Discord. The
+// 3s cooldown matches LEADER_COOLDOWN_MS and gives the standby time to
+// poll, see the released lock, and claim leadership.
+let lastYieldedAt = 0;
 let onLeadershipChange = null;
 const myPid = process.pid;
 
@@ -74,6 +84,13 @@ async function readHandoffSafe() {
 }
 
 async function tryAcquireLock() {
+    // v2.1.2 patch: refuse to acquire if we recently yielded. See comment
+    // on `lastYieldedAt` above for the race-condition context.
+    if (lastYieldedAt && Date.now() - lastYieldedAt < LEADER_COOLDOWN_MS) {
+        const ms = LEADER_COOLDOWN_MS - (Date.now() - lastYieldedAt);
+        log(`tryAcquire: refusing (cooldown ${Math.round(ms/1000)}s after yield)`);
+        return false;
+    }
     const now = Date.now();
     const payload = JSON.stringify({ pid: myPid, started: now, lastActivity: myLastActivity });
 
@@ -146,6 +163,11 @@ function stopHeartbeat() {
 async function releaseLock() {
     stopHeartbeat();
     if (!isLeader) return;
+    // v2.1.2 patch: mark the time we yielded. The next tryAcquireLock call
+    // (triggered by our own SDK events via noteActivity -> requestHandoff)
+    // will refuse for LEADER_COOLDOWN_MS, giving the standby instance a
+    // fair chance to acquire before we steal it back.
+    lastYieldedAt = Date.now();
     try { await unlink(LOCK_FILE); log("Released leader lock"); } catch {}
     isLeader = false;
     if (onLeadershipChange) onLeadershipChange(false);

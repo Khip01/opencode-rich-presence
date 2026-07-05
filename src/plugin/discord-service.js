@@ -26,6 +26,13 @@ const state = {
     // loop cannot recover (e.g. socket held by a zombie process or stale
     // after the previous leader exited). See forceRestartWorker().
     lastWorkerEventAt: 0,
+    // v2.1.2 patch: track the last successful `connected` event separately.
+    // The retry loop sends `attempt` messages on every retry, which keeps
+    // lastWorkerEventAt fresh forever and prevents the self-heal watchdog
+    // from ever triggering even when the worker has been failing to connect
+    // for minutes. lastConnectedAt only refreshes on a successful connect,
+    // so the watchdog correctly fires when the worker is stuck in retry.
+    lastConnectedAt: 0,
     // v2.1.2: guard against concurrent forceRestartWorker() calls (e.g. the
     // leadership-gain path and the stale-check loop firing at the same time).
     restarting: false,
@@ -55,6 +62,7 @@ function handleWorkerMsg(msg) {
         state.connected = true;
         state.retryCount = 0;
         state.lastError = null;
+        state.lastConnectedAt = Date.now();
         log("Discord connected via worker");
         if (state.pendingActivity) sendCmd({ cmd: "setActivity", activity: state.pendingActivity });
     } else if (msg.type === "disconnected") {
@@ -277,12 +285,20 @@ async function forceRestartWorker() {
 // stuck (alive but no progress for STALE_WORKER_THRESHOLD_MS) and a restart
 // was triggered. Called from the leader heartbeat loop so we do not add a
 // second timer.
+//
+// v2.1.2 patch: use lastConnectedAt (not lastWorkerEventAt) so the watchdog
+// actually fires. The retry loop sends `attempt` messages on every retry,
+// which kept lastWorkerEventAt fresh forever and prevented the watchdog
+// from ever triggering even when the worker had been failing to connect
+// for minutes. lastConnectedAt only refreshes on a successful `connected`
+// event, so the watchdog correctly detects a stuck worker.
 async function maybeRestartStaleWorker() {
     if (state.disposed) return false;
     if (state.connected) return false;
     if (!state.workerProcess) return false;
-    if (!state.lastWorkerEventAt) return false;
-    const staleMs = Date.now() - state.lastWorkerEventAt;
+    const reference = state.lastConnectedAt || state.lastWorkerEventAt;
+    if (!reference) return false;
+    const staleMs = Date.now() - reference;
     if (staleMs < STALE_WORKER_THRESHOLD_MS) return false;
     log(`Worker stuck for ${Math.round(staleMs / 1000)}s, auto-restarting`);
     forceRestartWorker().catch((e) => log("forceRestartWorker:", e?.message || e));
