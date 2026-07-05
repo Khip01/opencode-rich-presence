@@ -1,20 +1,17 @@
 import { existsSync, readFileSync, writeFileSync, copyFileSync, mkdirSync, lstatSync, symlinkSync, unlinkSync } from "node:fs";
-import { execSync } from "node:child_process";
 import { dirname, join, basename } from "node:path";
-import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { OPENCODE_DIR, CONFIG_PATH } from "../shared/paths.js";
-import { confirm, question } from "./prompt.js";
+import { confirm } from "./prompt.js";
 
 const PKG_ROOT = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
 const EXAMPLE_CONFIG = join(PKG_ROOT, "config", "discord-config.example.json");
 const PLUGIN_NAME = "opencode-rich-presence";
-const REQUIRED_DEP = "@xhayper/discord-rpc";
-const REQUIRED_DEP_VERSION = "1.3.4";
 const PLUGIN_ENTRY_RELATIVE = "src/plugin/index.js";
 
 export async function install() {
     console.log("\nopencode-rich-presence installer\n");
+    console.log("Phase 1: local state collector + activity log (no Discord push yet).");
 
     if (!existsSync(OPENCODE_DIR)) {
         console.log(`Creating OpenCode config directory: ${OPENCODE_DIR}`);
@@ -34,7 +31,6 @@ export async function install() {
 
     await maybeMigrateRemoveFromOpencodeConfig();
     await installLocalPlugin();
-    await ensureDependencies();
 
     printNextSteps();
 }
@@ -151,39 +147,6 @@ async function installLocalPlugin() {
 
 function readlinkTarget(p) {
     return require("node:fs").readlinkSync(p);
-}
-
-// Ensure @xhayper/discord-rpc is available in ~/.config/opencode/node_modules/ so the
-// worker subprocess (loaded from a symlinked path) can resolve it. OpenCode already
-// manages its own deps in this package.json, so we only add what is missing.
-async function ensureDependencies() {
-    console.log("");
-    const pkgPath = join(OPENCODE_DIR, "package.json");
-    let pkg = { dependencies: {} };
-    let hadFile = false;
-    if (existsSync(pkgPath)) {
-        hadFile = true;
-        try { pkg = JSON.parse(readFileSync(pkgPath, "utf-8")); } catch {}
-    }
-    pkg.dependencies = pkg.dependencies || {};
-
-    if (pkg.dependencies[REQUIRED_DEP] === REQUIRED_DEP_VERSION) {
-        console.log(`  ${REQUIRED_DEP} already present in ${pkgPath}`);
-        return;
-    }
-
-    pkg.dependencies[REQUIRED_DEP] = REQUIRED_DEP_VERSION;
-    writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n", "utf-8");
-    console.log(`  Updated ${pkgPath} (added ${REQUIRED_DEP})`);
-
-    console.log(`  Running npm install in ${OPENCODE_DIR}...`);
-    try {
-        execSync("npm install --no-audit --no-fund", { cwd: OPENCODE_DIR, stdio: "inherit" });
-        console.log(`  Installed dependencies.`);
-    } catch (e) {
-        console.log(`  npm install failed: ${e.message}`);
-        console.log(`  You can run it manually later: cd ${OPENCODE_DIR} && npm install`);
-    }
 }
 
 function printNextSteps() {

@@ -1,6 +1,5 @@
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 
 // OpenCode standardizes ~/.config/opencode/ across all platforms (Linux, macOS, Windows).
 // See: https://opencode.ai/docs/config#global
@@ -12,19 +11,12 @@ export const OPENCODE_DIR = process.env.OPENCODE_CONFIG_DIR
 
 export const CONFIG_PATH = join(OPENCODE_DIR, "discord-config.json");
 export const OUTPUT_FILE = join(OPENCODE_DIR, "presence-state.txt");
-export const RESTART_SIGNAL = join(OPENCODE_DIR, ".discord-restart-request");
-export const LOCK_FILE = join(OPENCODE_DIR, ".opencode-rich-presence.lock");
-// Written by a standby instance when it has chat activity and wants to take over
-// the leader role. The leader's heartbeat loop reads this on each tick and
-// releases the lock if it sees a fresher request from a different PID. Cleared
-// once the leader has acted on it. See coordinator.js for the full handoff flow.
-export const HANDOFF_REQUEST = join(OPENCODE_DIR, ".opencode-rich-presence-handoff");
+// Phase 1 redesign: comprehensive chronological activity log. Append-only so the
+// user can `tail -f` it while running OpenCode and see exactly what the plugin
+// did and what it WOULD have pushed to Discord (Phase 2 adds the actual push).
+// Each entry: [ISO timestamp] [tag] message. Tags let you grep for one kind
+// of event: state transitions, template renders, SDK events, etc.
+export const ACTIVITY_LOG = join(OPENCODE_DIR, "presence-activity.log");
 
 // Debug log uses OS temp directory (cross-platform: /tmp on Linux, /var/folders/... on macOS, %TEMP% on Windows).
 export const DEBUG_LOG = join(tmpdir(), "opencode-rich-presence-debug.log");
-
-// Worker location: src/worker/discord-worker.mjs (resolved from src/shared/paths.js,
-// so one "../worker/" is correct). fileURLToPath handles file:// URLs on all platforms
-// including Windows where the URL pathname starts with the drive letter.
-export const WORKER_SOURCE = fileURLToPath(new URL("../worker/discord-worker.mjs", import.meta.url));
-

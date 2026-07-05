@@ -2,13 +2,23 @@ import { writeFile, mkdir, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, basename } from "node:path";
 import { OPENCODE_DIR, OUTPUT_FILE } from "../shared/paths.js";
-import { STATE, REFRESH_INTERVAL, FILE_WRITE_DEBOUNCE_MS, FALLBACK_MODEL_LIMITS } from "../shared/constants.js";
-import { log } from "../shared/logger.js";
+import {
+    STATE,
+    REFRESH_INTERVAL,
+    FILE_WRITE_DEBOUNCE_MS,
+    FALLBACK_MODEL_LIMITS,
+} from "../shared/constants.js";
+import { log, activity } from "../shared/logger.js";
 import { loadConfig } from "./config-resolver.js";
-import { coordinator } from "./coordinator.js";
 import { SessionState } from "./session-state.js";
 import { withTimeout, formatDuration } from "./template-engine.js";
-import { pushActivity, destroy as discordDestroy, shutdownWorker, startConnect, prepareConnect, getStatus } from "./discord-service.js";
+import {
+    renderPresence,
+    pushPresence,
+    startPresence,
+    stopPresence,
+    getPresenceStatus,
+} from "./local-presence.js";
 
 // ─── Global State ──────────────────────────────────────────────────────────
 
@@ -18,44 +28,36 @@ let displayedSessionID = null;
 const providerModels = new Map();
 let writeTimer = null;
 let config = null;
-
-// Record that this instance is doing something. Updates the local lastActivity
-// timestamp so the leader's heartbeat knows we are fresher than it. If we are
-// a standby AND this is a user-initiated event, also request leadership so we
-// push to Discord instead of the idle leader.
-//
-// opts.requestHandoff === false: agent-side events (typing, tool calls,
-// message parts, etc.) only mark active, do NOT request handoff. Only
-// user-initiated events (chat.message, permission.asked/replied) should
-// request handoff; otherwise all instances see the same SDK events and
-// ping-pong leadership back and forth.
-function noteActivity(opts = {}) {
-    coordinator.markActive();
-    if (!coordinator.isLeader && opts.requestHandoff !== false) {
-        coordinator.requestHandoff().catch((e) => log("requestHandoff:", e?.message || e));
-    }
-}
+// Phase 1: each OpenCode instance writes its OWN state file so multi-
+// instance runs do not race on a single file. Naming uses the process PID
+// for stability (the same instance always writes to the same file).
+const MY_STATE_FILE = OUTPUT_FILE.replace(/\.txt$/, `-pid${process.pid}.txt`);
 
 // ─── File Output ───────────────────────────────────────────────────────────
 
 function scheduleWrite() {
+    // Render + log the would-push payload BEFORE touching the file so the
+    // activity log shows the resolved template values regardless of
+    // whether the file write succeeds.
     const d = displayedSessionID ? sessions.get(displayedSessionID) : null;
-    pushActivity(d, config, coordinator.isLeader);
-    if (!coordinator.isLeader) return;
+    const rendered = renderPresence(d, config);
+    pushPresence(rendered);
+
     if (writeTimer) return;
     writeTimer = setTimeout(async () => {
         writeTimer = null;
-        try { await writeFile(OUTPUT_FILE, formatOutput(), "utf-8"); } catch (e) { log("Write failed:", e?.message || e); }
+        try { await writeFile(MY_STATE_FILE, formatOutput(rendered), "utf-8"); } catch (e) { log("Write failed:", e?.message || e); }
     }, FILE_WRITE_DEBOUNCE_MS);
     writeTimer.unref?.();
 }
 
-function formatOutput() {
+function formatOutput(rendered) {
     const now = new Date();
     const d = displayedSessionID ? sessions.get(displayedSessionID) : null;
     const lines = [];
     lines.push("=".repeat(60));
-    lines.push(` OpenCode Presence State - ${now.toISOString().replace("T", " ").substring(0, 19)} UTC`);
+    lines.push(` OpenCode Presence State - pid ${process.pid}`);
+    lines.push(` Updated: ${now.toISOString().replace("T", " ").substring(0, 19)} UTC`);
     lines.push("=".repeat(60));
     lines.push("");
 
@@ -92,18 +94,27 @@ function formatOutput() {
     }
 
     lines.push("");
-    const status = getStatus();
+    lines.push("RENDERED PRESENCE (what Phase 2 would push to Discord)");
+    if (rendered) {
+        lines.push(`  details         : ${rendered.details || "(empty)"}`);
+        lines.push(`  state           : ${rendered.state || "(empty)"}`);
+        lines.push(`  largeImageKey   : ${rendered.largeImageKey || "?"}`);
+        lines.push(`  largeImageText  : ${rendered.largeImageText || "(empty)"}`);
+        lines.push(`  smallImageText  : ${rendered.smallImageText || "(empty)"}`);
+    } else {
+        lines.push("  (nothing rendered)");
+    }
+
+    lines.push("");
+    const status = getPresenceStatus();
     lines.push("=".repeat(60));
     lines.push(` Application ID : ${config?.appId || "?"}`);
     lines.push(` Asset Key      : ${config?.largeImageKey || "?"}`);
     lines.push(` Asset Text     : ${config?.largeImageText || "?"}`);
-    lines.push(` Phase          : 2 (State Collector + Discord RPC)`);
-    lines.push(` Discord        : ${status.connected ? "connected" : "disconnected"}`);
-    lines.push(` Discord Error  : ${status.lastError || "(none)"}`);
-    lines.push(` Discord Retries: ${status.retryCount}`);
-    lines.push(` Last Attempt   : ${status.lastAttemptAt ? formatDuration(Date.now() - status.lastAttemptAt) + " ago" : "never"}`);
+    lines.push(` Phase          : 1 (local state + activity log, no Discord push)`);
+    lines.push(` State File     : ${MY_STATE_FILE}`);
+    lines.push(` Activity Log   : ~/.config/opencode/presence-activity.log`);
     lines.push(` Models Loaded  : ${providerModels.size}`);
-    lines.push(` Output File    : ${OUTPUT_FILE}`);
     lines.push("=".repeat(60));
     return lines.join("\n");
 }
@@ -138,8 +149,18 @@ function ensureSession(sid) {
         s = new SessionState(sid);
         sessions.set(sid, s);
         if (!queue.includes(sid)) queue.push(sid);
+        activity("queue", `added sid=${sid.slice(-8)} (queue size ${queue.length})`);
     }
     return s;
+}
+
+// Record a session state transition. Logs only when the state actually
+// changes so the activity log is a clean history (no spam on every event).
+function transitionTo(s, newState, reason) {
+    if (!s || s.state === newState) return;
+    const prev = s.state;
+    s.state = newState;
+    activity("state", `sid=${s.sessionID.slice(-8)} ${prev} -> ${newState} (${reason})`);
 }
 
 // ─── SDK Calls ─────────────────────────────────────────────────────────────
@@ -165,7 +186,7 @@ async function restoreSessionMessages(client, sid, wd) {
         }
         if (lm) s.mode = lm;
         s.modelLimit = getModelLimit(s.model) ?? s.modelLimit;
-        log(`Restored ${sid}: ${ac} msgs, $${s.cost.toFixed(4)}, model=${s.model}`);
+        activity("restore", `sid=${sid.slice(-8)} restored=${ac} cost=$${s.cost.toFixed(4)} model=${s.model}`);
     } catch (e) { log(`restoreMsg(${sid}): ${e?.message || e}`); }
 }
 
@@ -191,9 +212,9 @@ async function checkAllSessionsActivity(client, wd) {
                 if (!info) return;
                 const ts = info.time?.completed || info.time?.created || 0;
                 if (ts > state.lastActivity) state.lastActivity = ts;
-                if (info.role === "user") state.state = STATE.WORKING;
-                else if (info.role === "assistant" && !info.time?.completed) state.state = STATE.TYPING;
-                else if (info.role === "assistant" && info.time?.completed) state.state = STATE.WAITING;
+                if (info.role === "user") transitionTo(state, STATE.WORKING, "poll: latest is user message");
+                else if (info.role === "assistant" && !info.time?.completed) transitionTo(state, STATE.TYPING, "poll: assistant message in progress");
+                else if (info.role === "assistant" && info.time?.completed) transitionTo(state, STATE.WAITING, "poll: assistant message completed");
             } catch {}
         });
 
@@ -202,7 +223,10 @@ async function checkAllSessionsActivity(client, wd) {
         const previousDisplayed = displayedSessionID;
         updateDisplay();
         if (displayedSessionID !== previousDisplayed) {
-            log(`Switched display: ${previousDisplayed?.slice(-8) || "(none)"} -> ${displayedSessionID?.slice(-8) || "(none)"}`);
+            activity(
+                "display",
+                `sid=${previousDisplayed?.slice(-8) || "(none)"} -> sid=${displayedSessionID?.slice(-8) || "(none)"} (${queue.length} in queue)`,
+            );
             scheduleWrite();
         }
     } catch (e) {
@@ -228,7 +252,7 @@ async function loadProviderModels(client, wd) {
                 }
             }
         }
-        log(`Loaded ${providerModels.size} model limits`);
+        activity("models", `loaded ${providerModels.size} provider model limits`);
     } catch (e) { log(`loadModels: ${e?.message || e}`); }
 }
 
@@ -238,7 +262,7 @@ async function restoreFromServer(client, wd) {
         const o = wd ? { query: { directory: wd } } : undefined;
         const r = await withTimeout(client.session.list(o), 5000, "session.list");
         const sl = r?.data ?? r;
-        if (!Array.isArray(sl)) return log("No sessions to restore");
+        if (!Array.isArray(sl)) { activity("restore", "no sessions to restore"); return; }
         const tasks = sl.filter(x => x?.id).map(async (si) => {
             const s = ensureSession(si.id);
             if (si.time?.created) s.startedAt = si.time.created;
@@ -248,14 +272,14 @@ async function restoreFromServer(client, wd) {
         await Promise.allSettled(tasks);
         updateDisplay();
         scheduleWrite();
-        log(`Restored ${sessions.size} sessions`);
+        activity("restore", `completed: ${sessions.size} sessions restored`);
     } catch (e) { log(`restoreAll: ${e?.message || e}`); }
 }
 
 function loadFallbackLimits() {
     let c = 0;
     for (const [id, l] of Object.entries(FALLBACK_MODEL_LIMITS)) { providerModels.set(id, l); c++; }
-    log(`Loaded ${c} fallback limits`);
+    activity("models", `loaded ${c} fallback model limits`);
 }
 
 async function loadConfigLimits(p) {
@@ -279,7 +303,7 @@ async function loadConfigLimits(p) {
                 }
             }
         }
-        log(`Loaded ${c} model limits from ${basename(p)}`);
+        activity("models", `loaded ${c} model limits from ${basename(p)}`);
     } catch (e) { log(`loadConfigLimits(${p}): ${e?.message || e}`); }
 }
 
@@ -288,37 +312,13 @@ async function loadConfigLimits(p) {
 export const OpencodeRichPresence = async ({ client, directory }) => {
     if (!client) { log("No client"); return {}; }
 
-    log("=== Plugin loaded ===");
-    log(`Output: ${OUTPUT_FILE}`);
-    log(`Workdir: ${directory || "(none)"}`);
+    activity("load", `plugin loaded workdir=${directory || "(none)"}`);
 
     config = await loadConfig();
-
-    // React to leadership transitions: connect to Discord on gain, tear the
-    // worker down on loss. This is what makes a standby instance that takes
-    // over leadership via activity handoff actually start pushing presence.
-    coordinator.setLeadershipChangeCallback(async (nowLeader) => {
-        if (nowLeader) {
-            log("Gained leadership, connecting to Discord");
-            // v2.0.8-rc2: no fixed IPC delay. The previous leader's
-            // shutdownWorker sends the shutdown command and polls for actual
-            // exit (with up to 2s grace) before any force-kill, so by the
-            // time we run, the old worker's Discord IPC socket should be
-            // released. If the new worker still fails to connect, it will
-            // retry with the fast backoff configured in discord-worker.mjs.
-            try { startConnect(config); } catch (e) { log("startConnect:", e?.message || e); }
-            // Force a state refresh from the server so the new leader's
-            // session states reflect reality, not stale in-memory snapshots
-            // from when we were standby (standby does not poll for activity).
-            try { await checkAllSessionsActivity(client, directory); } catch (e) { log("refresh:", e?.message || e); }
-            scheduleWrite();
-        } else {
-            log("Lost leadership, disconnecting from Discord");
-            try { await shutdownWorker(); } catch (e) { log("shutdownWorker:", e?.message || e); }
-        }
-    });
-
-    await coordinator.tryAcquire();
+    activity(
+        "config",
+        `appId=${config.appId} key=${config.largeImageKey} currency=${config.currency}`,
+    );
 
     loadFallbackLimits();
 
@@ -334,20 +334,12 @@ export const OpencodeRichPresence = async ({ client, directory }) => {
 
     restoreFromServer(client, directory).catch(e => log(`Background restore error: ${e?.message || e}`));
 
-    if (coordinator.isLeader) {
-        coordinator.startHeartbeat();
-        startConnect(config);
-    } else {
-        log("Standby - waiting for leadership opportunity");
-        coordinator.startStandbyPolling();
-    }
+    startPresence();
 
     scheduleWrite();
 
     const activityTimer = setInterval(() => {
-        if (coordinator.isLeader) {
-            checkAllSessionsActivity(client, directory).catch((e) => log(`Activity check failed: ${e?.message || e}`));
-        }
+        checkAllSessionsActivity(client, directory).catch((e) => log(`Activity check failed: ${e?.message || e}`));
     }, REFRESH_INTERVAL);
     activityTimer.unref?.();
 
@@ -359,12 +351,10 @@ export const OpencodeRichPresence = async ({ client, directory }) => {
 
     return {
         dispose: async () => {
-            log("Disposing...");
+            activity("load", "disposing (OpenCode shutting down)");
             clearInterval(refreshTimer);
             clearInterval(activityTimer);
-            coordinator.stopStandbyPolling();
-            await coordinator.release();
-            await discordDestroy();
+            stopPresence();
         },
 
         "chat.message": async (input) => {
@@ -372,20 +362,30 @@ export const OpencodeRichPresence = async ({ client, directory }) => {
                 const sid = input.sessionID;
                 if (!sid) return;
                 const s = ensureSession(sid);
-                s.agent = input.agent || s.agent;
-                s.model = input.model?.modelID || s.model;
-                s.mode = input.agent || s.mode;
+                const agent = input.agent || s.agent;
+                const model = input.model?.modelID || s.model;
+                const mode = input.agent || s.mode;
+                s.agent = agent;
+                s.model = model;
+                s.mode = mode;
                 s.modelLimit = getModelLimit(s.model) ?? s.modelLimit;
                 s.lastActivity = Date.now();
                 s.promptCount++;
-                s.state = STATE.WORKING;
-                noteActivity();
-                // v2.0.8-rc4: pre-spawn the worker so the handoff gap is
-                // shorter. The worker starts retrying Discord login while we
-                // are still standby; by the time the leader releases, the
-                // worker's next retry tick already has a free IPC socket.
-                if (!coordinator.isLeader) prepareConnect(config);
+                activity(
+                    "event",
+                    `chat.message sid=${sid.slice(-8)} agent=${agent} model=${model} mode=${mode}`,
+                );
+                if (model !== input.model?.modelID && !input.model?.modelID) {
+                    activity("session", `sid=${sid.slice(-8)} model=${model} (no model in event)`);
+                } else if (model) {
+                    activity("session", `sid=${sid.slice(-8)} model=${model} provider=${s.provider}`);
+                }
+                transitionTo(s, STATE.WORKING, "chat.message");
+                const prev = displayedSessionID;
                 updateDisplay();
+                if (displayedSessionID !== prev) {
+                    activity("display", `sid=${prev?.slice(-8) || "(none)"} -> sid=${displayedSessionID?.slice(-8) || "(none)"} (chat.message)`);
+                }
                 scheduleWrite();
                 restoreSessionMessages(client, sid, directory).catch(() => {});
             } catch (e) { log("chat.message error:", e?.message || e); }
@@ -400,10 +400,18 @@ export const OpencodeRichPresence = async ({ client, directory }) => {
                     const i = event.properties?.info;
                     if (!i?.id) return;
                     const s = ensureSession(i.id);
-                    if (i.time?.created) s.startedAt = i.time.created;
+                    const created = i.time?.created;
+                    if (created) s.startedAt = created;
                     s.lastActivity = Date.now();
-                    noteActivity({ requestHandoff: false });
+                    activity(
+                        "event",
+                        `${et} sid=${i.id.slice(-8)} parent=${i.parentID?.slice(-8) || "(root)"}`,
+                    );
+                    const prev = displayedSessionID;
                     updateDisplay();
+                    if (displayedSessionID !== prev) {
+                        activity("display", `sid=${prev?.slice(-8) || "(none)"} -> sid=${displayedSessionID?.slice(-8) || "(none)"} (${et})`);
+                    }
                     scheduleWrite();
                     restoreSessionMessages(client, i.id, directory).catch(() => {});
                     return;
@@ -416,7 +424,13 @@ export const OpencodeRichPresence = async ({ client, directory }) => {
                     sessions.delete(id);
                     const idx = queue.indexOf(id);
                     if (idx !== -1) queue.splice(idx, 1);
-                    if (displayedSessionID === id) updateDisplay();
+                    activity("event", `session.deleted sid=${id.slice(-8)} (queue size ${queue.length})`);
+                    activity("queue", `removed sid=${id.slice(-8)} (queue size ${queue.length})`);
+                    const prev = displayedSessionID;
+                    updateDisplay();
+                    if (displayedSessionID !== prev) {
+                        activity("display", `sid=${prev?.slice(-8) || "(none)"} -> sid=${displayedSessionID?.slice(-8) || "(none)"} (session.deleted)`);
+                    }
                     scheduleWrite();
                     return;
                 }
@@ -428,10 +442,17 @@ export const OpencodeRichPresence = async ({ client, directory }) => {
                     if (!s) return;
                     const st = event.properties?.status?.type ?? (et === "session.idle" ? "idle" : null);
                     s.lastActivity = Date.now();
-                    if ((st === "idle" || et === "session.idle") && s.state !== STATE.ASKING) s.state = STATE.WAITING;
-                    else if (st === "busy" && ![STATE.TYPING, STATE.THINKING, STATE.ASKING].includes(s.state)) s.state = STATE.WORKING;
-                    if (st === "busy") noteActivity({ requestHandoff: false });
+                    activity("event", `${et} sid=${sid.slice(-8)} status=${st || "(none)"}`);
+                    if ((st === "idle" || et === "session.idle") && s.state !== STATE.ASKING) {
+                        transitionTo(s, STATE.WAITING, `${et} (idle)`);
+                    } else if (st === "busy" && ![STATE.TYPING, STATE.THINKING, STATE.ASKING].includes(s.state)) {
+                        transitionTo(s, STATE.WORKING, `${et} (busy)`);
+                    }
+                    const prev = displayedSessionID;
                     updateDisplay();
+                    if (displayedSessionID !== prev) {
+                        activity("display", `sid=${prev?.slice(-8) || "(none)"} -> sid=${displayedSessionID?.slice(-8) || "(none)"} (${et})`);
+                    }
                     scheduleWrite();
                     return;
                 }
@@ -446,8 +467,25 @@ export const OpencodeRichPresence = async ({ client, directory }) => {
                     if (i.mode) s.mode = i.mode;
                     s.modelLimit = getModelLimit(s.model) ?? s.modelLimit;
                     s.lastActivity = Date.now();
-                    noteActivity({ requestHandoff: false });
+                    activity(
+                        "event",
+                        `message.updated sid=${sid.slice(-8)} role=assistant completed=${!!i.time?.completed} cost=$${(i.cost || 0).toFixed(4)} model=${i.modelID || s.model}`,
+                    );
+                    if (i.cost > 0 || i.tokens) {
+                        const ctxT = (i.tokens?.input || 0) + (i.tokens?.cache?.read || 0);
+                        activity(
+                            "stats",
+                            `sid=${sid.slice(-8)} cost=$${s.cost.toFixed(4)} tokens.in=${i.tokens?.input || 0} tokens.out=${i.tokens?.output || 0} ctx=${ctxT} (${s.contextPercent.toFixed(1)}%)`,
+                        );
+                    }
+                    if (i.time?.completed) {
+                        transitionTo(s, STATE.WAITING, "message.updated completed");
+                    }
+                    const prev = displayedSessionID;
                     updateDisplay();
+                    if (displayedSessionID !== prev) {
+                        activity("display", `sid=${prev?.slice(-8) || "(none)"} -> sid=${displayedSessionID?.slice(-8) || "(none)"} (message.updated)`);
+                    }
                     scheduleWrite();
                     return;
                 }
@@ -460,15 +498,25 @@ export const OpencodeRichPresence = async ({ client, directory }) => {
                     const s = sessions.get(sid);
                     if (!s) return;
                     s.lastActivity = Date.now();
-                    if (p.type === "reasoning") s.state = STATE.THINKING;
-                    else if (p.type === "text" && s.state !== STATE.ASKING) s.state = STATE.TYPING;
-                    else if (p.type === "tool") s.state = STATE.WORKING;
+                    let partDesc = p.type;
+                    if (p.type === "text" && p.text) partDesc = `text(${p.text.length}b)`;
+                    else if (p.type === "tool" && p.tool) partDesc = `tool(${p.tool})`;
+                    activity("event", `message.part.updated sid=${sid.slice(-8)} type=${partDesc}`);
+                    if (p.type === "reasoning") transitionTo(s, STATE.THINKING, "part: reasoning");
+                    else if (p.type === "text" && s.state !== STATE.ASKING) transitionTo(s, STATE.TYPING, "part: text");
+                    else if (p.type === "tool") transitionTo(s, STATE.WORKING, "part: tool");
                     else if (p.type === "step-finish" && p.tokens) {
                         const ctxT = (p.tokens.input || 0) + (p.tokens.cache?.read || 0);
-                        if (ctxT > 0) s._latestContextTokens = ctxT;
+                        if (ctxT > 0) {
+                            s._latestContextTokens = ctxT;
+                            activity("stats", `sid=${sid.slice(-8)} step-finish ctx=${ctxT} (${s.contextPercent.toFixed(1)}%)`);
+                        }
                     }
-                    noteActivity({ requestHandoff: false });
+                    const prev = displayedSessionID;
                     updateDisplay();
+                    if (displayedSessionID !== prev) {
+                        activity("display", `sid=${prev?.slice(-8) || "(none)"} -> sid=${displayedSessionID?.slice(-8) || "(none)"} (message.part.updated)`);
+                    }
                     scheduleWrite();
                     return;
                 }
@@ -478,11 +526,14 @@ export const OpencodeRichPresence = async ({ client, directory }) => {
                     if (!sid) return;
                     const s = sessions.get(sid);
                     if (!s) return;
-                    s.state = STATE.ASKING;
                     s.lastActivity = Date.now();
-                    noteActivity();
-                    if (!coordinator.isLeader) prepareConnect(config);
+                    activity("event", `permission.asked sid=${sid.slice(-8)}`);
+                    transitionTo(s, STATE.ASKING, "permission.asked");
+                    const prev = displayedSessionID;
                     updateDisplay();
+                    if (displayedSessionID !== prev) {
+                        activity("display", `sid=${prev?.slice(-8) || "(none)"} -> sid=${displayedSessionID?.slice(-8) || "(none)"} (permission.asked)`);
+                    }
                     scheduleWrite();
                     return;
                 }
@@ -492,11 +543,15 @@ export const OpencodeRichPresence = async ({ client, directory }) => {
                     if (!sid) return;
                     const s = sessions.get(sid);
                     if (!s) return;
-                    s.state = STATE.WORKING;
                     s.lastActivity = Date.now();
-                    noteActivity();
-                    if (!coordinator.isLeader) prepareConnect(config);
+                    const reply = event.properties?.response;
+                    activity("event", `permission.replied sid=${sid.slice(-8)} response=${reply || "(none)"}`);
+                    transitionTo(s, STATE.WORKING, "permission.replied");
+                    const prev = displayedSessionID;
                     updateDisplay();
+                    if (displayedSessionID !== prev) {
+                        activity("display", `sid=${prev?.slice(-8) || "(none)"} -> sid=${displayedSessionID?.slice(-8) || "(none)"} (permission.replied)`);
+                    }
                     scheduleWrite();
                     return;
                 }

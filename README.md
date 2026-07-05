@@ -1,33 +1,54 @@
 # OpenCode Rich Presence
 
-Cross-platform Discord Rich Presence plugin for [OpenCode AI](https://opencode.ai/). Displays your AI session status, model, context usage, and cost directly in your Discord profile.
+OpenCode plugin that displays your AI session status in Discord.
+
+**Status: v3 Phase 1** (local state + activity log, no Discord push yet).
+Discord push arrives in v3 Phase 2 (daemon architecture).
+
+## What you get today (Phase 1)
+
+- **Activity log** at `~/.config/opencode/presence-activity.log` that
+  records every OpenCode SDK event the plugin receives, every session
+  state transition, and every presence template render. This is the
+  diagnostic surface for the v3 redesign.
+- **Per-instance state snapshot** at
+  `~/.config/opencode/presence-state-pid<pid>.txt` showing what the
+  plugin WOULD push to Discord (Phase 2 wires the actual push).
+- **Multi-instance safe**: each OpenCode instance writes its own
+  state file; the activity log is shared and tagged with PID.
+
+## What you get in Phase 2
+
+- **Daemon architecture**: a long-lived subprocess holds the single
+  Discord IPC connection for the whole machine. State updates happen
+  in-place via SET_ACTIVITY (no reconnect on terminal switch, no
+  "display disappears" gap).
+- **Display survives terminal switching**: the daemon picks the
+  globally most-recently-active session and shows it on Discord.
+  Switching OpenCode windows updates the display without any
+  connection tear-down.
 
 Works on **Linux**, **macOS**, and **Windows**.
-
-<img src="https://github.com/user-attachments/assets/2e03f6b4-e089-4be5-9c65-baa38af39c07" alt="Discord presence preview" width="600">
-
-## Features
-
-- **Real-time Discord Rich Presence** with model, mode, state, context usage, cost, prompts
-- **Template engine** with variables, conditionals, fallbacks, per-state templates
-- **Multi-instance safe**: leader election via file lock prevents duplicate Discord connections when running multiple OpenCode windows
-- **Automatic Discord restart** via CLI (cross-platform: `pkill`, `osascript`, `taskkill`)
-- **Status output file** at `~/.config/opencode/presence-state.txt` for debugging
-- **CLI management**: install, uninstall, restart, update, info, help
 
 ## Installation
 
 ### 1. Install the package
 
 ```bash
-# Stable release (replace v2.1.1 with the version you want):
+# Stable release (v2.1.1 is the most recent stable; v3 is on the
+# redesign branch and currently in Phase 1)
 npm install -g Khip01/opencode-rich-presence#v2.1.1
 
-# Dev / bleeding-edge (latest commit on main):
+# Or the v3 Phase 1 redesign branch
+npm install -g Khip01/opencode-rich-presence#redesign/v3-daemon
+
+# Or the latest commit on main (rolling)
 npm install -g Khip01/opencode-rich-presence
 ```
 
-This installs the `opencode-rpc` CLI globally. The plugin code lives in the repo itself (no separate tarball needed), so `npm` clones the repo and installs from there.
+This installs the `opencode-rpc` CLI globally. The plugin code lives
+in the repo itself (no separate tarball needed), so `npm` clones the
+repo and installs from there.
 
 ### 2. Set up the config
 
@@ -35,17 +56,26 @@ This installs the `opencode-rpc` CLI globally. The plugin code lives in the repo
 opencode-rpc install
 ```
 
-This creates `~/.config/opencode/discord-config.json` from the example, creates the symlink that OpenCode needs to auto-load the plugin, and installs the `@xhayper/discord-rpc` dependency under `~/.config/opencode/node_modules/`.
+This creates `~/.config/opencode/discord-config.json` from the
+example and the symlink that OpenCode needs to auto-load the plugin.
+Phase 1 installs no additional npm dependencies (the v2.x
+`@xhayper/discord-rpc` step is gone in Phase 1).
 
 ### 3. Restart OpenCode
 
-The plugin is loaded automatically via the symlink at `~/.config/opencode/plugins/opencode-rich-presence.js`. After OpenCode restart, check status:
+The plugin is loaded automatically via the symlink at
+`~/.config/opencode/plugins/opencode-rich-presence.js`. After
+OpenCode restart, check status:
 
 ```bash
 opencode-rpc info
 ```
 
-For detailed setup (creating your own Discord App, advanced config), see [`docs/INSTALL.md`](./docs/INSTALL.md).
+This shows the last 30 entries of the activity log so you can verify
+the plugin is capturing events.
+
+For detailed setup (creating your own Discord App, advanced config),
+see [`docs/INSTALL.md`](./docs/INSTALL.md).
 
 ## CLI Reference
 
@@ -55,11 +85,11 @@ opencode-rpc <command>
 
 | Command | Description |
 |---------|-------------|
-| `install` | Set up Rich Presence for OpenCode (config, symlink, deps) |
-| `uninstall` | Remove generated files (lock, output, restart signal); backup config |
-| `restart` | Reload the plugin worker (does not touch Discord Desktop) |
+| `install` | Set up the plugin (config + symlink). Phase 1 installs no deps. |
+| `uninstall` | Remove generated files (lock, state files, activity log); backup config |
+| `restart` | Phase 1: rotate the activity log. Phase 2: respawn the daemon. |
 | `update` | Upgrade to latest stable release (or `--dev` for latest commit, `--stable` to force-reinstall latest stable tag) |
-| `info` | Show diagnostic info: paths, config, lock status, plugin symlink |
+| `info` | Diagnostics: paths, config, per-instance state files, activity log tail |
 | `version` | Print package version |
 | `help` | Show usage |
 
@@ -73,7 +103,37 @@ opencode-rpc update --dev            # upgrade to latest commit on main (develop
 opencode-rpc update --stable         # force install latest stable tag (use to switch off dev)
 ```
 
-Fetches the latest tag (or commit, with `--dev`) from GitHub, then runs `npm install -g Khip01/opencode-rich-presence#<ref>` to upgrade in place. `--stable` skips version comparison and always installs the latest tag, useful for switching back from `--dev` mode. `--stable` and `--dev` are mutually exclusive. No manual steps needed.
+`--stable` skips version comparison and always installs the latest
+tag, useful for switching back from `--dev` mode. `--stable` and
+`--dev` are mutually exclusive.
+
+## Activity log: what to look at
+
+```bash
+tail -f ~/.config/opencode/presence-activity.log
+```
+
+Each line:
+
+```
+[2026-07-05 14:30:25.789] [pid 12345] [tag] message
+```
+
+Tags you'll see:
+
+| Tag | Meaning |
+|-----|---------|
+| `load` | plugin lifecycle |
+| `event` | raw SDK event received |
+| `state` | session state transition |
+| `template` | presence template render (source -> output) |
+| `push` | would-push payload (Phase 1 stub; Phase 2: real push) |
+| `display` | which session is the displayed one |
+| `queue` | session added/removed from local tracking |
+| `stats` | cost / tokens / context% updates |
+| `check` | periodic SDK poll |
+
+For full troubleshooting, see [`docs/TROUBLESHOOTING.md`](./docs/TROUBLESHOOTING.md).
 
 ## Customization
 
@@ -114,31 +174,34 @@ Edit `~/.config/opencode/discord-config.json`:
 | `{elapsed}` | `1h 23m` | Session duration |
 | `{provider}` | `Khip01` | Provider name |
 
-Plus conditionals (`{{#if mode == "build"}}...{{/if}}`) and fallbacks (`{var|fallback}`).
+Plus conditionals (`{{#if mode == "build"}}...{{/if}}`) and fallbacks
+(`{var|fallback}`).
 
 See [`docs/CUSTOMIZATION.md`](./docs/CUSTOMIZATION.md) for full syntax.
 
 ## Platform Notes
 
-Linux, macOS, and Windows are all supported. See [`docs/PLATFORM-NOTES.md`](./docs/PLATFORM-NOTES.md) for per-OS details (Flatpak/Snap detection, AppleScript quit, taskkill quirks, named pipes).
+Linux, macOS, and Windows are all supported. See
+[`docs/PLATFORM-NOTES.md`](./docs/PLATFORM-NOTES.md) for per-OS
+details (Flatpak/Snap detection, AppleScript quit, taskkill quirks,
+named pipes).
 
 ## Architecture
 
-See [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) for the full design (template engine, multi-instance coordinator, subprocess worker, restart flow).
-
-## Troubleshooting
-
-See [`docs/TROUBLESHOOTING.md`](./docs/TROUBLESHOOTING.md) for common issues on each platform.
+See [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) for the full
+design (template engine, per-instance state, Phase 2 daemon preview).
 
 ## Requirements
 
-- Discord Desktop App (running)
 - Node.js 18+ (LTS recommended)
 - OpenCode CLI
 
+Discord Desktop is not required for Phase 1. Phase 2 will require it.
+
 ## Migration from v1.0.0
 
-v1.0.0 used bash scripts and was Linux-only. See [CHANGELOG.md](./CHANGELOG.md) for the migration guide.
+v1.0.0 used bash scripts and was Linux-only. See
+[`CHANGELOG.md`](./CHANGELOG.md) for the migration guide.
 
 ## License
 

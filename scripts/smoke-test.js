@@ -3,12 +3,16 @@
 // Run: node scripts/smoke-test.js
 
 import { existsSync, readFileSync } from "node:fs";
-import { execSync, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const PKG_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 
+// Phase 1 file list. Note: src/plugin/discord-service.js,
+// src/plugin/coordinator.js, src/plugin/worker-spawner.js, and
+// src/worker/ are GONE in Phase 1. The daemon (Phase 2) will land
+// under src/worker/daemon.mjs.
 const REQUIRED_FILES = [
     "package.json",
     "README.md",
@@ -18,11 +22,8 @@ const REQUIRED_FILES = [
     "src/plugin/index.js",
     "src/plugin/template-engine.js",
     "src/plugin/config-resolver.js",
-    "src/plugin/coordinator.js",
+    "src/plugin/local-presence.js",
     "src/plugin/session-state.js",
-    "src/plugin/worker-spawner.js",
-    "src/plugin/discord-service.js",
-    "src/worker/discord-worker.mjs",
     "src/shared/paths.js",
     "src/shared/constants.js",
     "src/shared/logger.js",
@@ -57,6 +58,26 @@ if (errors > 0) {
     process.exit(1);
 }
 
+// Verify removed-in-Phase-1 files are actually gone.
+const REMOVED_FILES = [
+    "src/plugin/discord-service.js",
+    "src/plugin/coordinator.js",
+    "src/plugin/worker-spawner.js",
+    "src/worker/discord-worker.mjs",
+];
+for (const f of REMOVED_FILES) {
+    const p = join(PKG_ROOT, f);
+    if (existsSync(p)) {
+        console.error(`  should be removed in Phase 1: ${f}`);
+        errors++;
+    }
+}
+
+if (errors > 0) {
+    console.error(`\n${errors} file(s) out of expected state.`);
+    process.exit(1);
+}
+
 const pkg = JSON.parse(readFileSync(join(PKG_ROOT, "package.json"), "utf-8"));
 if (pkg.name !== "opencode-rich-presence") {
     console.error(`package.json name mismatch: ${pkg.name}`);
@@ -66,8 +87,12 @@ if (!pkg.bin || !pkg.bin["opencode-rpc"]) {
     console.error("package.json missing 'opencode-rpc' bin entry");
     process.exit(1);
 }
-if (!pkg.dependencies || !pkg.dependencies["@xhayper/discord-rpc"]) {
-    console.error("package.json missing @xhayper/discord-rpc dependency");
+
+// Phase 1: no external runtime deps. The previous @xhayper/discord-rpc
+// dependency is removed; the plugin is pure local logic until Phase 2
+// adds the daemon's inline IPC client.
+if (pkg.dependencies && Object.keys(pkg.dependencies).length > 0) {
+    console.error(`package.json has unexpected dependencies: ${JSON.stringify(pkg.dependencies)}`);
     process.exit(1);
 }
 

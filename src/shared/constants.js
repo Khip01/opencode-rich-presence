@@ -1,3 +1,5 @@
+// Plugin states. Mirrored in session-state.js via the STATE enum. The
+// plugin transitions between these in response to OpenCode SDK events.
 export const STATE = {
     WORKING: "Working",
     THINKING: "Thinking",
@@ -6,40 +8,28 @@ export const STATE = {
     WAITING: "Waiting for command",
 };
 
-export const HEARTBEAT_INTERVAL = 2000;
-export const HEARTBEAT_TIMEOUT = 15000;
-// Standby instances poll at this interval to check whether the leader has
-// released the lock (either due to a handoff request or because the leader
-// exited). Also used for the lock-stale takeover path. v2.0.8-rc2 reduced
-// this from 2000 to 1000 so the active standby acquires the lock faster.
-export const HANDOFF_CHECK_INTERVAL = 1000;
-// For a short window after the standby requested handoff (or marked active),
-// it polls at this faster interval so it acquires the lock almost as soon as
-// the leader releases. Reduces handoff latency from ~5s to ~1-2s.
-export const ACTIVE_HANDSHAKE_INTERVAL = 250;
-// How long the standby keeps using the fast-poll interval after its last
-// activity before falling back to the slow HANDOFF_CHECK_INTERVAL.
-export const FAST_POLL_WINDOW_MS = 8000;
-// Right after becoming leader, the instance ignores handoff signals for this
-// long. Without it, all instances see the same SDK events and ping-pong
-// leadership back and forth. v2.0.8-rc2 dropped this from 8s to 3s because
-// the longer cooldown made the new leader's worker take too long to connect,
-// and the only events that now request handoff are user-initiated
-// (chat.message, permission events), so the cooldown window is mostly there
-// to debounce rapid chat bursts from the same user.
-export const LEADER_COOLDOWN_MS = 3000;
+// Local refresh cadence. The plugin polls the OpenCode SDK every
+// REFRESH_INTERVAL to catch any events the event stream missed (e.g.
+// when the plugin just loaded and needs to reconcile). It is also the
+// interval at which `presence-state.txt` is rewritten.
 export const REFRESH_INTERVAL = 5000;
+// Debounce window for presence-state.txt writes so a burst of events
+// only causes one file rewrite.
 export const FILE_WRITE_DEBOUNCE_MS = 250;
-export const DISCORD_DEBOUNCE_MS = 300;
-export const DISCORD_CONNECT_TIMEOUT_MS = 8000;
-export const DISCORD_MAX_RETRIES = 100;
+// Used by restoreSessionMessages to bound the SDK call so a hung server
+// cannot stall plugin initialization.
 export const RESTORE_TIMEOUT_MS = 5000;
+// Discord presence field hard limit. Truncation runs in local-presence.
 export const MAX_DISCORD_FIELD = 128;
 
-// Developer's verified Discord App ID (used as fallback so the plugin works out-of-box).
+// Developer's verified Discord App ID. Used as fallback so the plugin
+// has a working default out-of-box (Phase 2 will read this to know
+// which App ID the daemon should handshake with on first push).
 export const FALLBACK_APP_ID = "1512803991300476989";
 export const FALLBACK_IMAGE_KEY = "opencode-logo-too-opencode-rpc";
 
+// Model context limits used when no provider data is available. Keys are
+// the canonical model IDs OpenCode exposes (model field on events).
 export const FALLBACK_MODEL_LIMITS = {
     "minimax-m3": 1048576,
     "minimax-m2.7": 204800,
@@ -55,6 +45,10 @@ export const FALLBACK_MODEL_LIMITS = {
     "nex-n2-pro:free": 64000,
 };
 
+// Default presence templates. Phase 1 does not push these to Discord;
+// Phase 2 will use the same templates via the daemon. The user's
+// discord-config.json `presence` field overrides these (see
+// config-resolver.js).
 export const DEFAULT_PRESENCE_TEMPLATES = {
     details: "{model} · {mode} · {prompts} prompts",
     state: "{state} · {contextPercent}% ctx",

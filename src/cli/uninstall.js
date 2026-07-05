@@ -1,11 +1,14 @@
 import { existsSync, unlinkSync, readFileSync, writeFileSync, renameSync, lstatSync } from "node:fs";
-import { execSync } from "node:child_process";
 import { join } from "node:path";
-import { CONFIG_PATH, LOCK_FILE, RESTART_SIGNAL, OUTPUT_FILE, OPENCODE_DIR } from "../shared/paths.js";
+import { CONFIG_PATH, OUTPUT_FILE, ACTIVITY_LOG, OPENCODE_DIR } from "../shared/paths.js";
 import { confirm } from "./prompt.js";
 
 const PLUGIN_NAME = "opencode-rich-presence";
-const PLUGIN_DEP = "@xhayper/discord-rpc";
+// Legacy v2.x file paths. Phase 1 has no leader election and no worker
+// subprocess, but the files may still exist from older installs; clean
+// them up so the user does not carry stale artifacts after uninstall.
+const LEGACY_LOCK_FILE = join(OPENCODE_DIR, ".opencode-rich-presence.lock");
+const LEGACY_RESTART_SIGNAL = join(OPENCODE_DIR, ".discord-restart-request");
 
 export async function uninstall() {
     console.log("\nopencode-rich-presence uninstaller\n");
@@ -15,9 +18,24 @@ export async function uninstall() {
     // Runtime files written by the plugin while OpenCode is running. Safe to delete
     // unconditionally: they are regenerated on next plugin start if reinstalled.
     console.log("Cleaning up plugin-generated runtime files:");
-    for (const f of [LOCK_FILE, RESTART_SIGNAL, OUTPUT_FILE]) {
+    for (const f of [LEGACY_LOCK_FILE, LEGACY_RESTART_SIGNAL, OUTPUT_FILE, ACTIVITY_LOG]) {
         if (tryRemove(f)) removed++;
     }
+
+    // Per-instance state files (presence-state-pid<pid>.txt) and any other
+    // state files written by previous plugin versions. Glob them out.
+    try {
+        const { readdirSync } = await import("node:fs");
+        const dir = OPENCODE_DIR;
+        if (existsSync(dir)) {
+            for (const name of readdirSync(dir)) {
+                if (name.startsWith("presence-state-pid") && name.endsWith(".txt")) {
+                    const full = join(dir, name);
+                    if (tryRemove(full)) removed++;
+                }
+            }
+        }
+    } catch {}
 
     // Local plugin symlink installed by `opencode-rpc install`. Created so OpenCode
     // can load the plugin without it being on the npm registry.
@@ -31,11 +49,6 @@ export async function uninstall() {
             console.log(`  Skipped ${pluginLink}: not a symlink (remove manually if you want it gone)`);
         }
     }
-
-    // The dependency the installer added to ~/.config/opencode/package.json.
-    // Remove from package.json AND from node_modules (via npm install) so the user's
-    // OpenCode dir does not carry leftover presence plugin artifacts.
-    if (removePluginDependency()) removed++;
 
     // Discord config file: ask before deleting (default N). This file holds the
     // user's Discord App ID and custom templates. Back up before delete if user agrees.
@@ -65,31 +78,6 @@ function tryRemove(filePath) {
         console.log(`  failed to remove ${filePath}: ${e.message}`);
         return false;
     }
-}
-
-// Remove @xhayper/discord-rpc from ~/.config/opencode/package.json. This dependency
-// was added by `opencode-rpc install` so the worker subprocess could resolve it. On
-// uninstall we reverse the change and re-run `npm install` in the config directory
-// so node_modules is pruned too.
-function removePluginDependency() {
-    const pkgPath = join(OPENCODE_DIR, "package.json");
-    if (!existsSync(pkgPath)) return false;
-
-    let pkg;
-    try { pkg = JSON.parse(readFileSync(pkgPath, "utf-8")); } catch { return false; }
-    if (!pkg.dependencies || !pkg.dependencies[PLUGIN_DEP]) return false;
-
-    delete pkg.dependencies[PLUGIN_DEP];
-    writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n", "utf-8");
-    console.log(`  removed ${PLUGIN_DEP} from ${pkgPath}`);
-
-    try {
-        console.log(`  running npm install to prune ${PLUGIN_DEP} from node_modules...`);
-        execSync("npm install --no-audit --no-fund", { cwd: OPENCODE_DIR, stdio: "inherit" });
-    } catch (e) {
-        console.log(`  npm install failed (you can run it manually): ${e.message}`);
-    }
-    return true;
 }
 
 // Ask user before deleting the Discord config (default N). If user agrees, back up

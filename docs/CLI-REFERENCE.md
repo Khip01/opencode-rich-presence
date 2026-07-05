@@ -4,13 +4,24 @@
 opencode-rpc <command> [options]
 ```
 
-All commands work the same on Linux, macOS, and Windows. Output below shows real examples captured from the CLI.
+All commands work the same on Linux, macOS, and Windows. Output below
+shows real examples captured from the CLI.
+
+This reference documents both the v2.x line (Discord push) and the
+v3 Phase 1 redesign (no Discord push, activity log instead). Where
+the commands behave differently between versions, the difference is
+called out in each section.
 
 ---
 
 ## `opencode-rpc version`
 
-Prints the installed package version, plus the install channel (stable tag or dev commit) read from a `.install-channel` marker file inside the installed package. The marker is written by `opencode-rpc update` (any path) and bootstrapped on the first CLI run after a fresh install. Pre-v2.0.9 installs without a marker show just the version (no suffix).
+Prints the installed package version, plus the install channel
+(stable tag or dev commit) read from a `.install-channel` marker
+file inside the installed package. The marker is written by
+`opencode-rpc update` (any path) and bootstrapped on the first CLI
+run after a fresh install. Pre-v2.0.9 installs without a marker
+show just the version (no suffix).
 
 ```
 $ opencode-rpc version
@@ -23,6 +34,8 @@ $ opencode-rpc update --dev    # switch to dev channel
 $ opencode-rpc version
 opencode-rich-presence v2.1.1 (dev: eac311d)
 ```
+
+v3 Phase 1 prints the same format with version `3.0.0-phase1`.
 
 ---
 
@@ -60,9 +73,9 @@ Installation (one-time):
   opencode-rpc install
 
 Update:
-  opencode-rpc update                  # latest stable release tag (if newer)
+  opencode-rpc update                  # latest stable release tag
   opencode-rpc update --dev            # latest commit on main (developer)
-  opencode-rpc update --stable         # force install latest stable tag (any state)
+  opencode-rpc update --stable         # latest stable tag (any state)
 
 Documentation: https://github.com/Khip01/opencode-rich-presence
 ```
@@ -71,53 +84,37 @@ Documentation: https://github.com/Khip01/opencode-rich-presence
 
 ## `opencode-rpc install`
 
-Sets up the Discord Rich Presence plugin for OpenCode. Performs three things:
+Sets up the Rich Presence plugin for OpenCode.
 
-1. Writes `~/.config/opencode/discord-config.json` (only if missing, or after confirmation to overwrite).
-2. (v2.0.6+ only) If `opencode.jsonc` (or `.json`) still has a v2.0.5-era `"opencode-rich-presence"` entry from an earlier install, the installer offers to remove it. That entry made OpenCode try to fetch the package from the npm registry on every startup, returning 404. The symlink alone is sufficient.
-3. Symlinks the plugin entry to `~/.config/opencode/plugins/opencode-rich-presence.js` and ensures `@xhayper/discord-rpc` is installed under `~/.config/opencode/node_modules/`.
+**v2.x:** Performs three things:
 
-The symlink approach works around the fact that the package is not on the npm registry: OpenCode loads the plugin directly from disk instead of trying to fetch it via Bun and getting a 404.
+1. Writes `~/.config/opencode/discord-config.json` (only if missing,
+   or after confirmation to overwrite).
+2. (v2.0.6+) Detects and offers to remove any stale
+   `"opencode-rich-presence"` entry left in `opencode.jsonc` from
+   pre-v2.0.6 installs.
+3. Symlinks the plugin entry to
+   `~/.config/opencode/plugins/opencode-rich-presence.js` and
+   ensures `@xhayper/discord-rpc` is installed under
+   `~/.config/opencode/node_modules/`.
 
-**Example: fresh install (no stale opencode.jsonc entry, no existing config)**
+**v3 Phase 1:** Same as v2.x except step 3 no longer installs the
+`@xhayper/discord-rpc` npm dependency. Phase 1 has no runtime
+dependencies.
+
+**Example: fresh install**
 
 ```
 $ opencode-rpc install
 
 opencode-rich-presence installer
+Phase 1: local state collector + activity log (no Discord push yet).
 
+Creating OpenCode config directory: /home/user/.config/opencode
 Created /home/user/.config/opencode/discord-config.json.
 
   Linked /home/user/.config/opencode/plugins/opencode-rich-presence.js
-    -> /home/user/.nvm/versions/node/v22/lib/node_modules/opencode-rich-presence/src/plugin/index.js
-
-  Updated /home/user/.config/opencode/package.json (added @xhayper/discord-rpc)
-  Running npm install in /home/user/.config/opencode...
-  Installed dependencies.
-
-Next steps:
-
-1. Restart OpenCode. The plugin loads from a symlink at:
-   ~/.config/opencode/plugins/opencode-rich-presence.js
-   pointing to the installed package entry file in your npm prefix.
-
-Run `opencode-rpc info` anytime to check status.
-```
-
-**Example: upgrade from v2.0.5 with stale opencode.jsonc entry**
-
-```
-$ opencode-rpc install
-
-opencode-rich-presence installer
-
-Config exists at /home/user/.config/opencode/discord-config.json. Overwrite? [y/N] Keeping existing config.
-
-  Remove stale "opencode-rich-presence" entry from /home/user/.config/opencode/opencode.jsonc? (causes npm 404 on OpenCode startup) [Y/n]   Updated /home/user/.config/opencode/opencode.jsonc
-
-  Plugin already linked at /home/user/.config/opencode/plugins/opencode-rich-presence.js
-
-  @xhayper/discord-rpc already present in /home/user/.config/opencode/package.json
+    -> /home/user/.nvm/versions/node/v24/lib/node_modules/opencode-rich-presence/src/plugin/index.js
 
 Next steps:
 
@@ -132,7 +129,24 @@ Run `opencode-rpc info` anytime to check status.
 
 ## `opencode-rpc uninstall`
 
-Cleans up everything the plugin generated or installed. No prompts for runtime files, symlink, or dependency. Asks Y/N before deleting `discord-config.json` (default N). Auto-removes any stale `"opencode-rich-presence"` entry left in `opencode.jsonc` (or `.json`) by a v2.0.5-era install, so the user does not carry a noisy 404 notification after uninstalling.
+Removes plugin-generated files. Steps:
+
+1. Removes runtime files (legacy lock, presence-state.txt, restart
+   signal).
+2. v3 Phase 1: also removes the activity log and any
+   per-instance state files.
+3. Removes the local plugin symlink at
+   `~/.config/opencode/plugins/opencode-rich-presence.js`.
+4. v2.x: removes `@xhayper/discord-rpc` from
+   `~/.config/opencode/package.json` and re-runs `npm install` to
+   prune from `node_modules`.
+5. Asks before deleting `discord-config.json` (default N). Backup
+   with timestamp suffix if user agrees.
+6. Removes any stale `"opencode-rich-presence"` entry left in
+   `opencode.jsonc` (or `.json`).
+
+After this, run `npm uninstall -g opencode-rich-presence` to
+remove the package globally.
 
 ```
 $ opencode-rpc uninstall
@@ -142,146 +156,118 @@ opencode-rich-presence uninstaller
 Cleaning up plugin-generated runtime files:
   removed /home/user/.config/opencode/.opencode-rich-presence.lock
   removed /home/user/.config/opencode/presence-state.txt
+  removed /home/user/.config/opencode/presence-activity.log
+  removed /home/user/.config/opencode/presence-state-pid12345.txt
   removed /home/user/.config/opencode/plugins/opencode-rich-presence.js
-  removed @xhayper/discord-rpc from /home/user/.config/opencode/package.json
-  running npm install to prune @xhayper/discord-rpc from node_modules...
   removed "opencode-rich-presence" entry from /home/user/.config/opencode/opencode.jsonc
 
-Delete /home/user/.config/opencode/discord-config.json? [y/N]   Kept. The file remains at /home/user/.config/opencode/discord-config.json.
+Delete /home/user/.config/opencode/discord-config.json? [y/N] n
+  Kept. The file remains at /home/user/.config/opencode/discord-config.json.
 
 Final cleanup (run manually if you want a full uninstall):
   npm uninstall -g opencode-rich-presence    (removes the CLI globally)
 
-Done. Removed 4 plugin-generated file(s).
+Done. Removed 6 plugin-generated file(s).
 ```
-
-If you answer `y` to the config prompt, the file is renamed to `discord-config.json.backup-<timestamp>` (persistent in your home dir, NOT in `/tmp`).
 
 ---
 
 ## `opencode-rpc restart`
 
-Reloads the plugin worker. Writes a restart signal that the plugin watches, then kills the worker subprocess so the plugin immediately respawns it with fresh config. Does not touch Discord Desktop.
+**v2.x:** Writes a restart signal and kills the worker subprocess.
+The plugin respawns the worker within about 7 seconds and reconnects
+to Discord. Does NOT touch Discord Desktop.
+
+**v3 Phase 1:** No worker subprocess. Rotates the activity log
+(renames `presence-activity.log` to `presence-activity.log.prev`)
+so the next OpenCode launch starts fresh.
 
 ```
 $ opencode-rpc restart
 
-opencode-rich-presence worker restart
+opencode-rich-presence restart (Phase 1)
 
-Restart signal written: /home/user/.config/opencode/.discord-restart-request
-Killed 1 worker process(es).
+Phase 1 has no Discord worker. This command rotates the activity log so
+the next OpenCode launch starts with a clean history.
 
-Current Discord config:
-  Config file: /home/user/.config/opencode/discord-config.json
-  App ID : 1512803991300476989
-  Asset  : opencode-logo-too-rich-presence
-  DISCORD_APP_ID env         : <not set>
-  DISCORD_LARGE_IMAGE_KEY env: <not set>
+Moved /home/user/.config/opencode/presence-activity.log
+       to /home/user/.config/opencode/presence-activity.log.prev
 
 Next steps:
-Plugin detects restart signal:
-  1. Waiting 2s for old IPC socket to release
-  2. Reloading config
-  3. Spawning new worker
-
-Monitor with:
-  tail -f ~/.config/opencode/presence-state.txt
-
-Expected within ~7 seconds: `Discord: connected`
-
-Note: Discord Desktop is not restarted by this command.
-If Discord Desktop itself is stuck, close and reopen it manually.
+  1. Restart OpenCode so it reloads the plugin and starts writing to a fresh log.
+  2. tail -f /home/user/.config/opencode/presence-activity.log  to follow the next session.
 ```
-
-Use this when you want to apply config changes without restarting OpenCode, or when the worker is stuck.
 
 ---
 
 ## `opencode-rpc update`
 
-Fetches the latest release from GitHub and reinstalls globally via npm. v2.1.1+ clones the repo, packs a local tarball, and installs that via `npm install -g <path>.tgz` to bypass npm v11's git-dep symlink bug. v2.1.0 used `npm install -g <repo>#<ref>` directly and was vulnerable to the ENOTDIR-on-rename failure mode.
+Upgrades the installed package. Three modes:
 
-**Example: already up to date**
+| Mode | What it does |
+|------|--------------|
+| default | Compare current version against latest stable release tag. If newer, install. |
+| `--dev` | Skip version check. Install latest commit on `main`. |
+| `--stable` | Skip version check. Install latest stable release tag. |
+
+`--stable` and `--dev` are mutually exclusive. Passing both exits
+with code 2 and a clear error message (POSIX Guideline 11).
+
+Internally, all three modes clone the repo, fetch the requested
+ref, run `npm pack`, and install the resulting local tarball via
+`npm install -g <path>.tgz`. This avoids npm v11's git-dep symlink
+bug which produces broken symlinks and `ENOTDIR` on subsequent
+installs.
+
+**Example: stable update**
 
 ```
 $ opencode-rpc update
 
-Current version: v2.1.1
-Mode: stable (latest release tag)
-Checking for updates...
+opencode-rich-presence update
 
-Already up-to-date (latest: v2.1.1).
+Current: v2.1.1
+Latest:  v2.1.1
+You are already on the latest stable release.
 ```
 
-**Example: update available**
-
-```
-$ opencode-rpc update
-
-Current version: v2.0.9
-Mode: stable (latest release tag)
-Checking for updates...
-
-Update available: v2.0.9 -> v2.1.1
-
-Installing opencode-rich-presence-2.1.1.tgz...
-
-Updated to v2.1.1.
-Restart OpenCode to apply changes.
-```
-
-**Example: developer upgrade (`--dev` flag)**
-
-`--dev` skips version comparison and always installs the latest commit on `main`. Use this to test a fix before it is tagged.
+**Example: dev update**
 
 ```
 $ opencode-rpc update --dev
 
-Current version: v2.1.1
-Mode: dev (latest commit on main)
-Checking for updates...
+opencode-rich-presence update (--dev)
 
-Latest commit on main: a1b2c3d
-Update available: v2.1.1 -> a1b2c3d (dev)
+Current: v2.1.1 (stable)
+Latest:  eac311d (latest commit on main)
+Installing dev build (eac311d)...
 
-Installing Khip01/opencode-rich-presence#a1b2c3d4...
+Cloning repo...
+Fetched eac311d.
+Packaging...
+Installed opencode-rich-presence@eac311d (dev).
 
-Updated to dev build at a1b2c3d.
-Restart OpenCode to apply changes.
-```
-
-**Example: force stable (`--stable` flag)**
-
-`--stable` skips version comparison and always installs the latest release tag, regardless of whether the user is on a different version, on a prerelease, or on a dev build. Use this to switch back to the stable channel after running on `--dev` mode.
-
-```
-$ opencode-rpc update --stable
-
-Current version: a1b2c3d (dev)
-Mode: stable (forcing install of v2.1.1)
-Switching to v2.1.1...
-
-Installing opencode-rich-presence-2.1.1.tgz...
-
-Now on v2.1.1.
-Restart OpenCode to apply changes.
-```
-
-**Example: mutually exclusive flags**
-
-`--stable` and `--dev` are mutually exclusive. Passing both is an error (exit code 2).
-
-```
-$ opencode-rpc update --stable --dev
-Error: --stable and --dev are mutually exclusive.
-Use one or the other, not both.
+Restart OpenCode to load the new build.
 ```
 
 ---
 
 ## `opencode-rpc info`
 
-Prints diagnostic info. Sections shown depend on your setup.
+Prints diagnostics. Sections:
+
+- **Environment**: Platform, Node.js, executable path.
+- **Paths**: OpenCode dir, config file, default state file, activity
+  log, legacy lock, debug log.
+- **Config**: Discord App ID (masked), image key, image text,
+  currency, presence template customisation status.
+- **Legacy lock** (v2.x artifact): PID, start time, age. Shown as
+  informational only in v3 Phase 1 (the lock is no longer used).
+- **OpenCode plugin symlink**: Linked yes/no, target path.
+- **Per-instance state files** (v3 Phase 1): One entry per running
+  OpenCode instance.
+- **Activity log tail** (v3 Phase 1): Last 30 entries of the
+  chronological activity log.
 
 ```
 $ opencode-rpc info
@@ -291,15 +277,16 @@ opencode-rich-presence - diagnostics
 
 Environment
   Platform       : linux (linux)
-  Node.js        : v20.10.0
-  Exec           : /usr/bin/node
+  Node.js        : v24.13.1
+  Exec           : /home/khip/.nvm/versions/node/v24.13.1/bin/node
 
 Paths
-  OpenCode dir   : /home/user/.config/opencode
-  Config         : /home/user/.config/opencode/discord-config.json [exists]
-  Output file    : /home/user/.config/opencode/presence-state.txt [1.9 KB, modified 2026-06-23T16:23:34.942Z]
-  Lock file      : /home/user/.config/opencode/.opencode-rich-presence.lock [absent]
-  Debug log      : /tmp/opencode-rich-presence-debug.log [absent]
+  OpenCode dir   : /home/khip/.config/opencode
+  Config         : /home/khip/.config/opencode/discord-config.json [exists]
+  Default state  : /home/khip/.config/opencode/presence-state.txt [missing]
+  Activity log   : /home/khip/.config/opencode/presence-activity.log [12.3 KB, tail 30 lines below]
+  Legacy lock    : /home/khip/.config/opencode/.opencode-rich-presence.lock [absent]
+  Debug log      : /tmp/opencode-rich-presence-debug.log [218.4 KB]
 
 Config (discord-config.json)
   App ID         : 1512...6989
@@ -309,35 +296,33 @@ Config (discord-config.json)
   Custom template: yes
 
 OpenCode plugin symlink
-  Path           : /home/user/.config/opencode/plugins/opencode-rich-presence.js
+  Path           : /home/khip/.config/opencode/plugins/opencode-rich-presence.js
   Linked         : yes
-  Target         : /home/user/.nvm/versions/node/v22/lib/node_modules/opencode-rich-presence/src/plugin/index.js
+  Target         : /home/khip/.nvm/versions/node/v24.13.1/lib/node_modules/opencode-rich-presence/src/plugin/index.js
+
+Per-instance state files (2)
+  presence-state-pid12345.txt  [1.8 KB, modified 2026-07-05T15:00:00.000Z]
+  presence-state-pid23456.txt  [1.8 KB, modified 2026-07-05T15:01:00.000Z]
+
+Activity log (last 30 entries)
+--------------------------------------------------
+  [2026-07-05 15:00:30.123] [pid 12345] [load] plugin loaded workdir=/home/user/project
+  [2026-07-05 15:00:30.456] [pid 12345] [config] appId=1512803991300476989 key=opencode-logo-too-rich-presence currency=$
+  [2026-07-05 15:00:30.789] [pid 12345] [event] chat.message sid=test_aaaaaa agent=build model=minimax-m3 mode=build
+  [2026-07-05 15:00:30.790] [pid 12345] [state] sid=test_aaaaaa Waiting for command -> Working (chat.message)
+  ... (26 more lines)
+--------------------------------------------------
+Full log: /home/khip/.config/opencode/presence-activity.log
 ```
 
-**Sections that may appear based on state:**
+---
 
-- **Lock (leader instance)**: Only shown when a lock file exists (an OpenCode instance is currently the leader).
-- **OpenCode plugin symlink**: Always shown. Reports whether the plugin entry is symlinked at `~/.config/opencode/plugins/opencode-rich-presence.js` and what its target is. v2.0.6+ uses the symlink as the sole load mechanism (the entry in `opencode.jsonc` is no longer required and would cause a 404 noise on every OpenCode startup).
+## `opencode-rpc help` (alias `--help` / `-h`)
+
+Same as the default help output (no arguments case).
 
 ---
 
-## Exit Codes
+## `opencode-rpc version` (alias `--version` / `-v`)
 
-| Code | Meaning |
-|------|---------|
-| 0 | Success |
-| 1 | General error (file write failed, network error, etc.) |
-| 2 | Unknown command |
-
----
-
-## Environment Variables
-
-| Variable | Used by | Description |
-|----------|---------|-------------|
-| `DISCORD_APP_ID` | Plugin + Worker | Override App ID (highest priority over config file) |
-| `DISCORD_LARGE_IMAGE_KEY` | Plugin | Override Discord asset key |
-| `DISCORD_LARGE_IMAGE_TEXT` | Plugin | Override asset hover text |
-| `OPENCODE_RICH_PRESENCE_DEBUG` | Plugin | Enable verbose logging to debug log file |
-| `OPENCODE_RPC_DEBUG` | CLI | Print stack traces on CLI errors |
-| `OPENCODE_CONFIG_DIR` | Plugin + Worker | Override OpenCode config dir (per OpenCode docs) |
+Same as the explicit version output.

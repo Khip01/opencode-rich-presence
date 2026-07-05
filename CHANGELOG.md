@@ -5,6 +5,99 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.0-phase1] - Unreleased
+
+Phase 1 of the v3 redesign. **No Discord push in this release.** The
+plugin only collects local state, renders presence payloads, and writes
+a comprehensive chronological activity log so the user can verify the
+plugin's behavior end-to-end before Phase 2 wires the actual Discord
+push via a daemon subprocess.
+
+This is a deliberate step back from the v2.x per-session worker
+architecture. The user reported that multi-terminal handoff
+("display disappears then reappears") could not be fixed without
+removing the cause (per-session worker = per-handoff reconnect).
+Phase 1 establishes the local-first diagnostic surface; Phase 2 adds
+the daemon that eliminates the reconnect on handoff.
+
+### Removed
+
+- Discord push. No subprocess worker, no Discord IPC, no
+  `@xhayper/discord-rpc` dependency. The plugin still renders the
+  presence payload but logs it instead of pushing it.
+- `src/worker/discord-worker.mjs`. Replaced by Phase 2's daemon.
+- `src/plugin/discord-service.js`. Replaced by
+  `src/plugin/local-presence.js` (render + log only).
+- `src/plugin/coordinator.js`. No leader election in Phase 1;
+  each OpenCode instance is independent.
+- `src/plugin/worker-spawner.js`. No worker subprocess to spawn.
+- v2.x `prepareConnect()`, `shutdownWorker()`, `destroy()`,
+  `startConnect()`, `getStatus()` exported from
+  `discord-service.js`. None of these are needed in Phase 1.
+- `LOCK_FILE` and `HANDOFF_REQUEST` runtime files (the leader
+  election infrastructure that backed them is gone).
+
+### Added
+
+- **Activity log** at `~/.config/opencode/presence-activity.log`.
+  Append-only chronological log of every plugin action. Each entry:
+  `[ISO timestamp] [pid N] [tag] message`. Tags include `load`,
+  `config`, `models`, `restore`, `event`, `state`, `session`,
+  `stats`, `queue`, `display`, `template`, `check`, `push`,
+  `presence`. PID tagging lets the user `grep "\[pid 12345\]"` to
+  follow one OpenCode instance when multiple are open.
+- `src/plugin/local-presence.js`. Renders the presence payload
+  (template + variables) and logs the result as a `would-push`
+  entry. Phase 2 will replace the log call with a daemon send
+  call; the render logic stays unchanged.
+- **Per-instance state files** at
+  `~/.config/opencode/presence-state-pid<pid>.txt`. Each OpenCode
+  instance writes its own file with its own snapshot, so
+  multi-instance runs do not race on a single shared file.
+- `opencode-rpc info` now tails the last 30 activity-log entries
+  inline and lists per-instance state files. This makes the
+  activity log the de facto diagnostic surface.
+- `opencode-rpc restart` now rotates the activity log (renames to
+  `.prev`) so the user can start fresh. Phase 2 will redefine it
+  to manage the daemon subprocess.
+- `opencode-rpc uninstall` now removes the activity log, all
+  per-instance state files, and the legacy lock file.
+
+### Changed
+
+- All event handlers in `src/plugin/index.js` (`chat.message`,
+  `session.created/updated/deleted/status/idle`,
+  `message.updated/part.updated`, `permission.asked/replied`) now
+  log every event with key fields and only log state transitions
+  on actual state changes (no spam on every event).
+- `src/shared/logger.js` adds an `activity(tag, message)` helper
+  for structured log entries. Existing `log()` continues to write
+  to the debug log for backward compatibility.
+- `src/cli/install.js` no longer adds `@xhayper/discord-rpc` to
+  `~/.config/opencode/package.json`. There are no runtime
+  dependencies in Phase 1.
+- `src/cli/uninstall.js` no longer prunes `@xhayper` from
+  `~/.config/opencode/node_modules/`. Phase 1 has no runtime deps
+  to clean up.
+- `src/cli/restart.js` no longer kills a worker subprocess (there
+  is no worker). It now rotates the activity log.
+
+### Documentation
+
+- `AGENTS.md` rewritten for Phase 1. Documents the activity log
+  format, the per-instance state file naming, the rationale for
+  removing the per-session worker, and the lessons learned from
+  the v2.0.x -> v3 redesign effort.
+- `docs/ARCHITECTURE.md` rewritten for Phase 1. Documents the
+  no-subprocess design, the multi-instance behavior, the activity
+  log format, and a Phase 2 preview of the daemon architecture.
+- `docs/TROUBLESHOOTING.md` adds a Phase 1 section on how to read
+  the activity log, plus Phase-1-specific root causes (events
+  seen but no state transition, activity log empty even though
+  OpenCode is running, etc.).
+- `README.md` updated to reflect the Phase 1 status (no Discord
+  push yet) and the install command for the redesign branch.
+
 ## [2.1.1] - 2026-07-04
 
 Patch release. v2.1.0 was tagged with a broken `src/cli/update.js` (see "Fixed" below), so this release also ships the originally-intended fix plus the four features that landed on `main` between the v2.1.0 tag and this commit: the `--stable` flag, the `.install-channel` marker written by `update`, the channel suffix in `version` output, and the marker bootstrap in `bin/opencode-rpc.js`.
@@ -74,7 +167,7 @@ Stable release. Cumulative fixes since v2.0.7 across five pre-release candidates
 - Multi-instance leader oscillation is dampened with `LEADER_COOLDOWN_MS` and by restricting handoff requests to user-initiated events only (`chat.message`, `permission.asked`, `permission.replied`). Agent-side events still `markActive` but do not request leadership.
 - Multi-instance handoff latency reduced from ~5-8 seconds to ~250ms-1s by removing the 2-second fixed IPC delay, dropping `LEADER_COOLDOWN_MS` to 3s, reducing `HEARTBEAT_INTERVAL` to 2s, adding `ACTIVE_HANDSHAKE_INTERVAL` (250ms fast-poll) for standbys that recently marked themselves active, and reducing Discord worker retry backoff (initial 500ms, cap 5000ms).
 - `discord-service.js:destroy()` now uses the same poll-for-exit pattern as `shutdownWorker()`, fixing `Worker exited: code=null sig=SIGKILL` during plugin dispose.
-- New leader now waits 2 seconds before connecting (REMOVED in rc5 — the SIGTERM-after-exit fix made it unnecessary), and forces `checkAllSessionsActivity()` after gaining leadership to refresh stale in-memory session states.
+- New leader now waits 2 seconds before connecting (REMOVED in rc5; the SIGTERM-after-exit fix made it unnecessary), and forces `checkAllSessionsActivity()` after gaining leadership to refresh stale in-memory session states.
 - Discord presence was "stuck" after OpenCode exited. Worker shutdown now calls `clearActivity()` before destroying the Discord client, and `SIGINT`/`SIGTERM` signal handlers do the same.
 - New leader pre-spawns its worker via `prepareConnect()` on user-initiated events when standby, eliminating the "display torn down and rebuilt" feeling during terminal switching.
 - `opencode-rpc update --prerelease` was reporting "Already up-to-date" when upgrading stable v2.0.8 to a prerelease on the same base version, because `parseSemver` stripped the prerelease suffix. Now compares both numeric and tag.
