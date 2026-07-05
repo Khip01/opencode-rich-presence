@@ -251,6 +251,17 @@ export class DiscordIPC extends EventEmitter {
             // or no longer writable, fail fast. The previous code only
             // checked writable and returned false silently, leaving the
             // worker retrying without ever triggering a reconnect.
+            //
+            // We do NOT call _markDisconnected from here. A write callback
+            // returning false or socket.writable going false does not mean
+            // the socket is dead -- it usually means Discord is rate-
+            // limiting our SET_ACTIVITY (5 updates per 20 seconds per the
+            // Discord RPC docs) and the write is silently dropped at the
+            // protocol layer. Marking the socket dead here causes a
+            // reconnect loop that hammers Discord further and keeps the
+            // IPC block window active. The real socket-death signal is the
+            // 'close' / 'error' events on the socket itself, which the
+            // connect() handlers already convert into _markDisconnected.
             if (!this.socket || this.socket.destroyed) {
                 resolve(false);
                 return;
@@ -264,27 +275,21 @@ export class DiscordIPC extends EventEmitter {
             try {
                 socket.write(buf, (err) => {
                     if (err) {
-                        // Write failed (typically EPIPE because Discord
-                        // closed the connection). Mark the socket as dead
-                        // and emit 'disconnected' so the worker reconnects
-                        // immediately, instead of retrying against a dead
-                        // pipe for the next 2.5s+ parent-retry interval.
+                        // Write callback fired with error (typically
+                        // EPIPE = socket actually closed by remote). This
+                        // IS a real death signal, unlike the rate-limit
+                        // case above. Mark and reconnect.
                         this._markDisconnected(`write error: ${err?.message || err}`);
-                        resolve(false);
-                        return;
-                    }
-                    if (!socket.writable) {
-                        // Write was queued but socket is not writable. Mark
-                        // dead so the worker reconnects (a stuck not-
-                        // writable socket will never drain).
-                        this._markDisconnected("socket not writable after write");
                         resolve(false);
                         return;
                     }
                     resolve(true);
                 });
             } catch (e) {
-                this._markDisconnected(`write threw: ${e?.message || e}`);
+                // Synchronous throw (e.g. socket not writable). Not a
+                // socket-death signal by itself -- Discord's IPC server
+                // can briefly report non-writable during backpressure or
+                // rate-limit. Just fail the write; the caller will retry.
                 resolve(false);
             }
         });
