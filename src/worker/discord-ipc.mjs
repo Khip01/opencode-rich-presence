@@ -31,7 +31,6 @@ import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
-import { EventEmitter } from "node:events";
 
 function getSocketPaths(pipeId = 0) {
     const tmpDirs = [
@@ -53,9 +52,8 @@ function getSocketPaths(pipeId = 0) {
     return out;
 }
 
-export class DiscordIPC extends EventEmitter {
+export class DiscordIPC {
     constructor({ clientId, timeoutMs = 30000 } = {}) {
-        super();
         if (!clientId) throw new Error("clientId required");
         this.clientId = String(clientId);
         this.timeoutMs = timeoutMs;
@@ -67,24 +65,6 @@ export class DiscordIPC extends EventEmitter {
 
     isConnected() {
         return this.connected && this.socket?.writable === true;
-    }
-
-    // Mark the current connection as dead and notify any listeners. Called
-    // when the socket closes/errors OR when a write fails (proactive cleanup
-    // so subsequent isConnected() checks return false even before the OS
-    // close event fires). After this returns, the worker should call
-    // disconnect() + connect() to re-establish.
-    _markDisconnected(reason) {
-        if (!this.connected && !this.socket) return;
-        this.connected = false;
-        const sock = this.socket;
-        this.socket = null;
-        if (sock) {
-            try { sock.removeAllListeners(); } catch {}
-            try { sock.destroy(); } catch {}
-        }
-        if (reason) this.lastError = reason;
-        try { this.emit("disconnected", reason); } catch {}
     }
 
     async connect() {
@@ -131,20 +111,15 @@ export class DiscordIPC extends EventEmitter {
                 settled = true;
                 clearTimeout(timer);
                 cleanup();
-                // v2.1.2: hook socket close/error and emit 'disconnected'
-                // so the worker can schedule a reconnect. Previously we
-                // just nulled local state on close, but the worker did
-                // not know the socket died and kept trying setActivity on
-                // a dead pipe, with each call silently failing until the
-                // parent's periodic retry happened to land on a clean
-                // window. Emitting the event lets the worker's existing
-                // `client.on("disconnected", ...)` handler trigger an
-                // immediate reconnect via scheduleReconnect.
+                // Setup ongoing handlers. We ignore incoming data after
+                // handshake (we are fire-and-forget), but watch for close/error.
                 socket.on("close", () => {
-                    this._markDisconnected("socket closed");
+                    this.connected = false;
+                    this.socket = null;
                 });
-                socket.on("error", (err) => {
-                    this._markDisconnected(`socket error: ${err?.message || err}`);
+                socket.on("error", () => {
+                    this.connected = false;
+                    this.socket = null;
                 });
                 socket.on("data", () => {
                     // discard: we do not parse RPC responses
@@ -247,44 +222,26 @@ export class DiscordIPC extends EventEmitter {
 
     _sendFrame(opcode, data) {
         return new Promise((resolve) => {
-            // v2.1.2: if the socket is null (we disconnected via close/error)
-            // or no longer writable, fail fast. The previous code only
-            // checked writable and returned false silently, leaving the
-            // worker retrying without ever triggering a reconnect.
-            if (!this.socket || this.socket.destroyed) {
+            if (!this.socket?.writable) {
                 resolve(false);
                 return;
             }
-            const socket = this.socket;
             const payload = JSON.stringify(data);
             const buf = Buffer.alloc(8 + Buffer.byteLength(payload));
             buf.writeUInt32LE(opcode, 0);
             buf.writeUInt32LE(Buffer.byteLength(payload), 4);
             buf.write(payload, 8);
             try {
-                socket.write(buf, (err) => {
+                this.socket.write(buf, (err) => {
                     if (err) {
-                        // Write failed (typically EPIPE because Discord
-                        // closed the connection). Mark the socket as dead
-                        // and emit 'disconnected' so the worker reconnects
-                        // immediately, instead of retrying against a dead
-                        // pipe for the next 2.5s+ parent-retry interval.
-                        this._markDisconnected(`write error: ${err?.message || err}`);
+                        this.lastError = err.message;
                         resolve(false);
-                        return;
+                    } else {
+                        resolve(true);
                     }
-                    if (!socket.writable) {
-                        // Write was queued but socket is not writable. Mark
-                        // dead so the worker reconnects (a stuck not-
-                        // writable socket will never drain).
-                        this._markDisconnected("socket not writable after write");
-                        resolve(false);
-                        return;
-                    }
-                    resolve(true);
                 });
             } catch (e) {
-                this._markDisconnected(`write threw: ${e?.message || e}`);
+                this.lastError = e.message;
                 resolve(false);
             }
         });
@@ -307,7 +264,6 @@ export class DiscordIPC extends EventEmitter {
             this.socket = null;
         }
         this.connected = false;
-        try { this.emit("disconnected", "manual disconnect"); } catch {}
     }
 }
 
