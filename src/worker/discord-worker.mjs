@@ -117,6 +117,15 @@ async function connect() {
         log("Discord connected");
         send({ type: "connected" });
         if (pendingActivity) {
+            // v2.1.2: eager clear-then-set on reconnect. When the
+            // previous leader's worker died without successfully
+            // completing clearActivity (race between clearActivity and
+            // SIGKILL), Discord keeps showing the stale activity.
+            // Sending a fresh clearActivity from the new connection
+            // before our setActivity wipes whatever Discord retained.
+            try { await client.clearActivity(); } catch (e) {
+                log("Eager clearActivity failed:", e?.message || e);
+            }
             const ok = await client.setActivity(pendingActivity);
             if (ok) log("Activity sent (replay)");
             else log("Activity replay failed");

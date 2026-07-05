@@ -19,6 +19,40 @@ const providerModels = new Map();
 let writeTimer = null;
 let config = null;
 
+// v2.1.2: aggressive presence-refresh for the first few seconds after
+// becoming leader. When the previous leader's worker died without a
+// clean clearActivity (e.g. SIGKILL during the 2.5s grace), Discord
+// keeps showing the stale activity. The first pushActivity from the
+// new leader may land before Discord has fully cleaned up, so the
+// display stays stuck on the previous leader until something forces a
+// re-send. Periodic retries during the first 15s after becoming
+// leader cover that window. The interval is also cleared as soon as
+// leadership is lost, so it never runs for a non-leader.
+let leaderRetryTimer = null;
+let leaderRetryStartedAt = 0;
+const LEADER_RETRY_INTERVAL_MS = 2500;
+const LEADER_RETRY_DURATION_MS = 15000;
+
+function startLeaderPresenceRetry() {
+    stopLeaderPresenceRetry();
+    leaderRetryStartedAt = Date.now();
+    leaderRetryTimer = setInterval(() => {
+        if (!coordinator.isLeader || Date.now() - leaderRetryStartedAt > LEADER_RETRY_DURATION_MS) {
+            stopLeaderPresenceRetry();
+            return;
+        }
+        scheduleWrite();
+    }, LEADER_RETRY_INTERVAL_MS);
+    if (leaderRetryTimer.unref) leaderRetryTimer.unref();
+}
+
+function stopLeaderPresenceRetry() {
+    if (leaderRetryTimer) {
+        clearInterval(leaderRetryTimer);
+        leaderRetryTimer = null;
+    }
+}
+
 // Record that this instance is doing something. Updates the local lastActivity
 // timestamp so the leader's heartbeat knows we are fresher than it. If we are
 // a standby AND this is a user-initiated event, also request leadership so we
@@ -316,8 +350,12 @@ export const OpencodeRichPresence = async ({ client, directory }) => {
             // from when we were standby (standby does not poll for activity).
             try { await checkAllSessionsActivity(client, directory); } catch (e) { log("refresh:", e?.message || e); }
             scheduleWrite();
+            // v2.1.2: aggressive presence-refresh for 15s after becoming
+            // leader. See comment on startLeaderPresenceRetry for why.
+            startLeaderPresenceRetry();
         } else {
             log("Lost leadership, disconnecting from Discord");
+            stopLeaderPresenceRetry();
             try { await shutdownWorker(); } catch (e) { log("shutdownWorker:", e?.message || e); }
         }
     });
