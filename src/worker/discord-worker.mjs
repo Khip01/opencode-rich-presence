@@ -111,6 +111,18 @@ async function connect() {
             try { await client.disconnect(); } catch {}
         }
         client = new DiscordIPC({ clientId: appId, timeoutMs: CONNECT_TIMEOUT });
+        // v2.1.2: listen for the IPC socket dying so we can reconnect
+        // immediately instead of waiting for the next push attempt to
+        // notice. Previously the worker did not know when the underlying
+        // socket closed; it kept trying setActivity on a dead pipe and
+        // only the parent's 2.5s periodic retry could kick off recovery.
+        client.on("disconnected", (reason) => {
+            if (disposed) return;
+            connected = false;
+            log(`IPC disconnected: ${reason || "unknown"}`);
+            send({ type: "disconnected" });
+            scheduleReconnect();
+        });
         await client.connect();
         connected = true;
         retryCount = 0;
