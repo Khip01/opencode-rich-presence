@@ -139,6 +139,38 @@ async function connect() {
     }
 }
 
+// v2.1.2: internal retry for setActivity. The first setActivity right
+// after connect can fail with a socket-write error because the socket
+// is "open" but not yet fully ready for write (Node.js race after
+// handshake). Previously we logged "setActivity failed" and relied
+// on the parent's 2.5s periodic retry to retry from the outside.
+// That worked for steady state but the 2.5s gap left the display
+// stale for several seconds after every connect/handoff. Now we
+// retry inside the worker with a short backoff so the first
+// successful push lands within ~1-2s of connect instead of ~2.5s.
+function pushActivityWithRetry(activity, attempt = 0) {
+    if (!connected || !client) return;
+    client.setActivity(activity).then((ok) => {
+        if (ok) {
+            log("Activity sent");
+            return;
+        }
+        if (attempt >= 5) {
+            log(`setActivity failed after ${attempt + 1} attempts`);
+            return;
+        }
+        const delay = [100, 250, 500, 1000, 2000][attempt] || 2000;
+        log(`setActivity failed, retry in ${delay}ms (attempt ${attempt + 1})`);
+        setTimeout(() => {
+            if (connected && pendingActivity) {
+                pushActivityWithRetry(pendingActivity, attempt + 1);
+            }
+        }, delay).unref?.();
+    }).catch((err) => {
+        log("setActivity threw:", err?.message || err);
+    });
+}
+
 function pushActivity(activity) {
     pendingActivity = activity;
     if (!connected || !client) return;
@@ -146,12 +178,7 @@ function pushActivity(activity) {
     pushDebounceTimer = setTimeout(() => {
         pushDebounceTimer = null;
         if (connected && pendingActivity && client) {
-            client.setActivity(pendingActivity).then((ok) => {
-                if (ok) log("Activity sent");
-                else log("setActivity failed");
-            }).catch((err) => {
-                log("setActivity threw:", err?.message || err);
-            });
+            pushActivityWithRetry(pendingActivity);
         }
     }, 100);
     if (pushDebounceTimer.unref) pushDebounceTimer.unref();
