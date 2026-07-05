@@ -12,9 +12,15 @@
 // - Each frame: [opcode: u32 LE][length: u32 LE][data: utf-8 JSON]
 // - Opcodes: 0 = HANDSHAKE, 1 = FRAME, 2 = CLOSE, 3 = PING, 4 = PONG
 // - Handshake send: `{v: 1, client_id: "..."}` (opcode 0)
-// - Handshake recv: READY frame (opcode 0) with `{v: 1, config, user}` payload
+// - Handshake recv: in practice, Discord sends DISPATCH READY as a FRAME
+//   (opcode 1) with payload `{cmd: "DISPATCH", evt: "READY", data: {...}}`.
+//   Some docs describe opcode 0 for the READY reply but real Discord
+//   does not send that; it sends the READY event as a normal frame.
+//   pypresence, @xhayper/discord-rpc, and jagrosh/DiscordIPC all wait
+//   for opcode 1 (FRAME), not opcode 0. We do the same.
 // - RPC command: `{cmd, args, nonce}` (opcode 1)
 // - RPC response: `{cmd, data|error, nonce}` (opcode 1)
+// - Error reply: `{code: <int>, message: <string>}` (opcode 1)
 //
 // This implementation is fire-and-forget for SET_ACTIVITY (we do not wait for
 // the response). For our use case (push presence, not interact), we only
@@ -157,14 +163,30 @@ export class DiscordIPC {
                     if (buf.length < 8 + length) return;
                     const dataBuf = buf.subarray(8, 8 + length);
                     buf = buf.subarray(8 + length);
-                    if (opcode === 0) {
-                        // READY frame. Payload is informational; we just
-                        // care that handshake completed.
+
+                    // Discord sends DISPATCH READY as a regular FRAME
+                    // (opcode 1) after our HANDSHAKE. Some docs describe
+                    // opcode 0 for the READY reply, but real Discord
+                    // does not send opcode 0; it sends the READY event
+                    // as opcode 1. pypresence and @xhayper both wait for
+                    // opcode 1 here. We accept either 0 or 1 to be
+                    // defensive against future Discord behavior changes.
+                    if (opcode === 0 || opcode === 1) {
+                        let parsed = null;
+                        try { parsed = JSON.parse(dataBuf.toString("utf-8")); } catch {}
+                        // Discord returns errors as `{code, message}`.
+                        // Surface those distinctly from a silent timeout so
+                        // the user can tell "App ID rejected" from
+                        // "Discord not responding".
+                        if (parsed && typeof parsed.code === "number" && parsed.message) {
+                            finishErr(new Error(`Discord RPC rejected handshake: ${parsed.code} ${parsed.message}`));
+                            return;
+                        }
                         finishOk();
                         return;
                     }
-                    // For opcodes 1/3/4 (FRAME/PING/PONG), we do not care
-                    // during handshake. Continue parsing.
+                    // For opcodes 3/4 (PING/PONG) we ignore during
+                    // handshake. Continue parsing.
                 }
             });
 
