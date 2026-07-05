@@ -650,3 +650,128 @@ it before the two awaits and remember to test that the Node.js
 process does not exit before the cleanup finishes. The debug log
 will help: if you see "Disposing..." but no "Released leader
 lock", the process exited before the await completed.
+
+### Discord IPC handshake: opcode 1 (FRAME), NOT opcode 0 (HANDSHAKE reply)
+
+When writing or debugging a Discord IPC client, the success
+signal for the handshake is the DISPATCH READY frame, which
+arrives as opcode 1 (FRAME) with payload:
+
+```
+{cmd: "DISPATCH", evt: "READY", data: {v, config, user}}
+```
+
+The Discord IPC docs historically described the handshake reply
+as opcode 0, but in practice real Discord never sends opcode 0
+for READY. The READY event is sent as a regular FRAME (opcode
+1). All proven-working libraries wait for opcode 1 here:
+- `pypresence`: opcode 1 (FRAME) parsed as JSON, looks for
+  `{code}` field for error replies
+- `@xhayper/discord-rpc`: same
+- `jagrosh/DiscordIPC`: same
+- `discordjs/RPC`: same
+
+If you write your own client and check `if (opcode === 0)` to
+detect handshake success, it will NEVER match against current
+Discord. The client will time out and retry forever, looking
+like Discord is silently rejecting connections. It is not. Your
+code is wrong.
+
+Defensive approach: accept opcode 0 OR 1 as the connected
+signal. Parse the payload as JSON; if it has a `{code, message}`
+shape, surface it as a distinct error (e.g. `code 4000` = "Invalid
+Client ID") so the user can tell rejection apart from timeout.
+
+The bug existed in `src/worker/discord-ipc.mjs` introduced in
+4abb9ed. Fixed in 695c455. The repo's CHANGELOG has the full
+sequence; the lesson here is to verify the protocol at the byte
+level when an existing library disagrees with your implementation.
+
+### When something doesn't work, instrument the lowest layer FIRST
+
+During the handshake opcode debugging, the user correctly
+called out that I had blamed their verified Discord App ID for
+being "silent rejected" without evidence. The user-pushed-back
+moment was correct.
+
+Lesson: when an integration is failing, do not jump to "the
+external service is at fault" or "the credentials are bad". Run a
+minimal repro at the protocol layer (in our case, raw bytes
+through `net.createConnection` to `/run/user/1000/discord-ipc-0`)
+and observe what actually happens. In our case the bug was in
+our own code, not in Discord or in the App ID.
+
+Anti-pattern I followed (do not repeat): I tested three different
+App IDs to "prove" the issue was the user's verified one. That
+testing was useful, but my interpretation ("the verified App ID
+is silently rejected") was wrong. The raw-bytes test would have
+shown immediately that Discord was responding normally to all
+four App IDs in roughly the same time (~400ms). The reason the
+plugin appeared stuck on the verified App ID specifically was
+ luck of the test ordering; the symptom had nothing to do with
+the App ID.
+
+### Compare your implementation against reference implementations BEFORE debugging further
+
+When the IPC client was timing out, the next-step instinct was
+to keep tweaking our own code (timeout values, retry counts,
+exponential backoff knobs). What actually cracked it was
+side-by-side reading:
+
+- Read `pypresence` IPC receive handler
+- Read `@xhayper/discord-rpc` IPC receive handler
+- Read `jagrosh/DiscordIPC` Java receive handler
+- Notice ALL THREE accept opcode 1 (FRAME) for handshake
+  completion, not opcode 0
+
+The discrepancy with my own code (which checked opcode 0) was
+visible immediately in this comparison. Lesson: when the
+behavior of your code disagrees with multiple mature reference
+implementations, your code is wrong, not the references and not
+the external service.
+
+### Test against multiple App IDs to distinguish code bugs from environment issues
+
+During the debugging I ran four separate handshake tests against
+four different App IDs (three alternative ones provided by the
+user, plus the user's verified App ID). All four responded at
+the protocol level. The user's verified App ID had appeared to
+"not respond" earlier, but that was a test-ordering artifact, not
+a real difference. Lesson: when you suspect an environment
+issue, vary multiple inputs and check whether the symptom is
+input-dependent. If the symptom disappears with a different
+input, the cause is not the input but something else.
+
+### "NO DATA" was the bug, not Discord
+
+The misleading symptom during this debugging was that the worker's
+`net.createConnection` would complete, the `socket.write(handshake)`
+would succeed (return value undefined, no error), but then
+`socket.on("data", ...)` would never fire for certain App IDs.
+That made it look like Discord was silent / refusing / blacklisting.
+
+What was actually happening: Discord WAS sending the DISPATCH
+READY frame (opcode 1). Our code was receiving it but treating
+opcode 1 as "not the handshake response, continue parsing" and
+waiting for more data. Eventually timing out at 30s.
+
+The test that revealed this: a raw-bytes Node script that
+connected directly to the Discord IPC socket and logged the
+first byte of every incoming frame. It showed opcode 1 arriving
+in ~400ms for every App ID tested, including the user's verified
+one. This single observation collapsed the whole "App ID is
+being silently rejected" hypothesis.
+
+### Do not commit a fix without verifying it end-to-end on a real Discord session
+
+I committed commit `4abb9ed` (replace @xhayper with inline IPC
+client) without testing whether the inline client actually
+connected to Discord. The user had to push back ("emang anda
+sudah fix problem nya?") to get me to run a standalone test
+that exposed the opcode bug.
+
+Lesson: the standalone test path (raw Node script that imports
+the new client and tries to connect) is fast and obvious. Always
+run it BEFORE asking for ACC on a commit. The plugin's debug log
+shows timeouts clearly, but a standalone test shows them in
+seconds without the rest of the plugin's complexity.
