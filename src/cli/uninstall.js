@@ -5,7 +5,7 @@ import { CONFIG_PATH, LOCK_FILE, RESTART_SIGNAL, OUTPUT_FILE, OPENCODE_DIR } fro
 import { confirm } from "./prompt.js";
 
 const PLUGIN_NAME = "opencode-rich-presence";
-const PLUGIN_DEP = "@xhayper/discord-rpc";
+const PLUGIN_DEP = "@xhayper/discord-rpc"; // legacy, removed in v2.1.2
 
 export async function uninstall() {
     console.log("\nopencode-rich-presence uninstaller\n");

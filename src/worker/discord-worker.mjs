@@ -1,9 +1,11 @@
 #!/usr/bin/env node
-// Discord RPC worker - uses @xhayper/discord-rpc.
+// Discord RPC worker - uses our minimal DiscordIPC client (replaced
+// @xhayper/discord-rpc to avoid its 10s hardcoded IPC handshake timeout).
 // Runs as Node.js subprocess so Bun's Unix socket issues are bypassed.
-// Cross-platform: @xhayper/discord-rpc handles Unix sockets (Linux/macOS) and named pipes (Windows).
+// Cross-platform: DiscordIPC handles Unix sockets (Linux/macOS) and named
+// pipes (Windows).
 
-import { Client } from "@xhayper/discord-rpc";
+import { DiscordIPC } from "./discord-ipc.mjs";
 import { readFile } from "node:fs/promises";
 import { CONFIG_PATH } from "../shared/paths.js";
 
@@ -20,7 +22,6 @@ let client = null;
 let connected = false;
 let retryCount = 0;
 let reconnectTimer = null;
-let clientGeneration = 0;
 let disposed = false;
 // Set by gracefulExit() and the shutdown command so that the
 // `disconnected` event (which fires after clearActivity) does not trigger
@@ -105,63 +106,42 @@ async function connect() {
         }
     }
 
-    const myGeneration = ++clientGeneration;
-
     try {
         if (client) {
-            try { client.destroy?.(); } catch {}
+            try { await client.disconnect(); } catch {}
         }
-        client = new Client({ clientId: appId });
-        client.on("ready", () => {
-            if (myGeneration !== clientGeneration) return;
-            connected = true;
-            retryCount = 0;
-            log("Discord READY event");
-            send({ type: "connected" });
-            if (pendingActivity) {
-                client.user?.setActivity(pendingActivity).catch((err) => {
-                    log("Replay activity failed:", err?.message || err);
-                });
-            }
-        });
-        client.on("disconnected", () => {
-            if (myGeneration !== clientGeneration) return;
-            connected = false;
-            log("Discord disconnected");
-            send({ type: "disconnected" });
-            // Suppress reconnect if we are in the middle of shutting down.
-            // clearActivity() in @xhayper/discord-rpc triggers a disconnect
-            // event, and we do not want that to spawn a reconnect attempt
-            // before our explicit process.exit(0) lands.
-            if (shuttingDown) return;
-            scheduleReconnect();
-        });
-
-        client.login().catch((err) => {
-            if (myGeneration !== clientGeneration) return;
-            const msg = err?.message || String(err);
-            log("Login failed:", msg);
-            send({ type: "error", error: msg });
-            scheduleReconnect();
-        });
+        client = new DiscordIPC({ clientId: appId, timeoutMs: CONNECT_TIMEOUT });
+        await client.connect();
+        connected = true;
+        retryCount = 0;
+        log("Discord connected");
+        send({ type: "connected" });
+        if (pendingActivity) {
+            const ok = await client.setActivity(pendingActivity);
+            if (ok) log("Activity sent (replay)");
+            else log("Activity replay failed");
+        }
     } catch (err) {
-        log("Connect sync error:", err?.message || err);
-        send({ type: "error", error: err?.message || String(err) });
+        const msg = err?.message || String(err);
+        log("Login failed:", msg);
+        send({ type: "error", error: msg });
+        client = null;
         scheduleReconnect();
     }
 }
 
 function pushActivity(activity) {
     pendingActivity = activity;
-    if (!connected || !client?.user) return;
+    if (!connected || !client) return;
     if (pushDebounceTimer) return;
     pushDebounceTimer = setTimeout(() => {
         pushDebounceTimer = null;
-        if (connected && pendingActivity && client?.user) {
-            client.user.setActivity(pendingActivity).then(() => {
-                log("Activity sent");
+        if (connected && pendingActivity && client) {
+            client.setActivity(pendingActivity).then((ok) => {
+                if (ok) log("Activity sent");
+                else log("setActivity failed");
             }).catch((err) => {
-                log("setActivity failed:", err?.message || err);
+                log("setActivity threw:", err?.message || err);
             });
         }
     }, 100);
@@ -174,9 +154,9 @@ async function clearActivity() {
         clearTimeout(pushDebounceTimer);
         pushDebounceTimer = null;
     }
-    if (connected && client?.user) {
+    if (connected && client) {
         try {
-            await client.user.clearActivity();
+            await client.clearActivity();
         } catch (err) {
             log("clearActivity failed:", err?.message || err);
         }
@@ -253,8 +233,8 @@ async function handleCommand(msg) {
             if (!r1.ok) log("clearActivity on shutdown (attempt 2):", r1.error?.message || r1.error);
         }
         if (client) {
-            const r2 = await withTimeout(client.destroy?.() ?? Promise.resolve(), 1000, "client.destroy");
-            if (!r2.ok) log("client.destroy on shutdown:", r2.error?.message || r2.error);
+            const r2 = await withTimeout(client.disconnect(), 1000, "client.disconnect");
+            if (!r2.ok) log("client.disconnect on shutdown:", r2.error?.message || r2.error);
         }
         process.exit(0);
     }
@@ -272,7 +252,7 @@ function gracefulExit() {
     shuttingDown = true;
     try {
         withTimeout(clearActivity(), 1000, "clearActivity").catch(() => {});
-        if (client) withTimeout(client.destroy?.() ?? Promise.resolve(), 1000, "client.destroy").catch(() => {});
+        if (client) withTimeout(client.disconnect(), 1000, "client.disconnect").catch(() => {});
     } catch {}
     setTimeout(() => process.exit(0), 1500).unref?.();
 }

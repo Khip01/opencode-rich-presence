@@ -50,6 +50,11 @@ Patch release. v2.1.0 was tagged with a broken `src/cli/update.js` (see "Fixed" 
 
 - Pending: `docs/TROUBLESHOOTING.md` will get a new section "Leader handoff does not update Discord display" once this fix is verified end-to-end.
 
+### Changed
+
+- Replaced `@xhayper/discord-rpc` with a minimal inline Discord IPC client (`src/worker/discord-ipc.mjs`). The library had a hardcoded 10-second IPC handshake timeout in `Client.connect()` (`setTimeout(..., 10e3)`) that fired before the handshake READY frame was processed, even when Discord's IPC socket responded in milliseconds. We saw this in user testing: Discord IPC responds in <10ms but `@xhayper` rejects at exactly 10006ms with "Connection timed out", causing the worker to enter a slow retry loop with no progress. All major OpenCode Discord plugins (Puri12, phoenixak, butterbrodskiy) use the same library and have the same issue. The replacement client supports configurable timeout (default 30s), uses a direct Unix socket connection, and is fire-and-forget for SET_ACTIVITY (we do not parse RPC responses, just push presence).
+- `package.json` dependencies now empty. All Discord RPC communication is via the new inline client. `opencode-rpc install` and `opencode-rpc uninstall` updated to prune legacy `@xhayper/discord-rpc` from `~/.config/opencode/package.json` if present.
+
 ## [2.1.0] - 2026-07-04
 
 ### Changed

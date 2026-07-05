@@ -9,8 +9,6 @@ import { confirm, question } from "./prompt.js";
 const PKG_ROOT = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
 const EXAMPLE_CONFIG = join(PKG_ROOT, "config", "discord-config.example.json");
 const PLUGIN_NAME = "opencode-rich-presence";
-const REQUIRED_DEP = "@xhayper/discord-rpc";
-const REQUIRED_DEP_VERSION = "1.3.4";
 const PLUGIN_ENTRY_RELATIVE = "src/plugin/index.js";
 
 export async function install() {
@@ -34,7 +32,7 @@ export async function install() {
 
     await maybeMigrateRemoveFromOpencodeConfig();
     await installLocalPlugin();
-    await ensureDependencies();
+    await pruneLegacyDependencies();
 
     printNextSteps();
 }
@@ -153,36 +151,27 @@ function readlinkTarget(p) {
     return require("node:fs").readlinkSync(p);
 }
 
-// Ensure @xhayper/discord-rpc is available in ~/.config/opencode/node_modules/ so the
-// worker subprocess (loaded from a symlinked path) can resolve it. OpenCode already
-// manages its own deps in this package.json, so we only add what is missing.
-async function ensureDependencies() {
-    console.log("");
+// Ensure legacy dependencies are cleaned up from older installs. v2.1.2
+// replaced @xhayper/discord-rpc with our own minimal DiscordIPC client, so
+// any pre-v2.1.2 install that still has @xhayper in their
+// ~/.config/opencode/package.json should have it removed.
+async function pruneLegacyDependencies() {
     const pkgPath = join(OPENCODE_DIR, "package.json");
-    let pkg = { dependencies: {} };
-    let hadFile = false;
-    if (existsSync(pkgPath)) {
-        hadFile = true;
-        try { pkg = JSON.parse(readFileSync(pkgPath, "utf-8")); } catch {}
-    }
-    pkg.dependencies = pkg.dependencies || {};
+    if (!existsSync(pkgPath)) return;
+    let pkg;
+    try { pkg = JSON.parse(readFileSync(pkgPath, "utf-8")); } catch { return; }
+    if (!pkg.dependencies || !pkg.dependencies["@xhayper/discord-rpc"]) return;
 
-    if (pkg.dependencies[REQUIRED_DEP] === REQUIRED_DEP_VERSION) {
-        console.log(`  ${REQUIRED_DEP} already present in ${pkgPath}`);
-        return;
-    }
-
-    pkg.dependencies[REQUIRED_DEP] = REQUIRED_DEP_VERSION;
+    delete pkg.dependencies["@xhayper/discord-rpc"];
     writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n", "utf-8");
-    console.log(`  Updated ${pkgPath} (added ${REQUIRED_DEP})`);
+    console.log(`  Pruned @xhayper/discord-rpc from ${pkgPath} (replaced by inline client)`);
 
-    console.log(`  Running npm install in ${OPENCODE_DIR}...`);
+    console.log(`  Running npm prune in ${OPENCODE_DIR}...`);
     try {
-        execSync("npm install --no-audit --no-fund", { cwd: OPENCODE_DIR, stdio: "inherit" });
-        console.log(`  Installed dependencies.`);
+        execSync("npm prune --no-audit --no-fund", { cwd: OPENCODE_DIR, stdio: "inherit" });
     } catch (e) {
-        console.log(`  npm install failed: ${e.message}`);
-        console.log(`  You can run it manually later: cd ${OPENCODE_DIR} && npm install`);
+        console.log(`  npm prune failed: ${e.message}`);
+        console.log(`  You can run it manually later: cd ${OPENCODE_DIR} && npm prune`);
     }
 }
 
