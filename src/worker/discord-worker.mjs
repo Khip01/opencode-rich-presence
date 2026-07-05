@@ -11,23 +11,11 @@ import { CONFIG_PATH } from "../shared/paths.js";
 
 const CONNECT_TIMEOUT = 30000;
 const MAX_RETRIES = 100;
-// v2.1.2: longer reconnect backoff. Discord's IPC server silently blocks
-// new connections from the same App ID after 2-3 rapid connects (the
-// 3rd onward times out for ~5-10 seconds before recovering). With the
-// old 500ms initial backoff, our reconnect loop hammered Discord fast
-// enough to keep it blocked indefinitely, leaving the user staring at
-// a stuck "Discord: connected" state that never reflects in the actual
-// Discord UI. With these new values (5s initial, 30s cap), each
-// reconnect lands in a clean window and the user sees the display
-// recover within ~5-10s without manual `opencode-rpc restart`.
-//
-// The trade-off is slower failover (up to 30s between reconnect attempts
-// instead of up to 5s). For handoff between live terminals the first
-// connect usually succeeds, so the user does not notice the slower
-// backoff in the common case.
-const INITIAL_RETRY_MS = 5000;
-const MAX_RETRY_MS = 30000;
-const RECONNECT_LOG_INTERVAL = 5;
+// v2.0.8-rc2: reduced initial and max backoff so the new leader's worker
+// reconnects faster after a handoff. Previous values (3000ms initial,
+// 30000ms max) made the user wait several seconds per leadership change.
+const INITIAL_RETRY_MS = 500;
+const MAX_RETRY_MS = 5000;
 
 let appId = null;
 let client = null;
@@ -91,18 +79,12 @@ function scheduleReconnect() {
         return;
     }
     retryCount++;
-    // Exponential backoff capped at MAX_RETRY_MS. The first attempt waits
-    // INITIAL_RETRY_MS (5s) to give Discord time to recover from rapid
-    // connection bursts; subsequent attempts back off up to MAX_RETRY_MS
-    // (30s). Discord silently blocks new connections from the same App ID
-    // after a few rapid attempts, so a too-aggressive retry interval
-    // keeps it blocked. Logging only every RECONNECT_LOG_INTERVAL attempts
-    // prevents the debug log from filling with hundreds of identical lines.
+    // Exponential backoff capped at MAX_RETRY_MS. Starts fast (INITIAL_RETRY_MS)
+    // so handoff reconnects feel snappy, then slows down if Discord is genuinely
+    // unreachable so we do not hammer it.
     const backoff = Math.min(MAX_RETRY_MS, INITIAL_RETRY_MS * Math.pow(1.5, Math.min(retryCount - 1, 8)));
     send({ type: "attempt", retryCount, maxRetries: MAX_RETRIES, backoffMs: backoff });
-    if (retryCount === 1 || retryCount % RECONNECT_LOG_INTERVAL === 0) {
-        log(`Reconnect in ${backoff}ms (${retryCount}/${MAX_RETRIES})`);
-    }
+    log(`Reconnect in ${backoff}ms (${retryCount}/${MAX_RETRIES})`);
     reconnectTimer = setTimeout(() => {
         reconnectTimer = null;
         if (!disposed) connect();
