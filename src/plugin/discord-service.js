@@ -248,7 +248,7 @@ function getCurrentConfig() { return _currentConfig; }
 //   4. Spawn + connect.
 //
 // Safe to call when no worker is alive: each step short-circuits.
-async function forceRestartWorker() {
+export async function forceRestartWorker() {
     if (state.restarting) return;
     state.restarting = true;
     try {

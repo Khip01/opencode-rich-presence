@@ -8,7 +8,7 @@ import { loadConfig } from "./config-resolver.js";
 import { coordinator } from "./coordinator.js";
 import { SessionState } from "./session-state.js";
 import { withTimeout, formatDuration } from "./template-engine.js";
-import { pushActivity, destroy as discordDestroy, shutdownWorker, startConnect, prepareConnect, getStatus, checkWorkerHealth } from "./discord-service.js";
+import { pushActivity, destroy as discordDestroy, shutdownWorker, startConnect, prepareConnect, getStatus, checkWorkerHealth, forceRestartWorker } from "./discord-service.js";
 
 // ─── Global State ──────────────────────────────────────────────────────────
 
@@ -25,13 +25,27 @@ let config = null;
 // keeps showing the stale activity. The first pushActivity from the
 // new leader may land before Discord has fully cleaned up, so the
 // display stays stuck on the previous leader until something forces a
-// re-send. Periodic retries during the first 15s after becoming
+// re-send. Periodic retries during the first 30s after becoming
 // leader cover that window. The interval is also cleared as soon as
 // leadership is lost, so it never runs for a non-leader.
+//
+// v2.1.2: also force-restart the worker after 4s if we are still
+// leader. This mirrors what `opencode-rpc restart` does: kill the
+// existing worker, wait 2s for the Discord IPC socket to be fully
+// released by the OS, then spawn a fresh worker on a fresh socket
+// connection. Without this, an existing worker that is "connected"
+// to Discord but whose socket has inherited stale state from the
+// previous leader (after all terminals exited) will push SET_ACTIVITY
+// that Discord silently ignores. Killing + respawning forces a fresh
+// socket that Discord treats as a brand-new client. The 4s delay
+// gives the first attempt time to succeed on its own (most handoffs
+// work fine without this); only the stale-state case triggers a real
+// force-restart.
 let leaderRetryTimer = null;
 let leaderRetryStartedAt = 0;
 const LEADER_RETRY_INTERVAL_MS = 2500;
-const LEADER_RETRY_DURATION_MS = 15000;
+const LEADER_RETRY_DURATION_MS = 30000;
+const LEADER_FORCE_RESTART_DELAY_MS = 4000;
 
 function startLeaderPresenceRetry() {
     stopLeaderPresenceRetry();
@@ -44,6 +58,17 @@ function startLeaderPresenceRetry() {
         scheduleWrite();
     }, LEADER_RETRY_INTERVAL_MS);
     if (leaderRetryTimer.unref) leaderRetryTimer.unref();
+    // v2.1.2: force-restart the worker after a short delay. The
+    // existing worker's IPC socket may carry stale state from a
+    // previous leader (e.g. after all terminals exited and one is
+    // reopened). Killing + waiting + spawning fresh gives Discord a
+    // clean IPC socket to bind to and ensures our pushActivity lands.
+    setTimeout(() => {
+        if (coordinator.isLeader) {
+            log("Leader force-restart: refreshing worker IPC connection");
+            forceRestartWorker().catch((e) => log("forceRestartWorker:", e?.message || e));
+        }
+    }, LEADER_FORCE_RESTART_DELAY_MS).unref?.();
 }
 
 function stopLeaderPresenceRetry() {
