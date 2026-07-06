@@ -51,6 +51,25 @@ User reported two issues after daily use:
    Daemon resource cost when idle: ~30MB RAM, ~0% CPU. Termination
    is now explicit: SIGINT/SIGTERM (from `opencode-rpc restart` or
    a manual kill).
+4. **Daemon could not detect a silently-dead Discord socket.** When
+   Discord Desktop was killed or restarted while the daemon held the
+   IPC fd, the OS did not surface close/error on our end. The daemon
+   kept calling setActivity but no frame ever reached Discord.
+   Display stayed blank with no obvious error and no automatic
+   recovery. Fix: the daemon now pings Discord every 15s (opcode 3)
+   and tracks pong replies (opcode 4). If no pong arrives within
+   30s, the connection is treated as dead and the standard
+   reconnect path is triggered. Also: write errors on the IPC socket
+   now propagate to the disconnected handler immediately (previously
+   a silently-dead socket buffered writes without flagging an error).
+5. **Display sometimes did not refresh after all-exit + reopen even
+   when the daemon was pushing successfully.** Theory: Discord
+   internally throttles / drops updates for App IDs that go through
+   a clearActivity + idle pattern, and the next setActivity is
+   ignored. Fix: when a new instance connects (hello), the daemon
+   forces a refresh by sending clearActivity to wipe Discord's
+   internal display state. The fingerprint is reset so the new
+   instance's first setActivity actually fires.
 
 ### Added
 
