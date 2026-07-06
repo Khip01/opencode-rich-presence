@@ -153,30 +153,24 @@ await scenario("4. Plugin sends state messages to daemon", async () => {
     assert(sends >= 3, `multiple state sends logged (got ${sends})`);
 });
 
-await scenario("5. Plugin dispose sends goodbye to daemon", async () => {
+await scenario("5. Plugin dispose sends goodbye to daemon (daemon stays alive)", async () => {
     await handlers.dispose();
     await sleep(3000);
 
     const log = readActivityLog();
     assert(log.includes("disconnecting from daemon") || log.includes("disconnected") || log.includes("goodbye"),
         "goodbye or disconnect logged");
+
+    // Phase 2 v3+: daemon stays alive after all goodbyes (no auto-exit).
+    // The user's OpenCode may also keep the daemon alive.
+    assert(existsSync(DAEMON_SOCKET) || existsSync(DAEMON_PID_FILE),
+        "daemon still alive after dispose (stays alive until explicit kill)");
 });
 
-await scenario("6. Second plugin instance uses existing daemon", async () => {
-    await sleep(3000);
-
-    let daemonGone = !existsSync(DAEMON_SOCKET);
-    if (!daemonGone) {
-        if (existsSync(DAEMON_PID_FILE)) {
-            try {
-                const pid = parseInt(readFileSync(DAEMON_PID_FILE, "utf-8").trim(), 10);
-                if (pid > 0) try { process.kill(pid, "SIGTERM"); } catch {}
-            } catch {}
-        }
-        await sleep(2500);
-        daemonGone = !existsSync(DAEMON_SOCKET);
-    }
-    assert(daemonGone, "daemon exited after last instance goodbye");
+await scenario("6. Second plugin instance reuses existing daemon (no respawn)", async () => {
+    // The daemon from scenario 2 is still alive. Loading a new plugin
+    // should NOT spawn a new daemon — it should connect to the existing one.
+    const pidBefore = parseInt(readFileSync(DAEMON_PID_FILE, "utf-8").trim(), 10);
 
     const h2 = await OpencodeRichPresence({
         client: mockClient(),
@@ -188,25 +182,18 @@ await scenario("6. Second plugin instance uses existing daemon", async () => {
         agent: "plan",
         model: { modelID: "kimi-k2.6" },
     });
-    await sleep(2000);
+    await sleep(1500);
 
-    assert(existsSync(DAEMON_SOCKET), "new daemon spawned for second instance");
+    const pidAfter = parseInt(readFileSync(DAEMON_PID_FILE, "utf-8").trim(), 10);
+    assert(pidBefore === pidAfter, `daemon PID unchanged (${pidBefore} == ${pidAfter}); no respawn`);
 
     await h2.dispose();
     await sleep(500);
 });
 
 await scenario("7. Multi-instance: 2 plugins share one daemon", async () => {
-    if (existsSync(DAEMON_PID_FILE)) {
-        try {
-            const pid = parseInt(readFileSync(DAEMON_PID_FILE, "utf-8").trim(), 10);
-            if (pid > 0) try { process.kill(pid, "SIGTERM"); } catch {}
-        } catch {}
-    }
-    await sleep(2500);
-    try { unlinkSync(DAEMON_SOCKET); } catch {}
-    try { unlinkSync(DAEMON_PID_FILE); } catch {}
-    await sleep(200);
+    // No need to kill daemon between scenarios now (it stays alive).
+    // Just connect two new clients.
 
     const childScript = `
 import { OpencodeRichPresence } from "${PLUGIN_ENTRY}";
@@ -264,20 +251,16 @@ setTimeout(() => process.exit(0), 200).unref();
     }
     assert(subPids.size >= 2, `state files have distinct PIDs (got ${subPids.size}: ${[...subPids].join(", ")})`);
 
-    // Verify daemon SAW both children disconnect. Children now use
-    // h.dispose() before exit, which sends a goodbye message. Daemon
-    // logs "instance goodbye" instead of relying on socket close.
-    // Either is a valid disconnect signal.
+    // Verify daemon SAW both children disconnect.
     await sleep(2000);
     const logAfter = readActivityLog();
     const goodbyes = (logAfter.match(/instance goodbye/g) || []).length;
     const disconnects = (logAfter.match(/client disconnected/g) || []).length;
     assert(goodbyes + disconnects >= 2, `daemon saw at least 2 disconnects (got ${goodbyes} goodbyes + ${disconnects} socket-closes)`);
 
-    // The user's live OpenCode may also be connected. Daemon SHOULD
-    // still be alive (correct: it has other clients).
+    // Daemon is alive (either user's OpenCode OR it stays alive itself now).
     assert(existsSync(DAEMON_SOCKET) || existsSync(DAEMON_PID_FILE),
-        "daemon still running (correct: user's OpenCode keeps it alive)");
+        "daemon still running");
 });
 
 // ─── Summary ───────────────────────────────────────────────────────────────

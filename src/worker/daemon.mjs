@@ -81,12 +81,19 @@ const MAX_RECONNECT_BACKOFF_MS = 30000;
 // updates per 20 seconds; we throttle to once per 4s to stay safely
 // under that.
 const DISCORD_PUSH_INTERVAL_MS = 4000;
-// How long to wait after the last client disconnects before the daemon
-// exits. Increased from 2s to 10s so a quick /exit + reopen does not
-// require the daemon to disconnect from Discord (which can trigger
-// a Discord-side cooldown on the App ID). If a new instance
-// connects during this window, the exit is cancelled.
-const EXIT_GRACE_MS = 10000;
+// The daemon stays alive indefinitely after the last client
+// disconnects. It only exits when explicitly signaled (SIGINT/SIGTERM,
+// sent by `opencode-rpc restart` or a manual kill). The rationale:
+// every daemon exit requires a Discord reconnect, which can hit
+// Discord's App-ID cooldown window. If the cooldown blocks the next
+// push, the user's display stays blank until they run
+// `opencode-rpc restart` again. Keeping the daemon alive avoids the
+// reconnect entirely; new OpenCode instances connect to the existing
+// daemon and reuse its Discord connection. When the last instance
+// disconnects, the daemon sends clearActivity so Discord hides the
+// stale presence; when a new instance fires, the daemon immediately
+// pushes the new state without needing to re-handshake with Discord.
+// Resource cost: ~30MB RAM, ~0% CPU when idle.
 
 // ─── State ────────────────────────────────────────────────────────────────
 
@@ -96,7 +103,6 @@ let discordConnected = false;
 let lastPushAt = 0;
 let reconnectBackoffMs = INITIAL_RECONNECT_BACKOFF_MS;
 let reconnectTimer = null;
-let exitTimer = null;
 let disposed = false;
 // Pending delayed push to guarantee the final state lands on Discord
 // even when rapid state changes (e.g. fast AI responses) hit the
@@ -335,16 +341,10 @@ function handleClientMessage(msg, sock) {
         case "hello":
             clients.set(pid, sock);
             instances.set(pid, { lastSeen: Date.now(), sessionInfo: null, rendered: null });
-            // Cancel any pending exit. The user has reopened OpenCode
-            // (or fired another session) before the grace expired, so
-            // we keep the Discord connection alive. This avoids a
-            // disconnect/reconnect cycle that can trigger Discord's
-            // App-ID cooldown window.
-            if (exitTimer) {
-                clearTimeout(exitTimer);
-                exitTimer = null;
-                logToFile(`exit cancelled: new instance connected (pid=${pid})`);
-            }
+            // The daemon stays alive across all-exit, so a new
+            // instance connecting here just resumes on the existing
+            // Discord connection. No exit-cancel needed (the daemon
+            // does not auto-exit anymore).
             logToFile(`instance registered: pid=${pid}`);
             try { sock.write(JSON.stringify({ type: "ack" }) + "\n"); } catch {}
             broadcastDiscordState();
@@ -381,7 +381,16 @@ function handleClientMessage(msg, sock) {
             }
             pushCurrentPresence(); // re-pick global active session
             if (instances.size === 0) {
-                scheduleExit();
+                // Last instance just disconnected. Hide the display
+                // (clearActivity) so Discord does not show a stale
+                // presence while we wait for a new instance. The
+                // daemon itself STAYS ALIVE so a subsequent OpenCode
+                // launch does not require a Discord reconnect (which
+                // can hit Discord's App-ID cooldown window). The next
+                // instance's hello + state immediately resumes pushing
+                // on the existing Discord connection.
+                logToFile("all instances disconnected; clearing Discord presence (daemon stays alive)");
+                clearPresence();
             }
             break;
 
@@ -390,17 +399,11 @@ function handleClientMessage(msg, sock) {
     }
 }
 
-function scheduleExit() {
-    if (exitTimer) return;
-    logToFile(`no instances left, scheduling exit in ${EXIT_GRACE_MS}ms`);
-    exitTimer = setTimeout(async () => {
-        exitTimer = null;
-        await shutdown();
-    }, EXIT_GRACE_MS);
-    if (exitTimer.unref) exitTimer.unref();
-    // Also clear any pending final-state push; we're shutting down.
-    if (finalStateTimer) { clearTimeout(finalStateTimer); finalStateTimer = null; }
-}
+// scheduleExit was removed: the daemon now stays alive after the
+// last client disconnects. See EXIT_GRACE_MS comment above for
+// rationale. If you ever want the old behavior back, reintroduce
+// this function and call it from the goodbye handler when
+// instances.size === 0.
 
 async function startServer() {
     if (existsSync(DAEMON_SOCKET)) {
@@ -427,12 +430,16 @@ async function startServer() {
         });
         sock.on("close", () => {
             // Find the pid this socket belonged to and remove it.
+            // Note: we do NOT call scheduleExit here. The daemon stays
+            // alive after the last client disconnects so a subsequent
+            // OpenCode launch can reuse the existing Discord
+            // connection. scheduleExit was removed in this commit;
+            // see the EXIT_GRACE_MS comment for rationale.
             for (const [pid, s] of clients.entries()) {
                 if (s === sock) {
                     clients.delete(pid);
                     instances.delete(pid);
                     logToFile(`client disconnected: pid=${pid}`);
-                    if (instances.size === 0) scheduleExit();
                     break;
                 }
             }
