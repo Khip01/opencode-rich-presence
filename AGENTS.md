@@ -24,44 +24,45 @@ need to navigate this codebase safely.
 - **Asset key** (Discord rich presence image):
   `opencode-logo-too-rich-presence`
 
-## Current Phase: 1 (local state + activity log)
+## Current Phase: 2 (daemon-based push, multi-instance safe)
 
-Phase 1 is a deliberate step back from v2.x to fix a class of bug
-that the per-session worker design cannot avoid: every leadership
-handoff tears down and rebuilds the Discord IPC connection, so the
-display always disappears for 1-3 seconds during terminal switching,
-and aggressive recovery code on top of that (force-restart, self-heal
-watchdog, internal retry) makes it worse by triggering more reconnects.
+Phase 1 established the local-first diagnostic surface (activity log,
+per-instance state files, no Discord push). Phase 2 adds the daemon
+that holds a single Discord IPC connection for the whole machine:
 
-Phase 1 deliberately does NOT push to Discord. It only:
+- `src/worker/daemon.mjs` is the long-lived subprocess that owns
+  the Discord connection. Listens on a local Unix socket for
+  plugin clients. Picks the global most-recently-active session
+  across all connected instances and pushes it via SET_ACTIVITY.
+- `src/plugin/daemon-client.js` is the plugin-side socket client.
+  Sends hello / state / goodbye to the daemon.
+- `src/plugin/daemon-spawner.js` spawns the daemon on first
+  firing (chat.message trigger chosen by the user to avoid
+  starting Discord connections for sessions that never need them).
 
-1. Receives OpenCode SDK events in-process (no subprocess worker)
-2. Maintains per-session state (model, mode, state, cost, tokens)
-3. Renders the presence payload (templates + variables)
-4. Logs every event, state transition, and render to the activity log
-5. Writes a per-instance snapshot to `presence-state-pid<pid>.txt`
+Handoff between OpenCode terminals no longer disconnects Discord
+(the connection stays open in the daemon). The architectural limit
+that drove v2.x's "display disappears during handoff" is gone.
 
-The user verifies that the activity log captures reality correctly
-(state transitions on the right events, rendered values sensible,
-multi-instance display decisions reasonable). Once that is solid,
-Phase 2 introduces a daemon that holds the Discord connection
-machine-wide, and the same render code goes to it instead of the log.
+Phase 1's render + log code stays unchanged. Only
+`local-presence.js`'s push function became a daemon-client send
+call. Daemon is intentionally simple: picks a payload, pushes it.
+No internal retry, no self-heal; reconnect only when the Discord
+IPC socket actually dies.
 
-This split lets us debug two concerns independently:
-- "Did the plugin see the event and pick the right state?" (Phase 1
-  question, answered by reading the activity log)
-- "Did the daemon push the rendered payload to Discord?" (Phase 2
-  question, answered by reading daemon logs + Discord)
-
-## Project Structure (Phase 1)
+## Project Structure (Phase 2)
 
 - `src/plugin/`: Main plugin code
   - `index.js`: plugin entry, event handlers, orchestration
   - `config-resolver.js`: load discord-config.json + env vars
-  - `local-presence.js`: render + push presence (push is a no-op
-    stub in Phase 1; replaced by daemon send in Phase 2)
+  - `local-presence.js`: render payload + send to daemon
   - `session-state.js`: per-session token/cost/state tracking
   - `template-engine.js`: variables, conditionals, render helpers
+  - `daemon-client.js`: local Unix socket client to the daemon
+  - `daemon-spawner.js`: spawns the daemon on first firing
+- `src/worker/`: Daemon
+  - `daemon.mjs`: long-lived subprocess, holds Discord IPC connection
+  - `discord-ipc.mjs`: inline Discord IPC client (replaces @xhayper)
 - `src/cli/`: CLI commands
   - `install.js`, `uninstall.js`, `restart.js`, `update.js`
   - `info.js`, `help.js`, `version.js`, `dispatcher.js`, `prompt.js`
@@ -69,15 +70,8 @@ This split lets us debug two concerns independently:
 - `src/shared/`: `paths.js`, `constants.js`, `logger.js`
 - `bin/opencode-rpc.js`: CLI entry point
 - `docs/`: documentation
-  - `CLI-REFERENCE.md`, `INSTALL.md`, `ARCHITECTURE.md`
-  - `PLATFORM-NOTES.md`, `TROUBLESHOOTING.md`, `CUSTOMIZATION.md`
 - `.github/workflows/`: CI
-  - `test.yml`: runs matrix on linux/macos/windows x node 18/20/22
-  - `release.yml`: runs on tag push, builds tarball + GitHub Release
 - `scripts/`: `smoke-test.js`, `syntax-check.js`, `check-pkg.js`
-
-There is no `src/worker/` directory in Phase 1. The Phase 2 daemon
-lives there.
 
 ## Activity Log (Phase 1's primary diagnostic surface)
 
@@ -211,6 +205,59 @@ and they never overwrite each other.
 `opencode-rpc info` lists all per-instance state files it finds.
 The activity log (shared, append-only) is the unified diagnostic
 surface; the per-instance state files are snapshots of one process.
+
+### Daemon Lifecycle (Phase 2)
+
+The daemon holds a single Discord IPC connection for the whole
+machine. Each OpenCode instance connects via local Unix socket.
+
+- **Spawn trigger**: first `chat.message` from any OpenCode
+  instance. The user picked this specifically: spawning on
+  OpenCode launch would start Discord connections for sessions
+  that never need them.
+- **Spawn**: `daemon-spawner.js` checks if the daemon socket
+  exists. If not, spawns `node <pkg>/src/worker/daemon.mjs`
+  detached and polls for the socket file (up to 5s).
+- **Concurrent spawn race**: if two OpenCode plugins fire
+  chat.message at the same time, both may try to spawn. The
+  second `bind()` gets EADDRINUSE; the daemon handles this by
+  logging "socket in use, another daemon is already running" and
+  exiting cleanly.
+- **Connect**: `daemon-client.js` opens a Unix socket connection
+  to the daemon, sends `{type: "hello", pid}`. The daemon
+  registers the instance.
+- **State updates**: every plugin state change calls
+  `sendStateToDaemon()`, which sends `{type: "state", pid,
+  session, rendered}` over the socket. The plugin renders
+  locally (templates need getter methods that JSON serialization
+  loses), ships the rendered payload. Daemon picks the global
+  most-recently-active and pushes to Discord.
+- **Goodbye**: plugin dispose sends `{type: "goodbye", pid}`,
+  daemon removes the instance, schedules exit if last one.
+- **Exit**: daemon waits `EXIT_GRACE_MS` (2s) then runs
+  `shutdown()` which sends `clearActivity` to Discord, closes
+  the IPC socket, closes the local server, unlinks socket +
+  PID file, exits.
+- **Reconnect**: only when Discord IPC socket dies (rare). 5s to
+  30s exponential backoff.
+
+### Push Throttling
+
+`DISCORD_PUSH_INTERVAL_MS = 4000`. The throttle prevents flooding
+Discord (limit is 5 updates per 20 seconds). It is RESET when the
+displayed instance changes (legitimate switch), so a user
+switching terminals sees the new state immediately, not after
+4 seconds.
+
+### Why the plugin renders, not the daemon
+
+The plugin sends the RENDERED payload (not the raw session
+object) to the daemon. JSON serialization over the local socket
+loses class methods and getters, so getTemplateVars() would break
+on a deserialized session (cost/contextTokens getters would be
+gone). Rendering in the plugin keeps the daemon simple (it just
+picks one and pushes) and lets the activity log capture the
+exact payload the daemon received.
 
 ### Activity Log Rotation
 

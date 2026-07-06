@@ -9,10 +9,10 @@ import { fileURLToPath } from "node:url";
 
 const PKG_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 
-// Phase 1 file list. Note: src/plugin/discord-service.js,
-// src/plugin/coordinator.js, src/plugin/worker-spawner.js, and
-// src/worker/ are GONE in Phase 1. The daemon (Phase 2) will land
-// under src/worker/daemon.mjs.
+// Phase 2 file list. Note: src/plugin/discord-service.js,
+// src/plugin/coordinator.js, src/plugin/worker-spawner.js are GONE.
+// The daemon (src/worker/daemon.mjs) and DiscordIPC client
+// (src/worker/discord-ipc.mjs) are NEW in Phase 2.
 const REQUIRED_FILES = [
     "package.json",
     "README.md",
@@ -24,6 +24,10 @@ const REQUIRED_FILES = [
     "src/plugin/config-resolver.js",
     "src/plugin/local-presence.js",
     "src/plugin/session-state.js",
+    "src/plugin/daemon-client.js",
+    "src/plugin/daemon-spawner.js",
+    "src/worker/daemon.mjs",
+    "src/worker/discord-ipc.mjs",
     "src/shared/paths.js",
     "src/shared/constants.js",
     "src/shared/logger.js",
@@ -58,12 +62,11 @@ if (errors > 0) {
     process.exit(1);
 }
 
-// Verify removed-in-Phase-1 files are actually gone.
+// Verify removed files are actually gone.
 const REMOVED_FILES = [
     "src/plugin/discord-service.js",
     "src/plugin/coordinator.js",
     "src/plugin/worker-spawner.js",
-    "src/worker/discord-worker.mjs",
 ];
 for (const f of REMOVED_FILES) {
     const p = join(PKG_ROOT, f);

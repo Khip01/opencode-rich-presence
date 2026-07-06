@@ -18,7 +18,10 @@ import {
     startPresence,
     stopPresence,
     getPresenceStatus,
+    ensureConnected,
+    sendStateToDaemon,
 } from "./local-presence.js";
+import { ensureDaemonRunning } from "./daemon-spawner.js";
 
 // ─── Global State ──────────────────────────────────────────────────────────
 
@@ -28,20 +31,25 @@ let displayedSessionID = null;
 const providerModels = new Map();
 let writeTimer = null;
 let config = null;
-// Phase 1: each OpenCode instance writes its OWN state file so multi-
-// instance runs do not race on a single file. Naming uses the process PID
-// for stability (the same instance always writes to the same file).
 const MY_STATE_FILE = OUTPUT_FILE.replace(/\.txt$/, `-pid${process.pid}.txt`);
 
 // ─── File Output ───────────────────────────────────────────────────────────
 
 function scheduleWrite() {
-    // Render + log the would-push payload BEFORE touching the file so the
-    // activity log shows the resolved template values regardless of
-    // whether the file write succeeds.
+    // Render the would-push payload locally so the activity log captures
+    // what we sent to the daemon (or, in the no-daemon case, what we
+    // would have sent).
     const d = displayedSessionID ? sessions.get(displayedSessionID) : null;
     const rendered = renderPresence(d, config);
     pushPresence(rendered);
+
+    // Phase 2: forward to the daemon. The daemon picks the global
+    // most-recently-active session across all instances and pushes to
+    // Discord. If the daemon is not connected, this is a no-op (the
+    // activity log already shows the local render).
+    if (rendered) {
+        sendStateToDaemon(d, rendered);
+    }
 
     if (writeTimer) return;
     writeTimer = setTimeout(async () => {
@@ -94,7 +102,7 @@ function formatOutput(rendered) {
     }
 
     lines.push("");
-    lines.push("RENDERED PRESENCE (what Phase 2 would push to Discord)");
+    lines.push("RENDERED PRESENCE (sent to daemon; daemon pushes to Discord)");
     if (rendered) {
         lines.push(`  details         : ${rendered.details || "(empty)"}`);
         lines.push(`  state           : ${rendered.state || "(empty)"}`);
@@ -111,9 +119,10 @@ function formatOutput(rendered) {
     lines.push(` Application ID : ${config?.appId || "?"}`);
     lines.push(` Asset Key      : ${config?.largeImageKey || "?"}`);
     lines.push(` Asset Text     : ${config?.largeImageText || "?"}`);
-    lines.push(` Phase          : 1 (local state + activity log, no Discord push)`);
+    lines.push(` Phase          : 2 (daemon-based push, multi-instance safe)`);
     lines.push(` State File     : ${MY_STATE_FILE}`);
     lines.push(` Activity Log   : ~/.config/opencode/presence-activity.log`);
+    lines.push(` Daemon         : ${status.connected ? "connected" : "not connected (will spawn on first firing)"}`);
     lines.push(` Models Loaded  : ${providerModels.size}`);
     lines.push("=".repeat(60));
     return lines.join("\n");
@@ -154,8 +163,6 @@ function ensureSession(sid) {
     return s;
 }
 
-// Record a session state transition. Logs only when the state actually
-// changes so the activity log is a clean history (no spam on every event).
 function transitionTo(s, newState, reason) {
     if (!s || s.state === newState) return;
     const prev = s.state;
@@ -307,6 +314,19 @@ async function loadConfigLimits(p) {
     } catch (e) { log(`loadConfigLimits(${p}): ${e?.message || e}`); }
 }
 
+// ─── Daemon lifecycle ─────────────────────────────────────────────────────
+
+// Spawn the daemon (if not running) and connect. Used by the
+// chat.message "first firing" trigger. The user picked this trigger
+// specifically: spawning on OpenCode launch would start Discord
+// connections for sessions that never need them.
+async function ensureDaemonAndConnect() {
+    const spawned = await ensureDaemonRunning();
+    if (!spawned) return false;
+    const connected = await ensureConnected();
+    return connected;
+}
+
 // ─── Main Plugin ───────────────────────────────────────────────────────────
 
 export const OpencodeRichPresence = async ({ client, directory }) => {
@@ -375,9 +395,7 @@ export const OpencodeRichPresence = async ({ client, directory }) => {
                     "event",
                     `chat.message sid=${sid.slice(-8)} agent=${agent} model=${model} mode=${mode}`,
                 );
-                if (model !== input.model?.modelID && !input.model?.modelID) {
-                    activity("session", `sid=${sid.slice(-8)} model=${model} (no model in event)`);
-                } else if (model) {
+                if (model) {
                     activity("session", `sid=${sid.slice(-8)} model=${model} provider=${s.provider}`);
                 }
                 transitionTo(s, STATE.WORKING, "chat.message");
@@ -386,6 +404,10 @@ export const OpencodeRichPresence = async ({ client, directory }) => {
                 if (displayedSessionID !== prev) {
                     activity("display", `sid=${prev?.slice(-8) || "(none)"} -> sid=${displayedSessionID?.slice(-8) || "(none)"} (chat.message)`);
                 }
+                // First-firing trigger: spawn the daemon on first
+                // chat.message and connect. Subsequent fires reuse the
+                // existing connection.
+                await ensureDaemonAndConnect();
                 scheduleWrite();
                 restoreSessionMessages(client, sid, directory).catch(() => {});
             } catch (e) { log("chat.message error:", e?.message || e); }

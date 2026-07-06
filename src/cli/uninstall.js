@@ -1,12 +1,10 @@
 import { existsSync, unlinkSync, readFileSync, writeFileSync, renameSync, lstatSync } from "node:fs";
 import { join } from "node:path";
-import { CONFIG_PATH, OUTPUT_FILE, ACTIVITY_LOG, OPENCODE_DIR } from "../shared/paths.js";
+import { CONFIG_PATH, OUTPUT_FILE, ACTIVITY_LOG, OPENCODE_DIR, DAEMON_SOCKET, DAEMON_PID_FILE } from "../shared/paths.js";
 import { confirm } from "./prompt.js";
 
 const PLUGIN_NAME = "opencode-rich-presence";
-// Legacy v2.x file paths. Phase 1 has no leader election and no worker
-// subprocess, but the files may still exist from older installs; clean
-// them up so the user does not carry stale artifacts after uninstall.
+// Legacy v2.x file paths. May still exist from older installs.
 const LEGACY_LOCK_FILE = join(OPENCODE_DIR, ".opencode-rich-presence.lock");
 const LEGACY_RESTART_SIGNAL = join(OPENCODE_DIR, ".discord-restart-request");
 
@@ -15,15 +13,34 @@ export async function uninstall() {
 
     let removed = 0;
 
+    // Try to stop the daemon first. Reading the PID file and sending
+    // SIGTERM is best-effort; if the daemon is not running, this is
+    // a no-op.
+    if (existsSync(DAEMON_PID_FILE)) {
+        try {
+            const pid = parseInt(readFileSync(DAEMON_PID_FILE, "utf-8").trim(), 10);
+            if (pid > 0) {
+                try { process.kill(pid, "SIGTERM"); } catch {}
+                console.log(`Signaled daemon pid ${pid} to stop.`);
+            }
+        } catch {}
+    }
+
     // Runtime files written by the plugin while OpenCode is running. Safe to delete
     // unconditionally: they are regenerated on next plugin start if reinstalled.
     console.log("Cleaning up plugin-generated runtime files:");
-    for (const f of [LEGACY_LOCK_FILE, LEGACY_RESTART_SIGNAL, OUTPUT_FILE, ACTIVITY_LOG]) {
+    for (const f of [
+        LEGACY_LOCK_FILE,
+        LEGACY_RESTART_SIGNAL,
+        OUTPUT_FILE,
+        ACTIVITY_LOG,
+        DAEMON_SOCKET,
+        DAEMON_PID_FILE,
+    ]) {
         if (tryRemove(f)) removed++;
     }
 
-    // Per-instance state files (presence-state-pid<pid>.txt) and any other
-    // state files written by previous plugin versions. Glob them out.
+    // Per-instance state files (presence-state-pid<pid>.txt).
     try {
         const { readdirSync } = await import("node:fs");
         const dir = OPENCODE_DIR;

@@ -1,17 +1,23 @@
-// Local presence renderer. Replaces the previous discord-service.js for Phase 1.
+// Local presence renderer + daemon client wrapper.
 //
-// Responsibilities:
-//   1. Resolve which template set to use for the current session state
-//   2. Render templates against the session variables
-//   3. Log every render to the activity log so the user can see exactly
-//      what WOULD be pushed to Discord (Phase 2 wires the actual push)
-//   4. Expose a clean interface for index.js to call on every state change
+// Phase 2 architecture:
+//   1. Plugin renders presence payload locally (uses template engine)
+//   2. Plugin sends the RENDERED payload + session metadata to daemon
+//   3. Daemon picks the global most-recently-active rendered payload
+//      across all connected OpenCode instances
+//   4. Daemon pushes the picked payload to Discord via the single
+//      persistent IPC connection it holds
 //
-// No subprocess, no Discord IPC, no leader election. Everything runs in
-// the plugin process. Phase 2 introduces a daemon subprocess that owns
-// the Discord connection; this module will then delegate the final push
-// to the daemon via the daemon-client interface, while keeping the local
-// render + log logic identical.
+// Why the plugin renders, not the daemon:
+//   - JSON serialization over the local socket loses class methods
+//     and getters on the SessionState. If the daemon received the
+//     raw session object, getTemplateVars() would break on the
+//     deserialized object (cost/contextTokens getters are gone).
+//   - The plugin already renders the payload for the activity log,
+//     so doing it once and shipping the rendered result is natural.
+//   - The daemon stays simple: it picks a payload, pushes it. No
+//     template knowledge, no config knowledge (the plugin sends its
+//     own config-derived render).
 
 import { activity } from "../shared/logger.js";
 import {
@@ -21,13 +27,15 @@ import {
     chooseTemplates,
     selectIdleTemplates,
 } from "./template-engine.js";
+import { DaemonClient } from "./daemon-client.js";
 
-// Render the presence payload that WOULD be pushed to Discord for the
-// given session. Returns { details, state, largeImageKey, largeImageText,
-// smallImageText } or null when nothing should display.
+// Render the presence payload that the daemon WILL push to Discord
+// for the given session. Returns { details, state, largeImageKey,
+// largeImageText, smallImageText } or null when nothing should
+// display.
 //
-// Every render is logged with both the source template and the resolved
-// output so the user can verify "this is what Discord would show".
+// Every render is logged with both the source template and the
+// resolved output so the user can verify what we sent to the daemon.
 export function renderPresence(session, config) {
     if (!config) return null;
     const isIdle = !session || session.state === "Waiting for command";
@@ -64,27 +72,82 @@ export function renderPresence(session, config) {
     };
 }
 
-// Phase 1: the rendered payload is logged as a "would-push" entry so the
-// user can see it in the activity log. Phase 2 will replace this body with
-// a daemon.send(...) call; the rest of the plugin code stays the same.
+// Phase 2: log the would-push payload for the activity log. The
+// actual send to the daemon is in `sendStateToDaemon` below.
 export function pushPresence(rendered) {
     if (!rendered) return;
-    const details = rendered.details || "";
-    const state = rendered.state || "";
-    const lit = rendered.largeImageText || "";
-    const sit = rendered.smallImageText || "";
-    activity("push", `would-push details="${details}" state="${state}" lit="${lit}" sit="${sit}"`);
+    activity(
+        "push",
+        `would-push details="${rendered.details || ""}" state="${rendered.state || ""}"`,
+    );
 }
 
-// Phase 1 placeholders. Phase 2 replaces with real daemon lifecycle calls.
+// ─── Daemon lifecycle ─────────────────────────────────────────────────────
+
+let daemonClient = null;
+let _connected = false;
+
+export function getDaemonClient() {
+    if (!daemonClient) daemonClient = new DaemonClient({ timeoutMs: 2000 });
+    return daemonClient;
+}
+
+// Try to connect to the daemon. Returns true on success, false if no
+// daemon is running or connect failed. The plugin uses this after
+// spawning the daemon (or whenever it loses the connection).
+export async function ensureConnected() {
+    const c = getDaemonClient();
+    if (c.isConnected()) return true;
+    const ok = await c.connect(process.pid);
+    _connected = ok;
+    if (ok) activity("daemon", "connected to daemon");
+    else activity("daemon", `connect failed: ${c.lastError || "no daemon"}`);
+    return ok;
+}
+
+// Send the rendered payload + minimal session metadata to the daemon.
+// The daemon uses lastActivity + isActive to pick the global winner.
+// We do NOT send the raw session because JSON serialization loses
+// the getter methods that the template engine depends on.
+export function sendStateToDaemon(session, rendered) {
+    const c = getDaemonClient();
+    if (!c.isConnected()) return false;
+    const minimalSession = session ? {
+        sessionID: session.sessionID,
+        state: session.state,
+        lastActivity: session.lastActivity,
+    } : null;
+    const ok = c.sendState(process.pid, minimalSession, rendered);
+    if (ok) {
+        activity("push", "sent rendered payload to daemon");
+    } else {
+        activity("push", `failed to send: ${c.lastError || "not connected"}`);
+    }
+    return ok;
+}
+
+export function disconnectFromDaemon() {
+    if (!daemonClient) return;
+    try {
+        daemonClient.sendGoodbye(process.pid);
+    } catch {}
+    daemonClient.disconnect();
+    _connected = false;
+    activity("daemon", "disconnected");
+}
+
 export function startPresence() {
-    activity("presence", "start (Phase 1: no Discord push)");
+    activity("presence", "start (Phase 2: daemon-based push)");
 }
 
 export function stopPresence() {
-    activity("presence", "stop (Phase 1: no Discord push)");
+    activity("presence", "stop (Phase 2: daemon-based push)");
+    disconnectFromDaemon();
 }
 
 export function getPresenceStatus() {
-    return { phase: 1, connected: false };
+    return {
+        phase: 2,
+        connected: _connected,
+    };
 }

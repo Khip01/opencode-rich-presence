@@ -19,11 +19,11 @@ If something looks wrong, the next steps depend on what's missing.
 
 ---
 
-## Phase 1: how to read the activity log
+## Phase 2: how to read the activity log
 
-`opencode-rich-presence` v3 Phase 1 does NOT push to Discord yet.
-Its primary diagnostic surface is the activity log at
-`~/.config/opencode/presence-activity.log`. To watch it in real time:
+`opencode-rich-presence` v3 Phase 2's primary diagnostic surface is
+the activity log at `~/.config/opencode/presence-activity.log`. To
+watch it in real time:
 
 ```bash
 tail -f ~/.config/opencode/presence-activity.log
@@ -56,21 +56,41 @@ Tag reference:
 | `state` | Should show transitions like `WAITING -> WORKING` on chat.message, `WORKING -> TYPING` on text parts, etc. |
 | `display` | If the displayed session does not match what you expect, this is where to look. |
 | `template` | If the rendered presence looks wrong (missing variables, wrong model name), this shows the source template and resolved output. |
-| `push` | Phase 1 emits `would-push details=... state=...`. Phase 2 will emit actual push results here. |
+| `push` | Phase 2 emits `sent rendered payload to daemon` (plugin side) and `[daemon] push details=... state=...` (daemon side). |
+| `daemon` | Plugin-side daemon connection events (spawn, connect, disconnect). |
 | `check` | Periodic SDK poll (every 5s). High frequency is normal; this catches events the stream missed. |
 
 ### "I fired a message but Discord did not update"
 
-You are running Phase 1. Discord push is not implemented yet. The
-plugin only logs what it WOULD push:
+You are running Phase 2. Check the activity log:
 
-```
-[...] [pid 12345] [template] sid=... details="{model} · Working" -> "minimax-m3 · Working"
-[...] [pid 12345] [push] would-push details="minimax-m3 · Working" state="..."
-```
+1. Plugin side: `[push] sent rendered payload to daemon` should
+   appear after each chat.message or state change.
+2. Daemon side: `[daemon] push details="..." state="..."` should
+   appear when the daemon picks the global session and pushes to
+   Discord.
 
-Confirm the values look right. Phase 2 will replace the `would-push`
-line with an actual Discord push.
+If plugin sends but daemon does not push:
+- Check `[daemon] Discord connected` is in the log.
+- Check `[daemon] no chosen instance` is NOT there (means daemon
+  has no client instances).
+- Check daemon PID is still alive (`ps aux | grep daemon.mjs`).
+
+If daemon pushes but Discord does not show:
+- Check Discord Desktop is running.
+- Check `~/.config/opencode/discord-config.json` has a valid App ID.
+- Verify the App ID at https://discord.com/developers/applications
+  matches your config.
+
+### "Daemon not running" or "Display stuck"
+
+Run `opencode-rpc info`. The Daemon section shows:
+- `Socket : [present]` if daemon is listening
+- `PID : <number> [alive]` if daemon process is running
+
+If daemon is missing or stale:
+1. The next chat.message will spawn a fresh daemon.
+2. To force: `opencode-rpc restart` (kills old daemon, rotates log).
 
 ### "Activity log is empty after I open OpenCode"
 
@@ -105,31 +125,59 @@ The next OpenCode launch starts a fresh log.
 
 ## Discord doesn't show my presence
 
-(Phase 1: This section does not apply yet. Discord push arrives in
-Phase 2. See "Phase 1: how to read the activity log" above.)
+See "Phase 2: I fired a message but Discord did not update" above
+for the diagnostic flow. Quick checklist:
 
-(Phase 2: Will be re-added once the daemon is implemented.)
+1. Activity log shows plugin sending: `[push] sent rendered payload
+   to daemon`.
+2. Activity log shows daemon receiving: `[daemon] instance
+   registered`.
+3. Activity log shows daemon pushing: `[daemon] push details="..."
+   state="..."`.
+4. Discord Desktop is running with the App ID matching your config.
+5. `opencode-rpc info` shows daemon PID is alive.
 
 ---
 
 ## "Permission denied" on Discord connect
 
-(Phase 1: not applicable. Phase 2 will surface this via daemon
-logs.)
+**Cause:** Discord Application not approved / not configured
+correctly. Surfaces in the daemon log as
+`[daemon] Discord connect failed: ...`.
+
+**Fix:**
+
+1. Verify your App ID at https://discord.com/developers/applications.
+2. Make sure the application exists and is not deleted.
+3. If using your own App, ensure you've uploaded at least one
+   asset (Discord sometimes rejects empty apps).
+4. Try with the fallback App ID first (remove `discordAppId` from
+   config) to isolate.
 
 ---
 
 ## Plugin runs but doesn't update Discord
 
-(Phase 1: not applicable. The plugin does not push to Discord in
-Phase 1. See the activity log to verify the plugin is running and
-capturing events.)
+**Cause:** Either the plugin is a standby instance (another
+OpenCode window is the daemon's primary client) or the daemon has
+not received a state update.
+
+**Fix:**
+
+1. Run `opencode-rpc info` and check the Daemon section.
+2. Fire a chat.message in this window. This sends a state update
+   to the daemon (no need to take over leadership in v3 Phase 2:
+   the daemon just picks the most recent activity).
+3. If neither helps, run `opencode-rpc restart` to recycle the
+   daemon.
 
 ---
 
 ## "Worker exited" loops in debug log
 
-(Phase 1: not applicable. There is no worker in Phase 1.)
+(Phase 2: there is no per-session worker. The daemon is the only
+subprocess. If you see "Worker exited" loops, you are likely
+running v2.x. Check `opencode-rpc version`.)
 
 ---
 
@@ -195,7 +243,7 @@ because it has no npm dependency.
 If files remain after `opencode-rpc uninstall`:
 
 ```bash
-# Remove lock file (legacy; Phase 1 ignores it)
+# Remove lock file (legacy v2.x; Phase 2 ignores it)
 rm -f ~/.config/opencode/.opencode-rich-presence.lock
 
 # Remove presence-state files
@@ -243,8 +291,7 @@ PowerShell policy or use `cmd.exe`.
 
 ## Plugin loads but Discord shows stale data
 
-(Phase 1: not applicable. Phase 2: will be replaced by daemon
-restart.)
+(Phase 2: replaced by daemon restart: `opencode-rpc restart`.)
 
 ---
 
@@ -254,7 +301,30 @@ These are the specific failure modes that have been observed and
 fixed. If you hit a similar symptom, check the corresponding root
 cause before debugging from scratch.
 
-### Phase 1: Activity log shows events but state transitions look wrong
+### Phase 2: Daemon says "socket in use, another daemon is already running"
+
+**Symptom:** Activity log shows `[daemon] socket in use, another
+daemon is already running; exiting`. This happens when two plugin
+instances try to spawn the daemon at the same time.
+
+**Root cause:** Race condition. The second `bind()` to the daemon
+socket gets EADDRINUSE. The daemon handles this by logging and
+exiting cleanly.
+
+**How to verify:** Check if the daemon is still running:
+```bash
+ls ~/.config/opencode/.opencode-rich-presence.sock
+cat ~/.config/opencode/.opencode-rich-presence.pid
+ps -p $(cat ~/.config/opencode/.opencode-rich-presence.pid)
+```
+
+**Fix:** This is benign. The first daemon won the race and is
+serving both clients. If you want a fresh daemon:
+```bash
+opencode-rpc restart
+```
+
+### Phase 2: Activity log shows events but state transitions look wrong
 
 **Symptom:** The activity log captures every event correctly, but
 the `state` transitions are missing or off (e.g. `chat.message`
@@ -282,7 +352,7 @@ list above.
 The pattern is: log it, update session state if applicable,
 `transitionTo` on state change, log the display decision.
 
-### Phase 1: Activity log is empty even though OpenCode is running
+### Phase 2: Activity log is empty even though OpenCode is running
 
 **Symptom:** OpenCode is open and you are firing messages, but
 `~/.config/opencode/presence-activity.log` does not grow.
@@ -293,6 +363,8 @@ The pattern is: log it, update session state if applicable,
    messages.
 2. The plugin loaded but the activity log file is unwritable.
    Check permissions on `~/.config/opencode/`.
+3. You have an OLD plugin version loaded in memory (Node ESM
+   caches modules). Restart OpenCode to load the new code.
 
 **How to verify:**
 
@@ -308,7 +380,8 @@ plugin load, the plugin is not loaded.
 
 ### Plugin acquires lock but Discord never shows presence (v2.0.x legacy)
 
-(Phase 1: not applicable; no lock file used.)
+(Phase 2: not applicable; no lock file used. The daemon uses
+file-lock-free coordination via the local Unix socket.)
 
 (Phase 2: re-add for daemon-related issues.)
 
@@ -354,9 +427,9 @@ grep "opencode-rich-presence" ~/.config/opencode/opencode.jsonc ~/.config/openco
 
 **Fix:**
 
-- Phase 1: Run `opencode-rpc install` and accept the prompt to
-  remove the stale entry (default Y). Or run `opencode-rpc
-  uninstall` which auto-removes it.
+- v3 Phase 2: Run `opencode-rpc install` and accept the prompt
+  to remove the stale entry (default Y). Or run
+  `opencode-rpc uninstall` which auto-removes it.
 - v2.0.5 users: Edit `~/.config/opencode/opencode.jsonc` (or
   `.json`) and remove the `"opencode-rich-presence"` line from
   the `"plugin"` array manually.
@@ -384,7 +457,7 @@ re-imports paths.js with the fixed path.
 
 ### JSONC parser treats `://` in URLs as a comment
 
-(Phase 1: not applicable. Phase 1 does not parse JSONC from the
+(Phase 2: not applicable. Phase 2 does not parse JSONC from the
 config files.)
 
 ### Install hangs at confirmation prompt
@@ -399,7 +472,7 @@ Node versions (especially under Bun).
 
 **Fix:** Use a single long-lived readline interface created on first
 prompt and reused across all prompts. (Already fixed in v2.0.5+;
-Phase 1 inherits this fix.)
+Phase 2 inherits this fix.)
 
 ### CLI hangs after `Done.` until Ctrl+C
 
@@ -417,7 +490,8 @@ regardless of pending handles.
 
 ### npm install in installer produces a lot of warnings
 
-(Phase 1: not applicable. Phase 1 has no npm dependency to install.)
+(Phase 2: not applicable. Phase 2 has no npm dependency to
+install.)
 
 ---
 
@@ -456,4 +530,5 @@ When something looks wrong, walk through this in order:
 
 5. **Discord Desktop running?** (Phase 2+)
    The plugin can only push presence if Discord Desktop is open
-   with the IPC socket available. Phase 1 does not need Discord.
+   with the IPC socket available. Phase 2 requires Discord
+   for push (Phase 1 did not push).

@@ -2,31 +2,29 @@
 
 OpenCode plugin that displays your AI session status in Discord.
 
-**Status: v3 Phase 1** (local state + activity log, no Discord push yet).
-Discord push arrives in v3 Phase 2 (daemon architecture).
+**Status: v3 Phase 2** (daemon-based push, multi-instance safe).
+A long-lived daemon holds the single Discord IPC connection for the
+whole machine. OpenCode plugin instances connect to it via local
+Unix socket and forward their state. Handoff between OpenCode
+windows no longer disconnects from Discord.
 
-## What you get today (Phase 1)
+## What you get today (Phase 2)
 
-- **Activity log** at `~/.config/opencode/presence-activity.log` that
-  records every OpenCode SDK event the plugin receives, every session
-  state transition, and every presence template render. This is the
-  diagnostic surface for the v3 redesign.
+- **Daemon-based push**: `src/worker/daemon.mjs` is a long-lived
+  subprocess that owns the Discord connection. All OpenCode plugin
+  instances connect to it via local Unix socket and forward their
+  rendered presence payload. The daemon picks the global
+  most-recently-active instance and pushes to Discord in place.
+- **Display survives terminal switching**: when you switch
+  OpenCode windows, the same Discord connection just shows the
+  new state (no reconnect, no "display disappears" gap).
+- **Activity log** at `~/.config/opencode/presence-activity.log`
+  that records every plugin action (events, state transitions,
+  template renders, daemon sends, push events). PID-tagged for
+  easy filtering when multiple OpenCode windows are open.
 - **Per-instance state snapshot** at
-  `~/.config/opencode/presence-state-pid<pid>.txt` showing what the
-  plugin WOULD push to Discord (Phase 2 wires the actual push).
-- **Multi-instance safe**: each OpenCode instance writes its own
-  state file; the activity log is shared and tagged with PID.
-
-## What you get in Phase 2
-
-- **Daemon architecture**: a long-lived subprocess holds the single
-  Discord IPC connection for the whole machine. State updates happen
-  in-place via SET_ACTIVITY (no reconnect on terminal switch, no
-  "display disappears" gap).
-- **Display survives terminal switching**: the daemon picks the
-  globally most-recently-active session and shows it on Discord.
-  Switching OpenCode windows updates the display without any
-  connection tear-down.
+  `~/.config/opencode/presence-state-pid<pid>.txt` showing what
+  each OpenCode instance is rendering.
 
 Works on **Linux**, **macOS**, and **Windows**.
 
