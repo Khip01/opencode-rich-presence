@@ -82,8 +82,11 @@ const MAX_RECONNECT_BACKOFF_MS = 30000;
 // under that.
 const DISCORD_PUSH_INTERVAL_MS = 4000;
 // How long to wait after the last client disconnects before the daemon
-// exits. Gives a brief grace window for OpenCode restarts.
-const EXIT_GRACE_MS = 2000;
+// exits. Increased from 2s to 10s so a quick /exit + reopen does not
+// require the daemon to disconnect from Discord (which can trigger
+// a Discord-side cooldown on the App ID). If a new instance
+// connects during this window, the exit is cancelled.
+const EXIT_GRACE_MS = 10000;
 
 // ─── State ────────────────────────────────────────────────────────────────
 
@@ -95,6 +98,17 @@ let reconnectBackoffMs = INITIAL_RECONNECT_BACKOFF_MS;
 let reconnectTimer = null;
 let exitTimer = null;
 let disposed = false;
+// Pending delayed push to guarantee the final state lands on Discord
+// even when rapid state changes (e.g. fast AI responses) hit the
+// throttle window. Set when a push is throttled, fired after the
+// throttle expires, and re-armed if a newer state arrives before it
+// fires (we always push the LATEST state, not a stale intermediate).
+let finalStateTimer = null;
+// Hash of the payload currently displayed on Discord, used to decide
+// whether the throttled delayed push would actually change anything.
+// Without this, a delayed push could repeat the same Typing payload
+// many times even after the user has fired another message.
+let lastPushedFingerprint = null;
 
 // Map of pid -> { lastSeen, sessionInfo, rendered }
 // sessionInfo is the minimal {sessionID, state, lastActivity} the
@@ -205,6 +219,15 @@ function pickDisplayedInstance() {
     return { active: bestActive, any: bestAny };
 }
 
+// Compute a stable fingerprint for the rendered payload. Used to
+// decide whether a delayed push would actually change what Discord
+// shows. We compare by details + state text (the user-visible
+// fields); largeImage/smallImage changes alone are not interesting.
+function fingerprintRendered(r) {
+    if (!r) return null;
+    return `${r.details || ""}||${r.state || ""}`;
+}
+
 async function pushCurrentPresence() {
     if (!discordConnected || !discordClient) return;
 
@@ -214,6 +237,15 @@ async function pushCurrentPresence() {
     const inst = instances.get(chosenPid);
     if (!inst || !inst.rendered) return;
 
+    const sid = inst.sessionInfo?.sessionID ? inst.sessionInfo.sessionID.slice(-8) : "?";
+
+    // Compute the fingerprint of what we WOULD push now. If it
+    // matches what is already on Discord, skip entirely (no point
+    // pushing the same text again even when the throttle has
+    // expired).
+    const fp = fingerprintRendered(inst.rendered);
+    if (fp && fp === lastPushedFingerprint) return;
+
     // Reset the throttle when the displayed instance changes (user
     // switched terminals, or initial display). The 4s throttle is to
     // prevent flooding when a single instance fires many events in
@@ -222,10 +254,16 @@ async function pushCurrentPresence() {
         lastPushAt = 0;
     }
     const now = Date.now();
-    if (now - lastPushAt < DISCORD_PUSH_INTERVAL_MS) return;
+    if (now - lastPushAt < DISCORD_PUSH_INTERVAL_MS) {
+        // Throttled. Schedule a delayed push for the LATEST state
+        // (we re-arm the timer so a stale intermediate never lands).
+        // Without this, a fast AI response leaves Discord stuck on
+        // Typing because the WAITING push never lands within the
+        // 4s throttle window.
+        scheduleFinalStatePush();
+        return;
+    }
     lastPushAt = now;
-
-    const sid = inst.sessionInfo?.sessionID ? inst.sessionInfo.sessionID.slice(-8) : "?";
 
     logToFile(
         `push pid=${chosenPid} sid=${sid} ` +
@@ -236,9 +274,31 @@ async function pushCurrentPresence() {
     try {
         await discordClient.setActivity(inst.rendered);
         displayedPid = chosenPid;
+        lastPushedFingerprint = fp;
+        // A successful push satisfies any pending delayed push.
+        if (finalStateTimer) {
+            clearTimeout(finalStateTimer);
+            finalStateTimer = null;
+        }
     } catch (e) {
         logToFile(`setActivity failed: ${e?.message || e}`);
     }
+}
+
+// Schedule a delayed push that fires after the throttle window
+// expires. The push will run pushCurrentPresence again, which will
+// re-evaluate the latest state. If the state has not changed in the
+// meantime (fingerprint matches lastPushedFingerprint), the push is
+// skipped. If the displayed instance changed, the throttle is reset
+// and the push fires immediately.
+function scheduleFinalStatePush() {
+    if (finalStateTimer) clearTimeout(finalStateTimer);
+    const wait = DISCORD_PUSH_INTERVAL_MS - (Date.now() - lastPushAt);
+    finalStateTimer = setTimeout(() => {
+        finalStateTimer = null;
+        pushCurrentPresence();
+    }, Math.max(50, wait));
+    if (finalStateTimer.unref) finalStateTimer.unref();
 }
 
 async function clearPresence() {
@@ -275,6 +335,16 @@ function handleClientMessage(msg, sock) {
         case "hello":
             clients.set(pid, sock);
             instances.set(pid, { lastSeen: Date.now(), sessionInfo: null, rendered: null });
+            // Cancel any pending exit. The user has reopened OpenCode
+            // (or fired another session) before the grace expired, so
+            // we keep the Discord connection alive. This avoids a
+            // disconnect/reconnect cycle that can trigger Discord's
+            // App-ID cooldown window.
+            if (exitTimer) {
+                clearTimeout(exitTimer);
+                exitTimer = null;
+                logToFile(`exit cancelled: new instance connected (pid=${pid})`);
+            }
             logToFile(`instance registered: pid=${pid}`);
             try { sock.write(JSON.stringify({ type: "ack" }) + "\n"); } catch {}
             broadcastDiscordState();
@@ -301,6 +371,14 @@ function handleClientMessage(msg, sock) {
             instances.delete(pid);
             clients.delete(pid);
             try { sock.end(); } catch {}
+            // If this was the instance whose payload is currently
+            // on Discord, reset the fingerprint so the next push
+            // (for whichever instance takes over) is not skipped as
+            // a duplicate.
+            if (displayedPid === pid) {
+                displayedPid = null;
+                lastPushedFingerprint = null;
+            }
             pushCurrentPresence(); // re-pick global active session
             if (instances.size === 0) {
                 scheduleExit();
@@ -320,6 +398,8 @@ function scheduleExit() {
         await shutdown();
     }, EXIT_GRACE_MS);
     if (exitTimer.unref) exitTimer.unref();
+    // Also clear any pending final-state push; we're shutting down.
+    if (finalStateTimer) { clearTimeout(finalStateTimer); finalStateTimer = null; }
 }
 
 async function startServer() {
@@ -402,6 +482,7 @@ async function shutdown() {
     if (disposed) return;
     disposed = true;
     logToFile("shutting down");
+    if (finalStateTimer) { clearTimeout(finalStateTimer); finalStateTimer = null; }
     if (instances.size === 0) {
         await clearPresence();
     }

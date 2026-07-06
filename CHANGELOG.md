@@ -14,6 +14,49 @@ state, and the daemon pushes to Discord in place via SET_ACTIVITY.
 Handoff between OpenCode terminals no longer disconnects from
 Discord (the connection stays open in the daemon).
 
+### Fixed (post-Phase-2 user feedback)
+
+User reported two issues after daily use:
+
+1. **Display stuck on "Typing" for fast AI responses.** When the AI
+   answers in under 4s (sub-throttle window), the WORKING push lands
+   but the TYPING and WAITING pushes get throttled. Display stayed on
+   the last landed state (often Typing). Fix: when a push is
+   throttled, schedule a delayed push for the LATEST state. The
+   timer is re-armed on each new state so we always push the most
+   recent payload, not a stale intermediate. After the 4s throttle
+   window, the delayed push fires and the final state (e.g. WAITING)
+   always lands on Discord.
+2. **Reopening OpenCode after all-instances-exit did not show
+   presence.** Daemon exited 2s after the last instance's goodbye.
+   If the user reopened OpenCode more than 2s later, a new daemon
+   had to spawn and reconnect to Discord, hitting a cooldown window
+   that required `opencode-rpc restart`. Fix: extend `EXIT_GRACE_MS`
+   from 2s to 10s. If a new instance connects during the grace
+   window, cancel the exit timer so the daemon stays alive with its
+   existing Discord connection. The /exit-all behavior is preserved
+   (daemon still clears presence and exits, just after a longer
+   window when no new clients appear).
+
+### Added
+
+- `tests/` directory with three harnesses for regression:
+  - `tests/phase1-harness.mjs`: 46 scenarios covering event
+    capture, state transitions, template renders, multi-instance
+    state files.
+  - `tests/phase2-harness.mjs`: 21 scenarios covering daemon
+    spawn-on-firing, state forwarding, multi-instance share, exit
+    lifecycle.
+  - `tests/phase2-v2-harness.mjs`: 10 scenarios for the new
+    behaviors (final-state push, fingerprint skip, extended grace,
+    exit cancellation).
+- `src/worker/daemon.mjs`: `fingerprintRendered()` helper and
+  `lastPushedFingerprint` tracking. Pushes whose payload matches
+  what is already on Discord are skipped (no spam).
+- `src/worker/daemon.mjs`: `finalStateTimer` and
+  `scheduleFinalStatePush()` for the delayed push on rapid state
+  changes.
+
 ### Added
 
 - `src/worker/daemon.mjs`. Long-lived Node.js subprocess that
