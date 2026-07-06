@@ -37,6 +37,20 @@ User reported two issues after daily use:
    existing Discord connection. The /exit-all behavior is preserved
    (daemon still clears presence and exits, just after a longer
    window when no new clients appear).
+3. **Reopening OpenCode after /exit-all did not show presence at all,
+   even with `opencode-rpc restart`.** The 10s grace from fix #2 was
+   not enough: a Discord App-ID cooldown window could block the
+   reconnect entirely for tens of seconds, and `opencode-rpc
+   restart` did not help because it just respawned the daemon (still
+   blocked by the cooldown). Fix: the daemon no longer auto-exits.
+   When the last client disconnects, it sends `clearActivity` to
+   Discord (display clears, /exit-all UX preserved) then STAYS ALIVE
+   idle. The next OpenCode launch connects to the existing daemon
+   and reuses its already-open Discord connection. No reconnect, no
+   cooldown exposure, display appears instantly on next firing.
+   Daemon resource cost when idle: ~30MB RAM, ~0% CPU. Termination
+   is now explicit: SIGINT/SIGTERM (from `opencode-rpc restart` or
+   a manual kill).
 
 ### Added
 
