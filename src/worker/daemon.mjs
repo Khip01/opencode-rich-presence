@@ -159,6 +159,7 @@ async function connectDiscord() {
             discordClient.onDisconnected((reason) => {
                 logToFile(`Discord IPC disconnected: ${reason}`);
                 discordConnected = false;
+                stopHealthCheck();
                 broadcastDiscordState();
                 scheduleReconnect();
             });
@@ -170,12 +171,62 @@ async function connectDiscord() {
         broadcastDiscordState();
         // Push current state immediately after reconnect.
         pushCurrentPresence();
+        // Start the periodic health check that pings Discord and
+        // triggers a reconnect if no pong arrives. Without this, a
+        // silently-dead socket (e.g. Discord process killed) leaves
+        // the daemon believing it is connected while no further
+        // pushes ever reach Discord.
+        startHealthCheck();
     } catch (e) {
         logToFile(`Discord connect failed: ${e?.message || e}`);
         discordConnected = false;
         broadcastDiscordState();
         scheduleReconnect();
     }
+}
+
+// Periodic Discord IPC health check. We PING Discord every
+// DISCORD_HEALTH_PING_MS and consider the connection dead if no PONG
+// arrives within DISCORD_HEALTH_TIMEOUT_MS. This catches the
+// "silently-dead socket" case where the OS has not surfaced
+// close/error but Discord is no longer reachable (e.g. Discord
+// Desktop process was killed or restarted while we held the fd).
+const DISCORD_HEALTH_PING_MS = 15000;
+const DISCORD_HEALTH_TIMEOUT_MS = 30000;
+let healthCheckTimer = null;
+
+function startHealthCheck() {
+    if (healthCheckTimer) return;
+    const tick = async () => {
+        if (disposed || !discordClient || !discordConnected) {
+            stopHealthCheck();
+            return;
+        }
+        if (!discordClient.isHealthy(DISCORD_HEALTH_TIMEOUT_MS)) {
+            logToFile(`Discord connection unhealthy (no pong in ${DISCORD_HEALTH_TIMEOUT_MS}ms); forcing reconnect`);
+            // Treat as disconnect: the disconnected handler will
+            // schedule the reconnect with backoff.
+            if (discordClient._disconnectedHandler) {
+                discordClient._disconnectedHandler("pong timeout");
+            } else {
+                scheduleReconnect();
+            }
+            return;
+        }
+        try {
+            await discordClient.ping();
+        } catch (e) {
+            logToFile(`ping failed: ${e?.message || e}`);
+        }
+        healthCheckTimer = setTimeout(tick, DISCORD_HEALTH_PING_MS);
+        if (healthCheckTimer.unref) healthCheckTimer.unref();
+    };
+    healthCheckTimer = setTimeout(tick, DISCORD_HEALTH_PING_MS);
+    if (healthCheckTimer.unref) healthCheckTimer.unref();
+}
+
+function stopHealthCheck() {
+    if (healthCheckTimer) { clearTimeout(healthCheckTimer); healthCheckTimer = null; }
 }
 
 function scheduleReconnect() {
@@ -348,6 +399,23 @@ function handleClientMessage(msg, sock) {
             logToFile(`instance registered: pid=${pid}`);
             try { sock.write(JSON.stringify({ type: "ack" }) + "\n"); } catch {}
             broadcastDiscordState();
+            // Force a refresh cycle on Discord: send clearActivity to
+            // wipe any stale display, then push whatever state the
+            // instance sends. This handles the case where Discord has
+            // silently stopped displaying the previous activity
+            // (e.g. due to rate-limit cooldown or App-ID side
+            // throttling) and a plain SET_ACTIVITY on the same
+            // connection would also be ignored.
+            if (discordConnected && discordClient) {
+                logToFile(`refresh: clearActivity to reset Discord display`);
+                clearPresence().then(() => {
+                    // Reset fingerprint so the next setActivity from
+                    // this new instance actually fires (it would be
+                    // skipped otherwise because we just sent the same
+                    // payload implicitly via clearActivity).
+                    lastPushedFingerprint = null;
+                });
+            }
             break;
 
         case "state": {
@@ -490,6 +558,7 @@ async function shutdown() {
     disposed = true;
     logToFile("shutting down");
     if (finalStateTimer) { clearTimeout(finalStateTimer); finalStateTimer = null; }
+    stopHealthCheck();
     if (instances.size === 0) {
         await clearPresence();
     }

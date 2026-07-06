@@ -74,6 +74,12 @@ export class DiscordIPC {
         this.connected = false;
         this.connecting = false;
         this.lastError = null;
+        // Timestamp of the most recent PONG frame Discord sent back.
+        // The daemon pings periodically and considers the connection
+        // dead if no pong arrives within the expected window. This
+        // catches silently-dead sockets where the OS has not yet
+        // surfaced close/error (e.g. Discord process killed).
+        this.lastPongAt = 0;
         this._disconnectedHandler = null;
     }
 
@@ -143,7 +149,21 @@ export class DiscordIPC {
                     this.socket = null;
                     if (this._disconnectedHandler) this._disconnectedHandler(`socket error: ${e?.message || e}`);
                 });
-                socket.on("data", () => { /* discard: fire-and-forget */ });
+                // Post-handshake data handler. We mostly discard
+                // frames (we are fire-and-forget for SET_ACTIVITY),
+                // but we DO track PONG (opcode 4) so the daemon can
+                // detect a silently-dead socket (e.g. Discord process
+                // killed without the OS surfacing close/error).
+                socket.on("data", (chunk) => {
+                    let off = 0;
+                    while (off + 8 <= chunk.length) {
+                        const opcode = chunk.readUInt32LE(off);
+                        const length = chunk.readUInt32LE(off + 4);
+                        if (off + 8 + length > chunk.length) break;
+                        if (opcode === 4) this.lastPongAt = Date.now();
+                        off += 8 + length;
+                    }
+                });
                 this.socket = socket;
                 this.connected = true;
                 resolve();
@@ -240,13 +260,41 @@ export class DiscordIPC {
             buf.write(payload, 8);
             try {
                 this.socket.write(buf, (err) => {
-                    if (err) resolve(false);
-                    else resolve(true);
+                    if (err) {
+                        // Write failed -- the socket is dead. Treat
+                        // this the same as a 'close' event so the
+                        // daemon reconnects. Without this, writes to
+                        // a dead socket silently buffer in the OS and
+                        // we never know Discord stopped receiving.
+                        this._markDisconnected(`write error: ${err?.message || err}`);
+                        resolve(false);
+                        return;
+                    }
+                    resolve(true);
                 });
-            } catch {
+            } catch (e) {
+                this._markDisconnected(`write threw: ${e?.message || e}`);
                 resolve(false);
             }
         });
+    }
+
+    // Send a PING frame (opcode 3) with no payload. Discord replies
+    // with a PONG (opcode 4) on the same socket. We track the most
+    // recent pong timestamp; if it goes stale the connection is
+    // considered dead and we trigger the disconnected handler.
+    ping() {
+        return this._sendFrame(3, {});
+    }
+
+    // Returns true if we have heard a pong from Discord within
+    // `maxAgeMs`. Used by the daemon to detect silently-dead
+    // connections that the OS has not surfaced yet (e.g. Discord
+    // process was killed and the socket fd is still writable from
+    // our side but no data flows back).
+    isHealthy(maxAgeMs = 30000) {
+        if (!this.connected) return false;
+        return Date.now() - (this.lastPongAt || 0) < maxAgeMs;
     }
 
     async disconnect() {
