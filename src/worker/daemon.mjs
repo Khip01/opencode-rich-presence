@@ -159,7 +159,6 @@ async function connectDiscord() {
             discordClient.onDisconnected((reason) => {
                 logToFile(`Discord IPC disconnected: ${reason}`);
                 discordConnected = false;
-                stopHealthCheck();
                 broadcastDiscordState();
                 scheduleReconnect();
             });
@@ -171,12 +170,6 @@ async function connectDiscord() {
         broadcastDiscordState();
         // Push current state immediately after reconnect.
         pushCurrentPresence();
-        // Start the periodic health check that pings Discord and
-        // triggers a reconnect if no pong arrives. Without this, a
-        // silently-dead socket (e.g. Discord process killed) leaves
-        // the daemon believing it is connected while no further
-        // pushes ever reach Discord.
-        startHealthCheck();
     } catch (e) {
         logToFile(`Discord connect failed: ${e?.message || e}`);
         discordConnected = false;
@@ -185,49 +178,17 @@ async function connectDiscord() {
     }
 }
 
-// Periodic Discord IPC health check. We PING Discord every
-// DISCORD_HEALTH_PING_MS and consider the connection dead if no PONG
-// arrives within DISCORD_HEALTH_TIMEOUT_MS. This catches the
-// "silently-dead socket" case where the OS has not surfaced
-// close/error but Discord is no longer reachable (e.g. Discord
-// Desktop process was killed or restarted while we held the fd).
-const DISCORD_HEALTH_PING_MS = 15000;
-const DISCORD_HEALTH_TIMEOUT_MS = 30000;
-let healthCheckTimer = null;
-
-function startHealthCheck() {
-    if (healthCheckTimer) return;
-    const tick = async () => {
-        if (disposed || !discordClient || !discordConnected) {
-            stopHealthCheck();
-            return;
-        }
-        if (!discordClient.isHealthy(DISCORD_HEALTH_TIMEOUT_MS)) {
-            logToFile(`Discord connection unhealthy (no pong in ${DISCORD_HEALTH_TIMEOUT_MS}ms); forcing reconnect`);
-            // Treat as disconnect: the disconnected handler will
-            // schedule the reconnect with backoff.
-            if (discordClient._disconnectedHandler) {
-                discordClient._disconnectedHandler("pong timeout");
-            } else {
-                scheduleReconnect();
-            }
-            return;
-        }
-        try {
-            await discordClient.ping();
-        } catch (e) {
-            logToFile(`ping failed: ${e?.message || e}`);
-        }
-        healthCheckTimer = setTimeout(tick, DISCORD_HEALTH_PING_MS);
-        if (healthCheckTimer.unref) healthCheckTimer.unref();
-    };
-    healthCheckTimer = setTimeout(tick, DISCORD_HEALTH_PING_MS);
-    if (healthCheckTimer.unref) healthCheckTimer.unref();
-}
-
-function stopHealthCheck() {
-    if (healthCheckTimer) { clearTimeout(healthCheckTimer); healthCheckTimer = null; }
-}
+// Note: a previous version of this daemon ran a periodic PING-based
+// health check that triggered reconnect after 30s without a PONG.
+// That turned out to be too aggressive: Discord does not reliably
+// reply to PING (or the reply is dropped at the OS layer), so the
+// daemon was reconnecting every ~20-30s and clearing the display each
+// time. We now trust write errors on the IPC socket to surface a
+// real disconnect (the _sendFrame write callback invokes
+// _markDisconnected, which calls our disconnected handler). The
+// remaining risk: a "silently-dead" socket where writes buffer
+// forever. In practice Discord does surface close/error quickly when
+// the IPC socket dies, and the write-error fallback covers the rest.
 
 function scheduleReconnect() {
     if (reconnectTimer || disposed) return;
@@ -558,7 +519,6 @@ async function shutdown() {
     disposed = true;
     logToFile("shutting down");
     if (finalStateTimer) { clearTimeout(finalStateTimer); finalStateTimer = null; }
-    stopHealthCheck();
     if (instances.size === 0) {
         await clearPresence();
     }

@@ -138,34 +138,54 @@ try {
     await scenario("1. Single-instance rapid transitions: final state lands", async () => {
         sock1 = await connectClient(99001);
 
+        // Wait for daemon to finish connecting to Discord (the
+        // pushCurrentPresence call in connectDiscord's success path
+        // depends on it). Without this wait, the early pushes may be
+        // skipped because discordConnected is still false when the
+        // state messages arrive.
+        await sleep(2000);
+
         // T=0: WORKING
         sendState(sock1, 99001, "ses_quicktest_aaa", "Working",
             "model1 (build)", "Working · 0 ctx");
-        await sleep(200);
+        await sleep(500);
 
-        // T=200ms: TYPING (should be throttled, scheduled for later)
+        // T=500ms: TYPING (should be throttled, scheduled for later)
         sendState(sock1, 99001, "ses_quicktest_aaa", "Typing",
             "model1 (build)", "Typing · 0 ctx");
-        await sleep(200);
+        await sleep(500);
 
-        // T=400ms: WAITING (still throttled)
+        // T=1000ms: WAITING (still throttled)
         sendState(sock1, 99001, "ses_quicktest_aaa", "Waiting for command",
             "model1 (build)", "Completed! · 1k ctx");
-        await sleep(200);
+        await sleep(500);
 
         const pushesAfterBurst = countDaemonPushes("test_aaa");
         assert(pushesAfterBurst >= 1, `at least 1 daemon push in burst (got ${pushesAfterBurst})`);
         const lastPush = lastDaemonPush();
-        assert(lastPush && lastPush.includes("Typing") || lastPush.includes("Working"),
-            `last push is Working or Typing (got: ${lastPush ? lastPush.match(/state="([^"]+)"/)?.[1] : "none"})`);
+        const lastState = lastPush ? lastPush.match(/state="([^"]+)"/)?.[1] : null;
+        // lastPush might be from a different scenario (the activity
+        // log accumulates). Filter by PID for this scenario's daemon.
+        const targetPid = parseInt(readFileSync(PID_FILE, "utf-8").trim(), 10);
+        const log = readLog();
+        const scenario1Pushes = log.split("\n")
+            .filter(l => l.includes("[daemon] push") && l.includes(`sid=test_aaa`) && l.includes(`[pid ${targetPid}]`));
+        const lastScenarioPush = scenario1Pushes[scenario1Pushes.length - 1];
+        const lastScenarioState = lastScenarioPush ? lastScenarioPush.match(/state="([^"]+)"/)?.[1] : null;
+        assert(lastScenarioState === "Working · 0 ctx" || lastScenarioState === "Typing · 0 ctx",
+            `last push is Working or Typing (got: ${lastScenarioState})`);
 
         // Wait for the delayed final-state push (throttle = 4s)
-        await sleep(5500);
+        await sleep(6000);
 
         const pushesAfterDelay = countDaemonPushes("test_aaa");
         assert(pushesAfterDelay >= 2, `delayed push fired (now ${pushesAfterDelay} total, was ${pushesAfterBurst})`);
 
-        const finalPush = lastDaemonPush();
+        // Re-fetch the last push AFTER the delayed push fires.
+        const log2 = readLog();
+        const scenario1PushesAfter = log2.split("\n")
+            .filter(l => l.includes("[daemon] push") && l.includes(`sid=test_aaa`) && l.includes(`[pid ${targetPid}]`));
+        const finalPush = scenario1PushesAfter[scenario1PushesAfter.length - 1];
         const finalState = finalPush ? finalPush.match(/state="([^"]+)"/)?.[1] : null;
         assert(finalState === "Completed! · 1k ctx",
             `final state lands as WAITING/Completed (got: ${finalState})`);
