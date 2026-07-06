@@ -117,6 +117,24 @@ async function connectClient(pid) {
     return sock;
 }
 
+// Wait until the daemon has logged "Discord connected". Without this,
+// the test's state messages may be dropped because discordConnected is
+// still false (Discord IPC handshake can take several seconds after
+// the daemon's listen() is ready, especially when previous daemons
+// recently held the socket and the OS is still in TIME_WAIT).
+async function waitForDaemonConnected(timeoutMs = 15000) {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+        const log = readLog();
+        // Match either the spawn daemon or the most recent one.
+        if (log.split("\n").some(l => l.includes("[daemon] Discord connected (appId="))) {
+            return true;
+        }
+        await sleep(200);
+    }
+    return false;
+}
+
 function sendState(sock, pid, sid, state, details, stateText) {
     const msg = JSON.stringify({
         type: "state",
@@ -138,12 +156,13 @@ try {
     await scenario("1. Single-instance rapid transitions: final state lands", async () => {
         sock1 = await connectClient(99001);
 
-        // Wait for daemon to finish connecting to Discord (the
-        // pushCurrentPresence call in connectDiscord's success path
-        // depends on it). Without this wait, the early pushes may be
-        // skipped because discordConnected is still false when the
-        // state messages arrive.
-        await sleep(2000);
+        // Wait for daemon to actually finish its Discord connect
+        // handshake. Without this, early pushes can be dropped because
+        // discordConnected is still false. Discord IPC connect can
+        // take 5+ seconds on a cold socket (OS TIME_WAIT from a
+        // previous daemon can hold the local end).
+        const connected = await waitForDaemonConnected(15000);
+        assert(connected, "daemon finished Discord connect within 15s");
 
         // T=0: WORKING
         sendState(sock1, 99001, "ses_quicktest_aaa", "Working",

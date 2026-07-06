@@ -1,7 +1,8 @@
 import { writeFile, mkdir, readFile } from "node:fs/promises";
+import { existsSync, unlinkSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, basename } from "node:path";
-import { OPENCODE_DIR, OUTPUT_FILE } from "../shared/paths.js";
+import { OPENCODE_DIR, OUTPUT_FILE, DAEMON_SOCKET, DAEMON_PID_FILE } from "../shared/paths.js";
 import {
     STATE,
     REFRESH_INTERVAL,
@@ -18,6 +19,7 @@ import {
     startPresence,
     stopPresence,
     getPresenceStatus,
+    getDaemonClient,
     ensureConnected,
     sendStateToDaemon,
 } from "./local-presence.js";
@@ -321,10 +323,21 @@ async function loadConfigLimits(p) {
 // specifically: spawning on OpenCode launch would start Discord
 // connections for sessions that never need them.
 async function ensureDaemonAndConnect() {
+    // Try to connect to an already-running daemon first. If the
+    // socket exists but connect fails (e.g. the daemon died after
+    // the socket was created but before we could connect), remove
+    // the stale socket and spawn a fresh one.
+    const c = getDaemonClient();
+    if (existsSync(DAEMON_SOCKET)) {
+        const ok = await ensureConnected();
+        if (ok) return true;
+        // Stale socket. Remove it and fall through to spawn.
+        try { unlinkSync(DAEMON_SOCKET); } catch {}
+        try { unlinkSync(DAEMON_PID_FILE); } catch {}
+    }
     const spawned = await ensureDaemonRunning();
     if (!spawned) return false;
-    const connected = await ensureConnected();
-    return connected;
+    return await ensureConnected();
 }
 
 // ─── Main Plugin ───────────────────────────────────────────────────────────

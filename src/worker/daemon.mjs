@@ -477,39 +477,53 @@ async function startServer() {
             logToFile(`client socket error: ${e?.message || e}`);
         });
     });
-    try {
-        await new Promise((resolve, reject) => {
-            const onError = (err) => {
-                server.removeListener("listening", onListening);
-                reject(err);
-            };
-            const onListening = () => {
-                server.removeListener("error", onError);
-                resolve();
-            };
-            server.once("error", onError);
-            server.once("listening", onListening);
-            try {
-                server.listen(DAEMON_SOCKET);
-            } catch (e) {
-                server.removeListener("error", onError);
-                server.removeListener("listening", onListening);
-                reject(e);
+    // Retry listen() until the socket actually binds. The OS can hold a
+    // recently-closed Unix socket in TIME_WAIT for several seconds; if
+    // we get EADDRINUSE during that window the plugin would otherwise
+    // see no daemon (because we exited) and have to wait for the next
+    // spawn attempt. We retry instead so the new daemon becomes
+    // available immediately. Also handles the concurrent-spawn race
+    // where a second spawn grabs EADDRINUSE while the first daemon is
+    // still binding.
+    const start = Date.now();
+    const maxWaitMs = 15000;
+    let attempt = 0;
+    while (!disposed && Date.now() - start < maxWaitMs) {
+        attempt++;
+        try {
+            await new Promise((resolve, reject) => {
+                const onError = (err) => {
+                    server.removeListener("listening", onListening);
+                    reject(err);
+                };
+                const onListening = () => {
+                    server.removeListener("error", onError);
+                    resolve();
+                };
+                server.once("error", onError);
+                server.once("listening", onListening);
+                try {
+                    server.listen(DAEMON_SOCKET);
+                } catch (e) {
+                    server.removeListener("error", onError);
+                    server.removeListener("listening", onListening);
+                    reject(e);
+                }
+            });
+            logToFile(`listening on ${DAEMON_SOCKET} (after ${attempt} attempt(s))`);
+            return;
+        } catch (e) {
+            if (e?.code === "EADDRINUSE") {
+                logToFile(`EADDRINUSE on listen (attempt ${attempt}); retrying in 500ms`);
+                await new Promise((r) => setTimeout(r, 500));
+                continue;
             }
-        });
-        logToFile(`listening on ${DAEMON_SOCKET}`);
-    } catch (e) {
-        // EADDRINUSE means another daemon got here first. That is the
-        // desired outcome for the second of two concurrent spawns;
-        // exit cleanly so the plugin can connect to the existing one.
-        if (e?.code === "EADDRINUSE") {
-            logToFile(`socket in use, another daemon is already running; exiting`);
-            // Clean up our PID file; the existing daemon owns it.
-            try { unlinkSync(DAEMON_PID_FILE); } catch {}
-            process.exit(0);
+            // Unrecoverable: surface the error so main() exits and the
+            // plugin can respawn a fresh daemon.
+            throw e;
         }
-        throw e;
     }
+    throw new Error(`failed to bind ${DAEMON_SOCKET} after ${maxWaitMs}ms`);
 }
 
 // ─── Lifecycle ────────────────────────────────────────────────────────────

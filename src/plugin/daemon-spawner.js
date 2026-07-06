@@ -18,7 +18,11 @@ import { homedir } from "node:os";
 import { DAEMON_SOCKET } from "../shared/paths.js";
 import { log, activity } from "../shared/logger.js";
 
-const SPAWN_TIMEOUT_MS = 5000;
+// Generous timeout: after a previous daemon exits, Linux can hold
+// the Unix socket in TIME_WAIT for several seconds before the OS
+// fully releases it. The daemon retries listen() with backoff for
+// up to 15s, so we wait at least that long here.
+const SPAWN_TIMEOUT_MS = 15000;
 const POLL_INTERVAL_MS = 100;
 
 // Find a node executable. Same approach as the previous worker-spawner.
