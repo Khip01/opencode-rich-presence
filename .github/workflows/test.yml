@@ -2,18 +2,31 @@ name: Test
 
 on:
   push:
-    branches: [main]
+    branches: [main, redesign/v3-daemon]
   pull_request:
-    branches: [main]
+    branches: [main, redesign/v3-daemon]
+  # Allow manual trigger from the Actions tab for one-off runs.
+  workflow_dispatch:
+
+# Cancel in-progress runs when a new commit lands on the same
+# branch. Without this, fast pushes to the same PR queue up
+# redundant jobs that each install npm and run the full suite.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  smoke:
-    name: Smoke (${{ matrix.os }} / Node ${{ matrix.node }})
+  test:
+    name: Test (${{ matrix.os }} / Node ${{ matrix.node }})
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-        node: [18, 20, 22]
+        # Cover the full range declared in `engines.node`. LTS lines
+        # (20, 22) plus the current latest (24). Ubuntu-only because
+        # the daemon uses Unix domain sockets and Windows requires
+        # a separate named-pipe path that we do not test in CI today.
+        os: [ubuntu-latest]
+        node: [20, 22, 24]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -26,17 +39,26 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      - name: Syntax check (all JS/MJS files)
-        run: node scripts/syntax-check.js
+      - name: Syntax check
+        run: npm run syntax
 
-      - name: Help output
-        run: node bin/opencode-rpc.js help
+      - name: Smoke (help / version / info / pack dry-run)
+        run: |
+          node bin/opencode-rpc.js help
+          node bin/opencode-rpc.js version
+          node bin/opencode-rpc.js info
+          npm pack --dry-run
 
-      - name: Version output
-        run: node bin/opencode-rpc.js version
+      # Full regression suite. The three harnesses are independent
+      # (each spins up its own daemon on its own temp socket) so we
+      # can run them sequentially. Total wall time ~3 min on
+      # ubuntu-latest; the matrix above multiplies that across
+      # Node versions.
+      - name: Phase 1 harness
+        run: npm run test:phase1
 
-      - name: Info output (dry)
-        run: node bin/opencode-rpc.js info
+      - name: Phase 2 harness
+        run: npm run test:phase2
 
-      - name: Pack dry run
-        run: npm pack --dry-run
+      - name: Phase 2 v2 harness
+        run: npm run test:phase2-v2

@@ -124,6 +124,28 @@ User reported two issues after daily use:
    fails, the old install stays untouched. Also reject `--ref`
    values containing whitespace or control characters at argument
    parse time, before any work begins. Patch bump 3.1.0 -> 3.1.1.
+9. **GitHub Actions CI runs the full test matrix on every push and
+   PR.** Previously the test workflow ran only smoke checks
+   (`help`, `version`, `info`, `npm pack --dry-run`) and never
+   executed the actual regression harnesses. Now test.yml runs
+   the full Phase 1 + Phase 2 + Phase 2 v2 harnesses on Node 20,
+   22, 24 (Ubuntu). Triggers: push or PR to `main` or
+   `redesign/v3-daemon`, plus manual `workflow_dispatch`.
+   Concurrency-cancelled on new pushes to the same ref so fast
+   pushes do not queue redundant runs. The `package.json`
+   `test` script now runs all three harnesses sequentially, so
+   `npm test` matches what CI does.
+10. **GitHub Actions release workflow updated.** release.yml now
+    also accepts non-`v`-prefixed tags (e.g. `3.1.2-phase2`) so
+    pre-release tags on the redesign branch can publish. Added a
+    `Run test suite` step to the release job so a tag cannot be
+    published from a broken commit. Added an optional `Publish to
+    npm registry` step that runs only when the `NPM_TOKEN`
+    secret is configured; otherwise it prints an explicit
+    "skipped" message so users running forks see what would
+    happen. The release body now documents the full
+    `opencode-rpc update --ref/--dev/--repo` install flow
+    instead of just the npm install command.
 
 ### Added
 

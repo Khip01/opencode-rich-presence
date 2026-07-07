@@ -4,6 +4,10 @@ on:
   push:
     tags:
       - "v*"
+      # Also accept semantic-version tags without the "v" prefix
+      # (e.g. "3.1.2-phase2") so we can publish the redesign branch's
+      # pre-release line. The filter below rejects unstable suffixes.
+      - "[0-9]+.*"
 
 permissions:
   contents: write
@@ -12,10 +16,10 @@ jobs:
   release:
     name: Build & publish GitHub release
     runs-on: ubuntu-latest
-    # Only run for STABLE tags. Tags containing -rc, -beta, or -alpha are
-    # skipped here — they were historically used for pre-release testing
-    # but v2.1.0+ no longer uses them. This is a safety net in case
-    # someone tags an -rc tag anyway: no GitHub Release noise.
+    # Only run for STABLE tags. Tags containing -rc, -beta, or -alpha
+    # are skipped — they are pre-release markers, not full releases.
+    # Tags containing -phase2 / -phase1 are accepted (they are the
+    # official pre-release line for this project).
     if: |
       !contains(github.ref_name, '-rc') &&
       !contains(github.ref_name, '-beta') &&
@@ -33,7 +37,12 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      - name: Smoke tests
+      - name: Run test suite
+        # Fail the release if any harness fails. Catch-and-show with
+        # `|| true` would hide regressions; we want a hard fail.
+        run: npm test
+
+      - name: Smoke (help / version)
         run: |
           node bin/opencode-rpc.js help
           node bin/opencode-rpc.js version
@@ -41,7 +50,28 @@ jobs:
       - name: Build tarball
         run: |
           npm pack
+          # Rename to include the tag name so multiple releases can
+          # coexist as release assets (e.g. opencode-rich-presence-v3.1.2-phase2.tgz).
           mv opencode-rich-presence-*.tgz opencode-rich-presence-${{ github.ref_name }}.tgz
+
+      - name: Publish to npm registry (optional)
+        # Only runs if the NPM_TOKEN secret is configured on the
+        # repo. The publish step uses `npm publish --provenance`
+        # which links the published artifact back to this workflow
+        # run. Skip with an explicit message if the secret is missing
+        # so users running their own forks see what would happen.
+        if: ${{ secrets.NPM_TOKEN != '' }}
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          echo "Publishing to npm registry..."
+          npm publish --provenance --access public
+
+      - name: Publish to npm registry (skipped)
+        if: ${{ secrets.NPM_TOKEN == '' }}
+        run: |
+          echo "NPM_TOKEN secret not set; skipping npm publish."
+          echo "Set the NPM_TOKEN secret in repo settings to enable auto-publish."
 
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
@@ -54,33 +84,40 @@ jobs:
             ### Stable (recommended for end users)
 
             ```bash
-            # Pin to a specific version:
-            npm install -g Khip01/opencode-rich-presence#v${{ github.ref_name }}
+            # Easiest path: use the CLI's built-in installer. It
+            # handles git ref syntax, works around npm v11's broken
+            # git-dep symlinks, and supports version pinning.
+            opencode-rpc update --ref ${{ github.ref_name }}
+            opencode-rpc install
 
-            # Or auto-resolve the latest stable matching ^v0:
-            npm install -g Khip01/opencode-rich-presence#semver:^${{ github.ref_name }}
-
+            # Or install via npm directly (zsh users: wrap in single quotes):
+            npm install -g 'Khip01/opencode-rich-presence#${{ github.ref_name }}'
             opencode-rpc install
             ```
 
-            ### Dev / bleeding-edge (developers only)
+            ### Install from a specific branch (e.g. redesign/v3-daemon)
 
             ```bash
-            npm install -g Khip01/opencode-rich-presence
+            # DO NOT use 'npm install -g <url>#<branch>' for branches.
+            # npm v11 has a bug that creates a partial install without
+            # the opencode-rpc symlink. Use the CLI instead:
+            opencode-rpc update --ref redesign/v3-daemon
+            opencode-rpc install
+
+            # Track a branch for ongoing dev installs:
+            opencode-rpc update --dev redesign/v3-daemon
             opencode-rpc install
             ```
 
             ### Update
 
             ```bash
-            opencode-rpc update                  # upgrade to latest stable tag
-            opencode-rpc update --dev            # upgrade to latest commit on main
+            opencode-rpc update                  # latest stable release tag
+            opencode-rpc update --stable         # force install latest stable
+            opencode-rpc update --dev <branch>   # latest commit on <branch>
+            opencode-rpc update --ref <ref>      # specific ref (tag, branch, or SHA)
+            opencode-rpc update --repo <fork>    # install from a fork
             ```
-
-            Note: `npm install -g <repo>#<ref>` clones the repo and installs
-            from there. The tarball attached to this release is provided as
-            a fallback for offline / air-gapped installs; the git URL is the
-            canonical install path.
 
             ## What's in ${{ github.ref_name }}
 
