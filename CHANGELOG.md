@@ -70,6 +70,21 @@ User reported two issues after daily use:
    forces a refresh by sending clearActivity to wipe Discord's
    internal display state. The fingerprint is reset so the new
    instance's first setActivity actually fires.
+6. **First fire after reopen-during-cooldown window still did not show
+   display.** The hello-time refresh from fix #5 introduced a new bug:
+   after closing the last instance, the goodbye handler already sends
+   clearActivity. The next hello from a reopened instance then sends
+   another clearActivity immediately followed by SET_ACTIVITY. Discord
+   silently drops SET_ACTIVITY sent within ~1-2s of clearActivity on
+   the same IPC connection. The display stayed blank until a second
+   instance fired (whose clearActivity + SET_ACTIVITY pair landed
+   after the cooldown window). Fix: track `lastClearSentAt` and skip
+   the hello-time refresh if we cleared within the last 60s. 60s
+   covers the typical "reopen after /exit-all" sequence while still
+   refreshing for genuinely long idle periods. The fingerprint is
+   still reset in both branches so the next SET_ACTIVITY is not
+   deduped. Recovery for stuck displays after very long idle (>60s
+   with stale Discord state): `opencode-rpc restart`.
 
 ### Added
 

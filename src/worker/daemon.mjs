@@ -115,6 +115,14 @@ let finalStateTimer = null;
 // Without this, a delayed push could repeat the same Typing payload
 // many times even after the user has fired another message.
 let lastPushedFingerprint = null;
+// Timestamp of the most recent clearActivity we sent to Discord.
+// Used to skip the hello-time refresh clearActivity when we just
+// cleared (e.g. the last instance just left). Discord silently drops
+// SET_ACTIVITY sent within ~1-2s of clearActivity on the same IPC
+// connection, so the refresh is actively harmful in that window. 60s
+// threshold covers the typical "reopen after /exit-all" sequence
+// while still refreshing for genuinely long idle periods.
+let lastClearSentAt = 0;
 
 // Map of pid -> { lastSeen, sessionInfo, rendered }
 // sessionInfo is the minimal {sessionID, state, lastActivity} the
@@ -323,6 +331,7 @@ async function clearPresence() {
     if (!discordConnected || !discordClient) return;
     try {
         await discordClient.clearActivity();
+        lastClearSentAt = Date.now();
         logToFile("clearActivity sent");
     } catch (e) {
         logToFile(`clearActivity failed: ${e?.message || e}`);
@@ -367,15 +376,30 @@ function handleClientMessage(msg, sock) {
             // (e.g. due to rate-limit cooldown or App-ID side
             // throttling) and a plain SET_ACTIVITY on the same
             // connection would also be ignored.
+            //
+            // Skip the refresh if we just cleared within the last
+            // 60s. Discord silently drops SET_ACTIVITY sent within
+            // ~1-2s of clearActivity on the same connection, so the
+            // refresh is actively harmful in that window. Without
+            // this skip, the first SET_ACTIVITY after reopening
+            // opencode (within seconds of closing the last instance)
+            // gets dropped and the display stays blank until the
+            // user fires a second instance.
             if (discordConnected && discordClient) {
-                logToFile(`refresh: clearActivity to reset Discord display`);
-                clearPresence().then(() => {
+                const sinceClear = Date.now() - lastClearSentAt;
+                if (sinceClear > 60000) {
+                    logToFile(`refresh: clearActivity to reset Discord display (last clear ${Math.floor(sinceClear / 1000)}s ago)`);
+                    clearPresence().then(() => {
+                        lastPushedFingerprint = null;
+                    });
+                } else {
+                    logToFile(`refresh: skipping clearActivity (last clear ${Math.floor(sinceClear / 1000)}s ago, within 60s cooldown)`);
                     // Reset fingerprint so the next setActivity from
                     // this new instance actually fires (it would be
                     // skipped otherwise because we just sent the same
                     // payload implicitly via clearActivity).
                     lastPushedFingerprint = null;
-                });
+                }
             }
             break;
 
