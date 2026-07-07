@@ -83,7 +83,7 @@ User reported two issues after daily use:
    the last 60s. This worked for the "old daemon still alive" case but
    not for the "daemon died and got respawned" case (the new daemon
    has `lastClearSentAt = 0`, so the refresh still fires). Fix
-   (current): remove the hello-time refresh clearActivity entirely.
+   (92ef569): remove the hello-time refresh clearActivity entirely.
    Trust SET_ACTIVITY alone. Discord reliably accepts SET_ACTIVITY
    when there is no preceding clearActivity on the same connection.
    Recovery for stuck displays after a very long idle (genuine stale
@@ -91,6 +91,25 @@ User reported two issues after daily use:
    lifetime): `opencode-rpc restart`. This path is rarer than the
    false-positive refresh-drop bug, so we trade it for simpler,
    reliable behavior.
+7. **Daemon died silently between cycles even after removing refresh
+   clearActivity.** After fix #6 the bug still reproduced: close all
+   opencode (daemon cleared, stays alive), open one new opencode,
+   fire chat.message. The new instance's `hello` was logged
+   (`instance registered: pid=...`) but no `push pid=...` log followed,
+   no `exit`/`SIGTERM`/`fatal` log either, and the daemon socket
+   disappeared within seconds. Theory: the daemon's `pushCurrentPresence`
+   is async and was called without `.catch()` from several fire-and-
+   forget sites (state handler, goodbye handler, post-reconnect path,
+   scheduleFinalStatePush timer). If any of these calls rejected (e.g.
+   Discord write failure after the previous socket died), the rejection
+   became an unhandled rejection, which on Node 15+ defaults to
+   `--unhandled-rejections=throw` and terminates the process silently.
+   Fix: add `.catch()` to all four fire-and-forget call sites so a
+   rejection is logged instead of crashing the process. Also add
+   `uncaughtException`, `unhandledRejection`, `beforeExit`, and `exit`
+   handlers as a safety net for any future path that does throw — they
+   log the cause and exit non-zero so the next plugin chat.message
+   spawns a fresh daemon.
 
 ### Added
 

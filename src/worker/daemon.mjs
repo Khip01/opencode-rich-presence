@@ -169,7 +169,9 @@ async function connectDiscord() {
         logToFile(`Discord connected (appId=${appId})`);
         broadcastDiscordState();
         // Push current state immediately after reconnect.
-        pushCurrentPresence();
+        pushCurrentPresence().catch((e) => {
+            logToFile(`post-connect push failed: ${e?.message || e}`);
+        });
     } catch (e) {
         logToFile(`Discord connect failed: ${e?.message || e}`);
         discordConnected = false;
@@ -314,7 +316,12 @@ function scheduleFinalStatePush() {
     const wait = DISCORD_PUSH_INTERVAL_MS - (Date.now() - lastPushAt);
     finalStateTimer = setTimeout(() => {
         finalStateTimer = null;
-        pushCurrentPresence();
+        // Wrap in catch so a rejection here becomes an unhandled
+        // rejection (which would terminate the process on Node 15+
+        // with the default --unhandled-rejections=throw policy).
+        pushCurrentPresence().catch((e) => {
+            logToFile(`scheduleFinalStatePush push failed: ${e?.message || e}`);
+        });
     }, Math.max(50, wait));
     if (finalStateTimer.unref) finalStateTimer.unref();
 }
@@ -394,8 +401,13 @@ function handleClientMessage(msg, sock) {
             inst.sessionInfo = msg.session || inst.sessionInfo;
             inst.rendered = msg.rendered || inst.rendered;
             // Re-push if the picked session might have changed. Throttling
-            // inside pushCurrentPresence prevents flooding.
-            pushCurrentPresence();
+            // inside pushCurrentPresence prevents flooding. Wrap in
+            // .catch so a rejection does not become an unhandled
+            // rejection (which would terminate the process on Node
+            // 15+ with --unhandled-rejections=throw).
+            pushCurrentPresence().catch((e) => {
+                logToFile(`state push failed: ${e?.message || e}`);
+            });
             try { sock.write(JSON.stringify({ type: "ack" }) + "\n"); } catch {}
             break;
         }
@@ -413,7 +425,9 @@ function handleClientMessage(msg, sock) {
                 displayedPid = null;
                 lastPushedFingerprint = null;
             }
-            pushCurrentPresence(); // re-pick global active session
+            pushCurrentPresence().catch((e) => {
+                logToFile(`goodbye push failed: ${e?.message || e}`);
+            });
             if (instances.size === 0) {
                 // Last instance just disconnected. Hide the display
                 // (clearActivity) so Discord does not show a stale
@@ -424,7 +438,9 @@ function handleClientMessage(msg, sock) {
                 // instance's hello + state immediately resumes pushing
                 // on the existing Discord connection.
                 logToFile("all instances disconnected; clearing Discord presence (daemon stays alive)");
-                clearPresence();
+                clearPresence().catch((e) => {
+                    logToFile(`goodbye clearPresence failed: ${e?.message || e}`);
+                });
             }
             break;
 
@@ -555,6 +571,36 @@ async function shutdown() {
 
 process.on("SIGINT", () => { logToFile("SIGINT"); shutdown(); });
 process.on("SIGTERM", () => { logToFile("SIGTERM"); shutdown(); });
+
+// Diagnostic handlers. The daemon has been observed to die silently
+// (process gone, no SIGINT/SIGTERM log, no stderr output) right after
+// processing a `hello` from a new client. The most likely cause on
+// Node 24.x is an unhandled promise rejection terminating the process
+// (Node 15+ defaults to --unhandled-rejections=throw). These handlers
+// log every abnormal exit path so the next reproduction has a trail.
+process.on("uncaughtException", (e) => {
+    try { logToFile(`uncaughtException: ${e?.stack || e?.message || e}`); } catch {}
+    // Best-effort cleanup. Do NOT call shutdown() here because we may
+    // be in an unstable state. Exit non-zero so the next plugin
+    // chat.message spawns a fresh daemon.
+    process.exit(1);
+});
+process.on("unhandledRejection", (reason) => {
+    try { logToFile(`unhandledRejection: ${reason?.stack || reason?.message || reason}`); } catch {}
+    // Same policy: log and exit non-zero. Keep the daemon alive is
+    // risky when we do not know what state it is in.
+    process.exit(1);
+});
+process.on("beforeExit", (code) => {
+    try { logToFile(`beforeExit code=${code} (event loop drained)`); } catch {}
+});
+process.on("exit", (code) => {
+    // Synchronous-only. appendFileSync is sync so this is safe.
+    try {
+        appendFileSync(ACTIVITY_LOG,
+            `[${new Date().toISOString().replace("T", " ").replace("Z", "")}] [pid ${process.pid}] [daemon] exit code=${code}\n`);
+    } catch {}
+});
 
 async function main() {
     try { await mkdirOpencodeDir(); } catch {}
