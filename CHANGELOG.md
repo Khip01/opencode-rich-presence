@@ -113,6 +113,17 @@ User reported two issues after daily use:
    `stdio: ["ignore", "ignore", "ignore"]` so no stderr pipe is
    created in the first place. Daemon logs already go to the
    activity log via `appendFileSync`, so stderr is redundant.
+8. **`opencode-rpc update --ref <bad-ref>` deletes the existing CLI.**
+   Reordering fix: `runNpmInstall` previously called
+   `cleanExistingInstall()` at the start, before attempting the
+   git fetch. If the fetch failed (typo in ref, network blip, the
+   ref did not exist), the old install was already gone and the
+   user was left with no working CLI command. Move the cleanup to
+   AFTER `npm pack` succeeds: build the tarball first, only then
+   remove the old install. If anything before the tarball build
+   fails, the old install stays untouched. Also reject `--ref`
+   values containing whitespace or control characters at argument
+   parse time, before any work begins. Patch bump 3.1.0 -> 3.1.1.
 
 ### Added
 

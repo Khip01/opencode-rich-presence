@@ -388,6 +388,40 @@ Audit every fire-and-forget call site in long-lived processes.
 every code path, including error handlers, so it must be defensive
 against EPIPE (above) and any other transient I/O errors.
 
+### `update --ref` previously deleted the existing CLI on bad input
+
+Phase 2 commit history (after `3684b2f`): `runNpmInstall` called
+`cleanExistingInstall()` at the START, before any git operation. If
+the user typed a typo in `--ref` (e.g. `--ref help` to "test", or
+`--ref redesign/v3-daemonn` with a stray `n`), `git fetch` failed,
+and the old install was already gone. The user was left with no
+working `opencode-rpc` CLI. The fix that the agent suggested
+(`--ref help` as a "dry-run test") reproduced exactly this disaster.
+
+**Rule:** for any destructive operation (delete, overwrite, format,
+drop), build the replacement FIRST and only then remove the original.
+If any step between "build replacement" and "remove original" fails,
+the user is left without both. The order should be:
+1. Validate inputs cheaply (syntactic check) before any work.
+2. Build the replacement (e.g. download, compile, pack).
+3. Verify the replacement is valid.
+4. NOW remove the original.
+5. Install the replacement.
+
+For install/upgrade tools specifically, also reject obviously
+invalid inputs (whitespace, control characters) at parse time,
+before any work. The user can recover from a 500ms error message;
+they cannot recover from a 30-minute debug session to figure out
+why the CLI disappeared.
+
+**Lesson:** never suggest a destructive command as a "dry run test".
+Dry runs are read-only operations (e.g. `opencode-rpc help`,
+`opencode-rpc info`, `opencode-rpc version`). Commands that
+modify the system state (`update`, `install`, `uninstall`,
+`restart`) are NOT dry runs, even if the modification is
+small or "obviously safe". Verify behavior with non-destructive
+commands first.
+
 ## Documentation Maintenance
 
 When the project changes in ways that affect how an agent should

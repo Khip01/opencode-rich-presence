@@ -104,12 +104,16 @@ function cleanExistingInstall() {
 // Workaround: clone the repo, pack a tarball, and install the tarball. The
 // tarball path is a real file, not a git dep, so npm treats it as a normal
 // install and produces a real directory under lib/node_modules/.
+//
+// Cleanup ordering: do NOT remove the existing install at the start.
+// If `git fetch <bad-ref>` fails (typo, network, etc.), the user
+// would be left without an installed CLI. Build the tarball first,
+// THEN remove the old install (which is needed right before
+// `npm install -g <tarball>` to avoid ENOTDIR from any leftover
+// npm-v11 broken symlink). If anything between tarball build and
+// the npm install fails, the old install stays untouched.
 function runNpmInstall(ref) {
     console.log(`Fetching source from ${REPO_URL} (ref: ${ref})...`);
-    const cleanedPath = cleanExistingInstall();
-    if (cleanedPath) {
-        console.log(`Removed previous install at ${cleanedPath}`);
-    }
 
     const tmpDir = mkdtempSync(join(tmpdir(), "orp-install-"));
     try {
@@ -129,6 +133,14 @@ function runNpmInstall(ref) {
             throw new Error(`npm pack produced no tarball in ${tmpDir}`);
         }
         const tarball = join(tmpDir, tarballs[0]);
+
+        // Only now that we have a tarball, remove the existing install.
+        // This avoids the user-facing disaster where a typo in `--ref`
+        // (or a network failure mid-fetch) deletes the working CLI.
+        const cleanedPath = cleanExistingInstall();
+        if (cleanedPath) {
+            console.log(`Removed previous install at ${cleanedPath}`);
+        }
 
         console.log(`Installing ${tarballs[0]}...`);
         const result = spawnSync("npm", ["install", "-g", tarball], { stdio: "inherit" });
@@ -263,6 +275,14 @@ export async function update(args = []) {
         console.error("Example: opencode-rpc update --ref redesign/v3-daemon");
         console.error("         opencode-rpc update --ref v3.0.4-phase2");
         console.error("         opencode-rpc update --ref 6664bfb");
+        process.exit(2);
+    }
+    // Reject refs with whitespace, control chars, or anything that
+    // cannot appear in a git ref. Catches obvious user errors
+    // (forgot a quote, pasted multi-word text) before we do any work.
+    if (refArg && /[\s\\<>:"|?*\x00-\x1f]/.test(refArg)) {
+        console.error(`Error: --ref value contains invalid characters: ${JSON.stringify(refArg)}`);
+        console.error("Expected a single token: branch, tag, or commit SHA.");
         process.exit(2);
     }
 
