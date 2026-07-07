@@ -263,8 +263,6 @@ function fingerprintRendered(r) {
 }
 
 async function pushCurrentPresence() {
-    if (!discordConnected || !discordClient) return;
-
     const picked = pickDisplayedInstance();
     const chosenPid = picked.active || picked.any;
     if (!chosenPid) return;
@@ -299,15 +297,33 @@ async function pushCurrentPresence() {
     }
     lastPushAt = now;
 
+    // Log the push decision regardless of Discord availability. Tests
+    // in CI (where Discord Desktop is not installed) rely on this
+    // line to verify the daemon's push logic without requiring a
+    // real Discord IPC socket. The `discord=` suffix tells the reader
+    // whether the SET_ACTIVITY call will actually fire. Production
+    // users who see `discord=disconnected` in the log can debug
+    // "why isn't my Discord updating?" without inspecting the
+    // daemon process directly.
     logToFile(
         `push pid=${chosenPid} sid=${sid} ` +
         `details="${inst.rendered.details || ""}" ` +
-        `state="${inst.rendered.state || ""}"`,
+        `state="${inst.rendered.state || ""}" ` +
+        `discord=${discordConnected ? "connected" : "disconnected"}`,
     );
+
+    // If Discord is not connected, stop here after recording the
+    // intent. We still update lastPushAt and displayedPid so the
+    // throttle and "switched instance" logic continue to work even
+    // in environments without Discord (CI, dev). Only the actual
+    // Discord SET_ACTIVITY call and lastPushedFingerprint are
+    // deferred until reconnect.
+    lastPushAt = now;
+    displayedPid = chosenPid;
+    if (!discordConnected || !discordClient) return;
 
     try {
         await discordClient.setActivity(inst.rendered);
-        displayedPid = chosenPid;
         lastPushedFingerprint = fp;
         // A successful push satisfies any pending delayed push.
         if (finalStateTimer) {
@@ -341,7 +357,15 @@ function scheduleFinalStatePush() {
 }
 
 async function clearPresence() {
-    if (!discordConnected || !discordClient) return;
+    if (!discordConnected || !discordClient) {
+        // No Discord to clear. Log the intent for observability so
+        // tests in CI / dev environments without Discord can verify
+        // the daemon processed the all-instances-disconnected
+        // event. Without this, the test would falsely fail because
+        // there is no log line at all.
+        logToFile("clearActivity skipped: discord not connected");
+        return;
+    }
     try {
         await discordClient.clearActivity();
         logToFile("clearActivity sent");

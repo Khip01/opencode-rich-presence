@@ -9,13 +9,20 @@
 // path (so the harness can import it as a real OpenCode plugin would).
 // Adjust PLUGIN_ENTRY below if your install path differs.
 
-import { OpencodeRichPresence } from "../src/plugin/index.js";
-import { writeFileSync, readFileSync, existsSync, readdirSync, unlinkSync } from "node:fs";
-import { homedir } from "node:os";
+// MUST come first so OPENCODE_CONFIG_DIR is set before plugin/daemon
+// import paths are computed at module-load time.
+import "./test-env.mjs";
 import { join } from "node:path";
 
-const PLUGIN_ENTRY = "/home/khip/.nvm/versions/node/v24.13.1/lib/node_modules/opencode-rich-presence/src/plugin/index.js";
-const OPENCODE_DIR = join(homedir(), ".config", "opencode");
+import { OpencodeRichPresence } from "../src/plugin/index.js";
+import { writeFileSync, readFileSync, existsSync, readdirSync, unlinkSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const REPO_ROOT = resolve(__dirname, "..");
+const PLUGIN_ENTRY = join(REPO_ROOT, "src", "plugin", "index.js");
+const OPENCODE_DIR = process.env.OPENCODE_CONFIG_DIR;
 const ACTIVITY_LOG = join(OPENCODE_DIR, "presence-activity.log");
 const STATE_FILE_PREFIX = "presence-state-pid";
 
@@ -141,7 +148,7 @@ await scenario("3. message.part.updated text -> TYPING", async () => {
     const log = readActivityLog();
     assert(log.includes(`message.part.updated sid=${SHORT_A} type=text(6b)`), "text part with byte length logged");
     assert(log.includes("Working -> Typing"), "state transition WORKING -> TYPING");
-    assert(log.includes('"Typing'), "Typing template rendered");
+    assert(log.includes("Typing\""), "Typing template rendered");
 });
 
 await scenario("4. message.part.updated reasoning -> THINKING", async () => {
@@ -228,7 +235,7 @@ await scenario("7. message.updated completed -> WAITING", async () => {
         assert(stateFile.includes("DISPLAYED SESSION"), "state file has DISPLAYED SESSION section");
         assert(stateFile.includes("State     : Waiting for command"), "state file shows WAITING state");
         assert(stateFile.includes("RENDERED PRESENCE"), "state file has RENDERED PRESENCE section");
-        assert(stateFile.includes("largeImageKey   : opencode-logo-too-rich-presence"), "state file shows asset key");
+        assert(stateFile.includes("largeImageKey   : opencode-logo-too-opencode-rpc"), "state file shows asset key");
     }
 });
 

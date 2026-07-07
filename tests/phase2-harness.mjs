@@ -12,14 +12,21 @@
 // path so the harness can import it as a real OpenCode plugin would.
 // Adjust PLUGIN_ENTRY below if your install path differs.
 
+// MUST come first so OPENCODE_CONFIG_DIR is set before plugin/daemon
+// import paths are computed at module-load time.
+import "./test-env.mjs";
+import { join } from "node:path";
+
 import { OpencodeRichPresence } from "../src/plugin/index.js";
 import { spawn } from "node:child_process";
 import { writeFileSync, readFileSync, existsSync, readdirSync, unlinkSync } from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const PLUGIN_ENTRY = "/home/khip/.nvm/versions/node/v24.13.1/lib/node_modules/opencode-rich-presence/src/plugin/index.js";
-const OPENCODE_DIR = join(homedir(), ".config", "opencode");
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const REPO_ROOT = resolve(__dirname, "..");
+const PLUGIN_ENTRY = join(REPO_ROOT, "src", "plugin", "index.js");
+const OPENCODE_DIR = process.env.OPENCODE_CONFIG_DIR;
 const ACTIVITY_LOG = join(OPENCODE_DIR, "presence-activity.log");
 const DAEMON_SOCKET = join(OPENCODE_DIR, ".opencode-rich-presence.sock");
 const DAEMON_PID_FILE = join(OPENCODE_DIR, ".opencode-rich-presence.pid");
