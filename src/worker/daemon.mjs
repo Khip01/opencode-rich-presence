@@ -130,7 +130,21 @@ function logToFile(...args) {
     const line = `[daemon ${process.pid}] ${args.join(" ")}`;
     try { appendFileSync(DEBUG_LOG, line + "\n"); } catch {}
     try { appendFileSync(ACTIVITY_LOG, `[${new Date().toISOString().replace("T", " ").replace("Z", "")}] [pid ${process.pid}] [daemon] ${args.join(" ")}\n`); } catch {}
-    try { process.stderr.write(line + "\n"); } catch {}
+    // stderr is piped to the parent plugin process (see daemon-spawner.js
+    // `stdio: ["ignore", "ignore", "pipe"]`). When the parent opencode
+    // process exits, the pipe closes. Writing to a closed pipe throws
+    // EPIPE on Linux. EPIPE was propagating as an uncaughtException
+    // and terminating the daemon with code=1, which made the next
+    // opencode launch spawn a fresh daemon instead of reusing the
+    // existing one. Catch EPIPE explicitly so the daemon stays alive
+    // even if its stderr pipe is closed.
+    try { process.stderr.write(line + "\n"); } catch (e) {
+        if (e?.code !== "EPIPE") {
+            // Re-throw unexpected errors so the uncaughtException
+            // handler still logs them.
+            throw e;
+        }
+    }
 }
 
 // ─── Discord lifecycle ────────────────────────────────────────────────────

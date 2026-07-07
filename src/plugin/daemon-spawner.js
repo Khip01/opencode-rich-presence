@@ -90,7 +90,18 @@ async function spawnDaemon() {
     try {
         proc = spawn(nodeExe, [daemonSource], {
             detached: true,
-            stdio: ["ignore", "ignore", "pipe"],
+            // stdio: stderr was previously "pipe" so the parent could
+            // see crash output. But a piped stderr is a Linux pipe fd;
+            // when the parent opencode process exits the pipe closes,
+            // and any subsequent daemon write to stderr throws EPIPE.
+            // That EPIPE was leaking as an uncaughtException in the
+            // daemon and terminating it with code=1, so the next
+            // opencode launch spawned a fresh daemon instead of
+            // reusing the alive one. Switch stderr to "ignore" so
+            // no pipe is created. Daemon logs already go to the
+            // activity log via appendFileSync (see logToFile), so
+            // stderr is redundant.
+            stdio: ["ignore", "ignore", "ignore"],
             env: { ...process.env },
         });
     } catch (e) {
@@ -99,7 +110,6 @@ async function spawnDaemon() {
         return false;
     }
 
-    proc.stderr?.on("data", (c) => log(`[daemon stderr] ${c.toString().trim()}`));
     proc.unref();
 
     // Wait for the socket file to appear.

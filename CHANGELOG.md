@@ -97,19 +97,22 @@ User reported two issues after daily use:
    fire chat.message. The new instance's `hello` was logged
    (`instance registered: pid=...`) but no `push pid=...` log followed,
    no `exit`/`SIGTERM`/`fatal` log either, and the daemon socket
-   disappeared within seconds. Theory: the daemon's `pushCurrentPresence`
-   is async and was called without `.catch()` from several fire-and-
-   forget sites (state handler, goodbye handler, post-reconnect path,
-   scheduleFinalStatePush timer). If any of these calls rejected (e.g.
-   Discord write failure after the previous socket died), the rejection
-   became an unhandled rejection, which on Node 15+ defaults to
-   `--unhandled-rejections=throw` and terminates the process silently.
-   Fix: add `.catch()` to all four fire-and-forget call sites so a
-   rejection is logged instead of crashing the process. Also add
-   `uncaughtException`, `unhandledRejection`, `beforeExit`, and `exit`
-   handlers as a safety net for any future path that does throw — they
-   log the cause and exit non-zero so the next plugin chat.message
-   spawns a fresh daemon.
+   disappeared within seconds. First fix attempt (05e99de): add
+   `.catch()` to fire-and-forget `pushCurrentPresence` calls and add
+   `uncaughtException`/`unhandledRejection` handlers. That made the
+   next reproduction emit a stack trace and pinpointed the exact cause:
+   `EPIPE` on `process.stderr.write` inside `logToFile`. The daemon was
+   spawned with `stdio: ["ignore", "ignore", "pipe"]`; the stderr pipe
+   was connected to the parent plugin. When the parent opencode exited,
+   the pipe closed. Every subsequent daemon stderr write (including
+   the `instance registered: ...` log) threw EPIPE, which became an
+   uncaughtException, which terminated the daemon with exit code 1.
+   The fix attempts after that hid the crash log but did not stop the
+   crash. Definitive fix (current): catch EPIPE explicitly in
+   `logToFile` (do not re-throw) and change daemon-spawner.js to use
+   `stdio: ["ignore", "ignore", "ignore"]` so no stderr pipe is
+   created in the first place. Daemon logs already go to the
+   activity log via `appendFileSync`, so stderr is redundant.
 
 ### Added
 
