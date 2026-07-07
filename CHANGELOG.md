@@ -138,6 +138,23 @@ User reported two issues after daily use:
   pattern are `stable`, anything else is `dev`. `--ref` is mutually
   exclusive with `--stable` and `--dev`; passing any combination
   errors out (POSIX Guideline 11).
+- `opencode-rpc update --dev [BRANCH]`: install latest commit on
+  BRANCH. BRANCH is optional; if omitted, defaults to `main`.
+  Important: `main` is currently v2.1.1 (pre-redesign). Users on
+  v3 must pass the branch explicitly, e.g.
+  `--dev redesign/v3-daemon`, or they will be downgraded to v2.x.
+- `opencode-rpc update --repo OWNER/REPO`: install from a fork
+  instead of the upstream `Khip01/opencode-rich-presence`. Use
+  this to test changes in your own fork before opening a PR.
+  Combine with `--dev`, `--stable`, or `--ref`. Validated against
+  `^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$`.
+- `runNpmInstall` no longer uses `git fetch --depth=1 origin <ref>`.
+  That pattern failed for commit SHAs because git treats SHAs as
+  refs in fetch but only finds them when they're in the local
+  shallow history, which `--depth=1` does not provide. Replaced
+  with a full `git clone` followed by direct `git checkout <ref>`,
+  which handles branch names, tag names, AND commit SHAs (full
+  or short) uniformly.
 - `tests/` directory with three harnesses for regression:
   - `tests/phase1-harness.mjs`: 46 scenarios covering event
     capture, state transitions, template renders, multi-instance

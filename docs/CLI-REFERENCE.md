@@ -61,13 +61,24 @@ Commands:
   version      Print version
 
 Options (update):
-  --dev        Install latest commit from main branch (developer)
-  --stable     Force install latest stable tag (use to switch off dev)
-  --ref REF    Install a specific git ref: tag, branch, or commit SHA.
-               Use this for pre-release branches (e.g.
-               --ref redesign/v3-daemon). Avoids the npm v11
-               git-dep symlink bug that breaks `npm install -g
-               <url>#<branch>` for global packages.
+  --dev [BRANCH]  Install latest commit on BRANCH (default: main).
+                  IMPORTANT: --dev defaults to the upstream `main`
+                  branch, which is currently v2.1.1 (pre-redesign).
+                  If you are on v3, pass the branch explicitly or
+                  you will be downgraded to v2.x:
+                    opencode-rpc update --dev redesign/v3-daemon
+  --stable         Force install latest stable tag (use to switch off dev)
+  --ref REF        Install a specific git ref: tag, branch, or commit SHA.
+                   Use this for pre-release branches (e.g.
+                   --ref redesign/v3-daemon). Avoids the npm v11
+                   git-dep symlink bug that breaks `npm install -g
+                   <url>#<branch>` for global packages. Supports any
+                   git ref including short SHAs (`--ref 6664bfb`) and
+                   full SHAs (`--ref 6664bfb0ba316180fa08617dcb04ee1b59599e7f`).
+  --repo OWNER/REPO  Install from a fork instead of the upstream repo.
+                    Use this to test changes in your own fork before
+                    opening a PR. Combine with --dev, --stable, or --ref.
+                    Format: OWNER/REPO (letters, digits, `.`, `_`, `-`).
 
 Installation (one-time):
   # Recommended (sidesteps npm v11 git-dep bug):
@@ -80,6 +91,18 @@ Installation (one-time):
 
   # Specific branch:
   opencode-rpc update --ref redesign/v3-daemon
+  opencode-rpc install
+
+  # Track a pre-release branch (latest commit):
+  opencode-rpc update --dev redesign/v3-daemon
+  opencode-rpc install
+
+  # Specific commit SHA:
+  opencode-rpc update --ref 471ce94
+  opencode-rpc install
+
+  # Install from your own fork:
+  opencode-rpc update --repo myname/opencode-rich-presence --ref my-branch
   opencode-rpc install
 
   # Or, for npmjs registry / stable tag with npm (zsh needs quotes):
@@ -221,14 +244,15 @@ Next steps:
 
 ## `opencode-rpc update`
 
-Upgrades the installed package. Four modes:
+Upgrades the installed package. Five modes:
 
 | Mode | What it does |
 |------|--------------|
 | default | Compare current version against latest stable release tag. If newer, install. |
-| `--dev` | Skip version check. Install latest commit on `main`. |
+| `--dev [BRANCH]` | Skip version check. Install latest commit on BRANCH. Defaults to `main`, which is currently v2.1.1 (pre-redesign); pass the branch explicitly if you are on v3. |
 | `--stable` | Skip version check. Install latest stable release tag. |
-| `--ref REF` | Install a specific git ref: tag, branch, or commit SHA. |
+| `--ref REF` | Install a specific git ref: tag, branch, or commit SHA. Supports any ref including short SHAs (`6664bfb`) and full SHAs (`6664bfb0ba316180fa08617dcb04ee1b59599e7f`). |
+| `--repo OWNER/REPO` | Install from a fork instead of the upstream repo. Combine with `--dev`, `--stable`, or `--ref`. |
 
 `--stable`, `--dev`, and `--ref` are mutually exclusive. Passing any
 two exits with code 2 and a clear error message (POSIX Guideline 11).
@@ -245,11 +269,17 @@ no `package.json`, no `bin/`) and never creates the
 `zsh: command not found: opencode-rpc` even though npm reported
 "added 1 package".
 
-Internally, all four modes clone the repo, fetch the requested
-ref, run `npm pack`, and install the resulting local tarball via
-`npm install -g <path>.tgz`. This avoids npm v11's git-dep symlink
-bug which produces broken symlinks and `ENOTDIR` on subsequent
-installs.
+Internally, all five modes clone the repo, check out the requested
+ref (or fetch the latest commit for `--dev`), run `npm pack`, and
+install the resulting local tarball via `npm install -g <path>.tgz`.
+This avoids npm v11's git-dep symlink bug which produces broken
+symlinks and `ENOTDIR` on subsequent installs.
+
+The clone is a full clone (no `--depth=1`) so commit SHAs work
+without special handling. `git checkout <ref>` handles branch names,
+tag names, and SHAs (full or short) uniformly. Cleanup of the
+previous install is deferred until AFTER the tarball is built, so a
+failed fetch leaves the existing CLI intact instead of removing it.
 
 **Example: stable update**
 
@@ -263,24 +293,28 @@ Latest:  v2.1.1
 You are already on the latest stable release.
 ```
 
-**Example: dev update**
+**Example: dev update (track a specific branch)**
 
 ```
-$ opencode-rpc update --dev
+$ opencode-rpc update --dev redesign/v3-daemon
 
-opencode-rich-presence update (--dev)
+opencode-rich-presence update (--dev redesign/v3-daemon)
 
-Current: v2.1.1 (stable)
-Latest:  eac311d (latest commit on main)
-Installing dev build (eac311d)...
+Current: v3.1.1-phase2 (dev: redesig)
+Latest:  471ce94 (latest commit on redesign/v3-daemon)
+Installing dev build (471ce94)...
 
 Cloning repo...
-Fetched eac311d.
+Checked out 471ce94.
 Packaging...
-Installed opencode-rich-presence@eac311d (dev).
+Installed opencode-rich-presence@471ce94 (dev).
 
 Restart OpenCode to load the new build.
 ```
+
+`--dev` without a branch name defaults to `main`, which is
+currently v2.1.1 (pre-redesign). If you are on v3, pass the branch
+explicitly to avoid an unwanted downgrade.
 
 **Example: install a specific branch**
 
@@ -301,11 +335,35 @@ Restart OpenCode to load the new build.
 ```
 
 `--ref` works with any git ref the repo exposes: a tag
-(`--ref v3.0.4-phase2`), a branch (`--ref redesign/v3-daemon`), or a
-commit SHA (`--ref 6664bfb`). The channel label written to the
-`.install-channel` marker is inferred from the ref: refs matching a
-semver pattern are labelled `stable`, anything else is `dev`. You can
-verify the channel with `opencode-rpc version`.
+(`--ref v3.0.4-phase2`), a branch (`--ref redesign/v3-daemon`), a
+short commit SHA (`--ref 6664bfb`), or a full commit SHA
+(`--ref 6664bfb0ba316180fa08617dcb04ee1b59599e7f`). The channel
+label written to the `.install-channel` marker is inferred from the
+ref: refs matching a semver pattern are labelled `stable`, anything
+else is `dev`. You can verify the channel with `opencode-rpc version`.
+
+**Example: install from a fork**
+
+```
+$ opencode-rpc update --repo myname/opencode-rich-presence --ref my-branch
+
+opencode-rich-presence update (--ref my-branch)
+Source repo:    myname/opencode-rich-presence
+
+Current: v3.1.1-phase2 (stable)
+Treating as channel=dev for version reporting.
+
+Cloning repo...
+Checked out my-branch.
+Packaging...
+Installed opencode-rich-presence@myname/opencode-rich-presence@my-branch (dev).
+
+Restart OpenCode to load the new build.
+```
+
+`--repo OWNER/REPO` switches the GitHub repo the install pulls from.
+Combine with `--dev`, `--stable`, or `--ref` to pick a branch.
+Format: `OWNER/REPO` (letters, digits, `.`, `_`, `-`).
 
 ---
 

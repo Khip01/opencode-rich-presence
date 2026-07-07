@@ -1,6 +1,6 @@
 {
   "name": "opencode-rich-presence",
-  "version": "3.1.1-phase2",
+  "version": "3.1.2-phase2",
   "description": "OpenCode plugin + daemon that pushes AI session state to Discord via a single persistent connection.",
   "type": "module",
   "main": "./src/plugin/index.js",
