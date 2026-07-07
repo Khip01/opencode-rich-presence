@@ -40,6 +40,7 @@ const OPENCODE_DIR = process.env.OPENCODE_CONFIG_DIR;
 const ACTIVITY_LOG = join(OPENCODE_DIR, "presence-activity.log");
 const SOCKET = join(OPENCODE_DIR, ".opencode-rich-presence.sock");
 const PID_FILE = join(OPENCODE_DIR, ".opencode-rich-presence.pid");
+const MAX_CLIENT_LINE_BYTES = 1024 * 1024;
 
 let passed = 0;
 let failed = 0;
@@ -172,6 +173,30 @@ let sock1 = null;
 let sock2 = null;
 
 try {
+    await scenario("0. Oversized client line is dropped without killing daemon", async () => {
+        const noisySock = net.createConnection(SOCKET);
+        noisySock.setEncoding("utf-8");
+        await new Promise((resolve, reject) => {
+            noisySock.once("connect", resolve);
+            noisySock.once("error", reject);
+        });
+
+        let closed = false;
+        noisySock.once("close", () => { closed = true; });
+        noisySock.write("x".repeat(MAX_CLIENT_LINE_BYTES + 1));
+        await sleep(500);
+
+        assert(closed || noisySock.destroyed, "oversized client connection closed");
+
+        const daemonPid = parseInt(readFileSync(PID_FILE, "utf-8").trim(), 10);
+        let alive = false;
+        try { process.kill(daemonPid, 0); alive = true; } catch {}
+        assert(alive && existsSync(SOCKET), "daemon remains alive after oversized client input");
+
+        const log = readLog();
+        assert(log.includes("client message too large"), "oversized message is logged");
+    });
+
     await scenario("1. Single-instance rapid transitions: final state lands", async () => {
         sock1 = await connectClient(99001);
 
