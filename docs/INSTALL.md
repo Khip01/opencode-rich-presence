@@ -34,7 +34,7 @@ npm v11 git-dep bug described below.
 ### B. From a specific release tag
 
 ```bash
-opencode-rpc update --ref v3.0.4-phase2
+  opencode-rpc update --ref v3.1.3-phase2
 opencode-rpc install
 ```
 

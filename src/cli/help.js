@@ -26,11 +26,11 @@ Options (update):
                    instead of \`npm install -g <url>#<branch>\`, which hits
                    a npm v11 bug that installs the package without bin
                    symlinks (the opencode-rpc command would be missing).
-                   Examples:
-                     opencode-rpc update --ref redesign/v3-daemon
-                     opencode-rpc update --ref v3.0.4-phase2
-                     opencode-rpc update --ref 6664bfb
-                     opencode-rpc update --ref 471ce940ba316180fa08617dcb04ee1b59599e7f
+                    Examples:
+                      opencode-rpc update --ref redesign/v3-daemon
+                      opencode-rpc update --ref v3.1.3-phase2
+                      opencode-rpc update --ref 6664bfb
+                      opencode-rpc update --ref 471ce940ba316180fa08617dcb04ee1b59599e7f
   --repo OWNER/REPO  Install from a fork instead of the upstream repo.
                      Use this to test changes in your own fork before
                      opening a PR:
