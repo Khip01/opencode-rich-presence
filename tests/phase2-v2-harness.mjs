@@ -69,6 +69,14 @@ async function clear() {
     await sleep(500);
     try { unlinkSync(SOCKET); } catch {}
     try { unlinkSync(PID_FILE); } catch {}
+    // Also wipe the activity log so stale "Discord connected" entries
+    // from a previous daemon do not fool waitForDaemonConnected into
+    // thinking the freshly-spawned daemon has already completed its
+    // IPC handshake (it has not yet). Without this, when this harness
+    // runs after phase1 or phase2 in a combined `npm test`, Scenario 1
+    // sometimes sees 0 daemon pushes because it sends its first state
+    // before the new daemon's discordConnected flag flips to true.
+    try { unlinkSync(ACTIVITY_LOG); } catch {}
     await sleep(300);
 }
 
