@@ -14,10 +14,12 @@ need to navigate this codebase safely.
   that holds a single Discord connection for the whole machine;
   OpenCode plugin instances connect to it via local Unix socket
   and forward their rendered presence payload.
-- **Latest stable release on `main`**: v2.1.1 (tag `v2.1.1`).
-  v2.x is the pre-redesign line and uses per-session worker +
-  leader election. `main` is currently being held at v2.1.1
-  while `redesign/v3-daemon` carries the v3 development.
+- **Latest stable release on `main`**: v3.1.4-phase2 (tag
+  `v3.1.4-phase2`). `redesign/v3-daemon` has been merged into
+  `main`. v3 uses the daemon architecture that holds a single
+  Discord connection for the whole machine.
+- **Legacy stable (v2.x)**: v2.1.1 (tag `v2.1.1`). Still tagged
+  for users who need the per-session worker design.
 - **Node.js**: 18+ required, tested with 24.x (CI runs 20, 22, 24)
 - **npm registry**: package is NOT currently published to npmjs.com.
   Distribution is via `opencode-rpc update --ref <ref>` (the
@@ -25,8 +27,9 @@ need to navigate this codebase safely.
   `npm install -g <repo>#<tag>` for stable tags. Optional
   `NPM_TOKEN` secret enables auto-publish on tagged releases.
 - **Repository**: github.com/Khip01/opencode-rich-presence
-- **Default branch**: `main` (currently v2.1.1)
-- **Active dev branch**: `redesign/v3-daemon` (currently v3.1.4-phase2)
+- **Default branch**: `main` (currently v3.1.4-phase2)
+- **Active dev branch**: `main` (v3 redesign merged from
+  `redesign/v3-daemon`)
 - **Plugin author Discord App ID** (default fallback in
   config-resolver.js): `1512803991300476989`
 - **Asset key** (Discord rich presence image):
@@ -128,23 +131,32 @@ around the npm v11 bug.
 
 | Audience | Command |
 |----------|---------|
-| End user (stable v2.x) | `npm install -g 'Khip01/opencode-rich-presence#v2.1.1'` (zsh: quote) |
+| End user (stable) | `npm install -g 'Khip01/opencode-rich-presence#v2.1.1'` (zsh: quote) |
 | End user (auto-resolve latest stable) | `npm install -g 'Khip01/opencode-rich-presence#semver:^2.0.0'` |
-| User (v3 stable, once released) | `opencode-rpc update --ref v3.0.0 && opencode-rpc install` |
-| Developer (v3 redesign branch) | `opencode-rpc update --ref redesign/v3-daemon && opencode-rpc install` |
-| Developer (track a branch for ongoing dev installs) | `opencode-rpc update --dev redesign/v3-daemon && opencode-rpc install` |
+| User (v3 release) | `opencode-rpc update --ref v3.1.4-phase2 && opencode-rpc install` |
+| Developer (v3 main branch) | `opencode-rpc update --dev main && opencode-rpc install` |
+| Developer (track a branch) | `opencode-rpc update --dev <branch> && opencode-rpc install` |
 | Developer (specific commit SHA) | `opencode-rpc update --ref <sha> && opencode-rpc install` |
 | Test your own fork | `opencode-rpc update --repo <fork-owner>/opencode-rich-presence --ref <branch>` |
 
-**DO NOT use `npm install -g Khip01/opencode-rich-presence#<branch>`**
-for branches — npm v11 has a bug installing git deps with `#ref` for
-global packages that creates a partial
-`lib/node_modules/opencode-rich-presence/` directory (only `src/`,
-no `package.json`, no `bin/`) and never creates the `opencode-rpc`
-symlink. You would see `zsh: command not found: opencode-rpc` even
-though npm reported "added 1 package". For tags this still works
-because tags are simple refs that npm handles without git's
-shallow-clone machinery.
+**DO NOT use `npm install -g Khip01/opencode-rich-presence#<ref>`**
+for ANY ref type (branches, tags, SHAs). npm v11 has a bug
+installing git deps for global packages that produces a partial
+`lib/node_modules/opencode-rich-presence/` directory (only `src/`
+and `.github/`, no `package.json`, no `bin/`, no `config/`)
+and never creates the `opencode-rpc` binary symlink. You would see
+`zsh: command not found: opencode-rpc` even though npm reported
+"added 1 package".
+
+The root cause: npm v11's git dep handler uses the `files` field
+from `package.json` to filter which files to extract, but has a
+bug where it extracts incompletely. This project removed the
+`files` field (replaced with `.npmignore`) as a workaround, but
+npm v11 still has the underlying bug for some scenarios.
+
+Use `opencode-rpc update --ref <ref>` instead, which does a full
+`git clone` + `npm pack` + tarball install, bypassing npm's git
+dep handler entirely.
 
 The five CLI commands are:
 
@@ -157,9 +169,8 @@ The five CLI commands are:
 3. `opencode-rpc update --stable`: force install latest stable tag,
    for switching back from --dev mode.
 4. `opencode-rpc update --dev [BRANCH]`: developer-only upgrade.
-   Installs the latest commit on BRANCH (defaults to `main`,
-   which is currently v2.1.1 — pass the branch explicitly when on
-   v3 to avoid a silent downgrade to v2.x).
+    Installs the latest commit on BRANCH (defaults to `main`,
+    which is currently v3.1.4-phase2).
 5. `opencode-rpc update --ref REF`: install a specific git ref
    (tag, branch, or commit SHA). Works for any ref including short
    SHAs (`--ref 471ce94`) and full SHAs.
@@ -187,12 +198,22 @@ The five CLI commands are:
 - Creates a GitHub Release with the tarball attached.
 - Optionally publishes to npm if `NPM_TOKEN` secret is set.
 
-Tags accepted: `v*` (e.g. `v3.1.0`) and `[0-9]+.*` (e.g.
+Known workflow pitfalls (already fixed but easy to reintroduce):
+- **Job-level `!` operator requires `${{ }}`**:
+  `if: ${{ !contains(...) }}`. Without the wrapper, YAML treats
+  `!` as a tag prefix and the workflow parser fails.
+- **`secrets` context in step-level `if:` is not allowed**:
+  Must pass via `env:` and check `env.VAR != ''`.
+- **Tag filters use glob, not regex**: `[0-9]*` not `[0-9]+.*`.
+- **`registry-url` required for setup-node when using NODE_AUTH_TOKEN**.
+- **`id-token: write` permission required for npm publish --provenance**.
+
+Tags accepted: `v*` (e.g. `v3.1.0`) and `[0-9]*` (e.g.
 `3.1.4-phase2`). Tags containing `-rc`, `-beta`, or `-alpha` are
-filtered out so pre-release noise does not pollute the Releases
-sidebar. The tarball is for offline / air-gapped installs and
-optional npm publish; the git URL + CLI install path remains
-canonical.
+filtered out via job-level `if: ${{ !contains(...) }}` so pre-release
+noise does not pollute the Releases sidebar. The tarball is for
+offline / air-gapped installs and optional npm publish; the git URL +
+CLI install path remains canonical.
 
 ## Critical Implementation Details (Phase 1)
 
@@ -556,6 +577,55 @@ on day one:
 These are the only way to see what killed the process. Without
 them, silent death looks like "the daemon just stopped" and you
 end up guessing.
+
+### `!` operator at job-level `if:` requires `${{ }}` wrapper
+
+In GitHub Actions workflow files, the `!` (negation) operator at
+the job level (`jobs.<id>.if`) must be wrapped in `${{ }}`:
+`if: ${{ !contains(...) }}`. Without the wrapper, YAML treats
+`!` as a reserved tag prefix and the workflow parser fails before
+any job can execute. Step-level `if:` conditions have the same
+requirement for expressions starting with `!`.
+
+### `secrets` context is NOT available in step-level `if:`
+
+GitHub Actions does not allow accessing the `secrets` context
+directly in `jobs.<id>.steps[].if`. Using `if: secrets.NPM_TOKEN`
+(with or without `${{ }}`) produces:
+"Unrecognized named-value: 'secrets'".
+
+The workaround is to pass the secret to an `env:` variable and
+check the env variable instead:
+```yaml
+- name: Publish
+  if: env.NPM_TOKEN_CHECK != ''
+  env:
+    NPM_TOKEN_CHECK: ${{ secrets.NPM_TOKEN }}
+  run: npm publish
+```
+
+This applies to ANY secret, not just NPM_TOKEN.
+
+### `files` field in package.json breaks npm v11 git dep installs
+
+npm v11's git dependency handler uses the `files` field from
+package.json to determine which files to extract from the git
+clone. A bug in v11 causes incomplete extraction when `files` is
+present: only `src/` and `.github/` appear in the installed
+package, while `bin/`, `config/`, `docs/`, and other files listed
+in `files` are missing. The `opencode-rpc` binary symlink is
+created but broken because `bin/opencode-rpc.js` does not exist
+in the partial extraction.
+
+Fix: remove the `files` field from package.json and use
+`.npmignore` instead. Without a `files` field, npm includes all
+git-tracked files minus `.npmignore` patterns, which works
+correctly in both npm v10 and v11 for git deps and published
+packages.
+
+The `check-pkg.js` prepack script must be updated to handle
+absent `files` (it previously required the field) by verifying
+disk presence instead.
 
 ### Distinguish hypothesis-confirming diagnostics from actual fixes
 
