@@ -63,12 +63,30 @@ Commands:
 Options (update):
   --dev        Install latest commit from main branch (developer)
   --stable     Force install latest stable tag (use to switch off dev)
+  --ref REF    Install a specific git ref: tag, branch, or commit SHA.
+               Use this for pre-release branches (e.g.
+               --ref redesign/v3-daemon). Avoids the npm v11
+               git-dep symlink bug that breaks `npm install -g
+               <url>#<branch>` for global packages.
 
 Installation (one-time):
-  npm install -g Khip01/opencode-rich-presence#v2.1.1
+  # Recommended (sidesteps npm v11 git-dep bug):
+  opencode-rpc update                  # latest stable
   opencode-rpc install
 
-  # Or install from main (dev / bleeding-edge):
+  # Specific version:
+  opencode-rpc update --ref v3.0.4-phase2
+  opencode-rpc install
+
+  # Specific branch:
+  opencode-rpc update --ref redesign/v3-daemon
+  opencode-rpc install
+
+  # Or, for npmjs registry / stable tag with npm (zsh needs quotes):
+  npm install -g 'Khip01/opencode-rich-presence#v3.0.4-phase2'
+  opencode-rpc install
+
+  # Or default branch tip:
   npm install -g Khip01/opencode-rich-presence
   opencode-rpc install
 
@@ -76,6 +94,7 @@ Update:
   opencode-rpc update                  # latest stable release tag
   opencode-rpc update --dev            # latest commit on main (developer)
   opencode-rpc update --stable         # latest stable tag (any state)
+  opencode-rpc update --ref REF        # specific ref (branch/tag/SHA)
 
 Documentation: https://github.com/Khip01/opencode-rich-presence
 ```
@@ -202,18 +221,31 @@ Next steps:
 
 ## `opencode-rpc update`
 
-Upgrades the installed package. Three modes:
+Upgrades the installed package. Four modes:
 
 | Mode | What it does |
 |------|--------------|
 | default | Compare current version against latest stable release tag. If newer, install. |
 | `--dev` | Skip version check. Install latest commit on `main`. |
 | `--stable` | Skip version check. Install latest stable release tag. |
+| `--ref REF` | Install a specific git ref: tag, branch, or commit SHA. |
 
-`--stable` and `--dev` are mutually exclusive. Passing both exits
-with code 2 and a clear error message (POSIX Guideline 11).
+`--stable`, `--dev`, and `--ref` are mutually exclusive. Passing any
+two exits with code 2 and a clear error message (POSIX Guideline 11).
+`--ref` requires a value: `opencode-rpc update --ref` alone errors
+out.
 
-Internally, all three modes clone the repo, fetch the requested
+The `--ref` mode is the recommended way to install pre-release
+branches like `redesign/v3-daemon`. Do NOT use the equivalent
+`npm install -g <url>#<branch>` form: npm v11 has a bug installing
+git deps with `#ref` for global packages that creates a partial
+directory at `lib/node_modules/opencode-rich-presence/` (only `src/`,
+no `package.json`, no `bin/`) and never creates the
+`~/.nvm/.../bin/opencode-rpc` symlink. You would then see
+`zsh: command not found: opencode-rpc` even though npm reported
+"added 1 package".
+
+Internally, all four modes clone the repo, fetch the requested
 ref, run `npm pack`, and install the resulting local tarball via
 `npm install -g <path>.tgz`. This avoids npm v11's git-dep symlink
 bug which produces broken symlinks and `ENOTDIR` on subsequent
@@ -249,6 +281,31 @@ Installed opencode-rich-presence@eac311d (dev).
 
 Restart OpenCode to load the new build.
 ```
+
+**Example: install a specific branch**
+
+```
+$ opencode-rpc update --ref redesign/v3-daemon
+
+opencode-rich-presence update (--ref)
+
+Current: v3.0.4-phase2 (stable)
+Treating as channel=dev for version reporting.
+
+Cloning repo...
+Fetched redesign/v3-daemon.
+Packaging...
+Installed opencode-rich-presence@redesign/v3-daemon (dev).
+
+Restart OpenCode to load the new build.
+```
+
+`--ref` works with any git ref the repo exposes: a tag
+(`--ref v3.0.4-phase2`), a branch (`--ref redesign/v3-daemon`), or a
+commit SHA (`--ref 6664bfb`). The channel label written to the
+`.install-channel` marker is inferred from the ref: refs matching a
+semver pattern are labelled `stable`, anything else is `dev`. You can
+verify the channel with `opencode-rpc version`.
 
 ---
 

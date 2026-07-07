@@ -92,6 +92,27 @@ If daemon is missing or stale:
 1. The next chat.message will spawn a fresh daemon.
 2. To force: `opencode-rpc restart` (kills old daemon, rotates log).
 
+### "Display works on odd cycles but fails on even cycles"
+
+Classic symptom of the EPIPE-on-closed-stderr-pipe bug (fixed in
+v3.0.4-phase2). Pattern: open opencode and fire (display appears),
+exit, open opencode again and fire (display does not appear), exit,
+open again (display appears), exit, open again (display does not
+appear), ...
+
+Diagnosis:
+1. `tail -f ~/.config/opencode/presence-activity.log | grep -E "daemon|uncaughtException|exit"`
+2. Look for `uncaughtException: Error: write EPIPE` followed by
+   `exit code=1` shortly after the parent opencode process exited.
+3. Each "exit code=1" is one daemon dying. The next cycle spawns a
+   fresh daemon (which can hit Discord's app-id cooldown, hence the
+   "every other cycle fails" symptom).
+
+Fix: upgrade to v3.0.4-phase2 or later. The fix changes the daemon's
+`stdio` from `stderr=pipe` to `stderr=ignore` so no pipe is created
+in the first place, plus a defensive EPIPE catch in the log helper.
+Without a fix, the symptom is permanent on every multi-cycle use.
+
 ### "Activity log is empty after I open OpenCode"
 
 Check that the plugin loaded at all:
@@ -493,6 +514,45 @@ regardless of pending handles.
 (Phase 2: not applicable. Phase 2 has no npm dependency to
 install.)
 
+### Phase 2: Display works on odd cycles, fails on even cycles
+
+**Symptom:** Open opencode, fire AI, Discord shows presence. Exit
+opencode. Open again, fire AI, Discord does not show. Exit. Open
+again, fire AI, Discord shows. Pattern repeats: odd cycles work, even
+cycles fail.
+
+**Root cause:** EPIPE on closed stderr pipe. The daemon was spawned
+with `stdio: ["ignore", "ignore", "pipe"]`, piping its stderr to the
+parent plugin process. When the parent opencode exited, the OS
+closed its end of the pipe. The next stderr write from the daemon
+(every `logToFile` call) threw EPIPE, which Node 15+ escalates to an
+uncaughtException by default. The daemon called `process.exit(1)` and
+died. The next opencode launch then spawned a fresh daemon (new
+Discord handshake), which sometimes hit Discord's app-id cooldown
+and dropped the first SET_ACTIVITY, producing the "every other cycle
+fails" symptom.
+
+**How to verify:**
+```bash
+tail -f ~/.config/opencode/presence-activity.log | grep -E "EPIPE|uncaughtException|exit code|daemon starting"
+```
+Look for:
+- `uncaughtException: Error: write EPIPE at logToFile ... at handleClientMessage ...`
+- `exit code=1` shortly after
+- Multiple `daemon starting` entries (one per crash cycle)
+
+**Fix:** v3.0.4-phase2 and later change the daemon's `stdio` to
+`["ignore", "ignore", "ignore"]` so no stderr pipe is created, plus
+a defensive EPIPE catch in `logToFile` that re-throws only non-EPIPE
+errors. Daemon logs go to the activity log via `appendFileSync`, so
+stderr is redundant.
+
+**Lesson (for future debugging):** When a long-lived child process
+crashes silently after the parent exits, check `stdio` configuration.
+A piped stdio fd is a Linux pipe: the parent's exit closes it, and
+the child's writes become EPIPE. For long-lived children, prefer
+`stdio: "ignore"` or redirect to a log file.
+
 ---
 
 ## Quick Diagnostic Checklist
@@ -532,3 +592,20 @@ When something looks wrong, walk through this in order:
    The plugin can only push presence if Discord Desktop is open
    with the IPC socket available. Phase 2 requires Discord
    for push (Phase 1 did not push).
+
+6. **Daemon still alive across multiple opencode cycles?**
+   Phase 2 is meant to keep one daemon alive across many
+   opencode launches. Verify:
+   ```bash
+   tail -100 ~/.config/opencode/presence-activity.log | grep -E "daemon starting|exit code|uncaughtException"
+   ```
+   Expected on a healthy install:
+   - One `daemon starting` line (or one per `opencode-rpc restart`).
+   - Zero `exit code=1` lines.
+   - Zero `uncaughtException` lines.
+
+   If you see multiple `daemon starting` lines interleaved with
+   `exit code=1`, the daemon is crashing every cycle. The most
+   likely cause on v3.0.4+ is exhausted Discord rate-limit recovery
+   window. On older v3.0.3 and below, see "Display works on odd
+   cycles but fails on even cycles" above for the EPIPE bug.

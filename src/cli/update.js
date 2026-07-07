@@ -250,14 +250,28 @@ async function upgradeStable(current) {
 export async function update(args = []) {
     const isDev = args.includes("--dev");
     const isStable = args.includes("--stable");
+    // --ref <ref> installs a specific git ref (branch, tag, or SHA).
+    // This is the recommended way to install pre-release branches
+    // like `redesign/v3-daemon` because `npm install -g <url>#<branch>`
+    // hits a npm v11 bug that installs the package without bin symlinks.
+    // update.js already does a clean clone+pack+tarball install that
+    // sidesteps that bug.
+    const refIdx = args.indexOf("--ref");
+    const refArg = refIdx !== -1 ? args[refIdx + 1] : null;
+    if (refIdx !== -1 && !refArg) {
+        console.error("Error: --ref requires a value (branch name, tag, or commit SHA).");
+        console.error("Example: opencode-rpc update --ref redesign/v3-daemon");
+        console.error("         opencode-rpc update --ref v3.0.4-phase2");
+        console.error("         opencode-rpc update --ref 6664bfb");
+        process.exit(2);
+    }
 
-    // Mutually exclusive: --stable installs a tag, --dev installs latest commit.
-    // They are contradictory intents; reject with a clear error rather than
-    // silently picking one. Follows POSIX Guideline 11 and modern CLI
-    // conventions (cargo, kubectl, npm).
-    if (isStable && isDev) {
-        console.error("Error: --stable and --dev are mutually exclusive.");
-        console.error("Use one or the other, not both.");
+    // Mutually exclusive: --stable installs a tag, --dev installs latest commit,
+    // --ref installs a specific ref. Reject conflicting flags explicitly.
+    const flagCount = (isStable ? 1 : 0) + (isDev ? 1 : 0) + (refArg ? 1 : 0);
+    if (flagCount > 1) {
+        console.error("Error: --stable, --dev, and --ref are mutually exclusive.");
+        console.error("Use one or the other, not multiple.");
         process.exit(2);
     }
 
@@ -268,6 +282,26 @@ export async function update(args = []) {
         console.log("Mode: dev (latest commit on main)");
         console.log("Checking for updates...\n");
         await installDev(current);
+        return;
+    }
+
+    if (refArg) {
+        // Determine channel label for the marker file. Heuristic:
+        // refs starting with "v" or matching a semver pattern are
+        // treated as stable; anything else is treated as dev. Users
+        // who need more precision can rename the channel via the
+        // marker file directly.
+        const channel = /^v?\d+\.\d+\.\d+/.test(refArg) ? "stable" : "dev";
+        console.log(`Mode: ref (install ${refArg})`);
+        console.log(`Treating as channel=${channel} for version reporting.\n`);
+        const status = runNpmInstall(refArg);
+        if (status !== 0) {
+            console.error(`\nInstall failed (exit ${status}).`);
+            process.exit(status || 1);
+        }
+        writeInstallMarker(channel, refArg);
+        console.log(`\nNow on ${refArg} (channel: ${channel}).`);
+        console.log("Restart OpenCode to apply changes.\n");
         return;
     }
 

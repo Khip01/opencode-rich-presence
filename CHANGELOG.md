@@ -116,6 +116,17 @@ User reported two issues after daily use:
 
 ### Added
 
+- `opencode-rpc update --ref REF`: install a specific git ref
+  (branch, tag, or commit SHA). Use this for pre-release branches
+  like `redesign/v3-daemon` instead of `npm install -g <url>#<branch>`,
+  which hits a npm v11 bug that creates a partial
+  `lib/node_modules/opencode-rich-presence/` directory (only `src/`,
+  no `package.json`, no `bin/`) and never creates the
+  `opencode-rpc` symlink. The channel label written to the
+  `.install-channel` marker is inferred: refs matching a semver
+  pattern are `stable`, anything else is `dev`. `--ref` is mutually
+  exclusive with `--stable` and `--dev`; passing any combination
+  errors out (POSIX Guideline 11).
 - `tests/` directory with three harnesses for regression:
   - `tests/phase1-harness.mjs`: 46 scenarios covering event
     capture, state transitions, template renders, multi-instance

@@ -344,6 +344,50 @@ TROUBLESHOOTING.md aligned with the code in the same commit so
 the docs can never lie about what is running. When changing behavior,
 update docs in the SAME commit.
 
+### Daemon silently dies from EPIPE on closed stderr pipe
+
+Phase 2 (commit history `92ef569`, `05e99de`, `6664bfb`):
+the daemon was spawned with `stdio: ["ignore", "ignore", "pipe"]`
+so the parent plugin could see crash output. The stderr fd was a
+Linux pipe owned by the parent. When the parent opencode exited,
+the OS closed its end of the pipe. Every subsequent daemon
+`process.stderr.write()` (inside `logToFile`) threw `EPIPE`, which
+Node 15+ escalates to an uncaughtException. The daemon called
+`process.exit(1)` and died. The next opencode launch then spawned
+a fresh daemon (with a new Discord handshake) instead of reusing
+the still-alive Discord connection. The fresh daemon's first
+SET_ACTIVITY sometimes hit Discord's app-id cooldown, producing a
+"works on odd cycles, fails on even cycles" symptom.
+
+**Rule:** for any long-lived child process spawned by the plugin,
+use `stdio: ["ignore", "ignore", "ignore"]` (no pipe) OR redirect
+stderr to a log file the daemon owns. Never rely on the parent
+process keeping the stderr pipe alive across the parent's lifetime.
+Also defensively catch `EPIPE` in any `process.stderr.write()` call
+in long-lived processes (re-throw only non-EPIPE errors so other
+bugs still surface).
+
+The same applies to any other stdio fd (stdout, stdin). Long-lived
+child processes should never depend on the parent's stdio state.
+
+### Async functions called without `.catch()` terminate on rejection
+
+Node 15+ defaults to `--unhandled-rejections=throw`. Any `async`
+function called as fire-and-forget (without `.catch()` or `await`)
+will terminate the process if it rejects. Phase 2 commit `05e99de`
+caught this: `pushCurrentPresence()` is async and was called without
+`.catch()` from the state handler, goodbye handler, post-reconnect
+path, and `scheduleFinalStatePush` timer callback. Any of those
+rejections would crash the daemon.
+
+**Rule:** when calling an async function without `await` (i.e.
+fire-and-forget), always attach `.catch()` that logs the error.
+Audit every fire-and-forget call site in long-lived processes.
+
+`logToFile` is the easiest place to crash: it is called from
+every code path, including error handlers, so it must be defensive
+against EPIPE (above) and any other transient I/O errors.
+
 ## Documentation Maintenance
 
 When the project changes in ways that affect how an agent should
@@ -419,3 +463,62 @@ that introduced new bugs. When the user pushes back hard ("kalo
 gabisa jangan dipaksakan"), that is the signal that you have hit
 an architectural limit, not a transient bug. Stop iterating and
 propose the redesign.
+
+### Add crash diagnostics BEFORE attempting to fix a silent death
+
+When debugging a child process that dies without leaving a trace
+(no exit log, no SIGTERM, no stderr), the first move is to add
+diagnostics, not to attempt fixes. The Phase 2 EPIPE bug took
+several rounds because we kept guessing (clearActivity race, then
+fingerprint race, then refresh removal). All of those fixes were
+plausible but wrong. The actual cause was only visible AFTER adding
+`process.on("uncaughtException")` and `process.on("unhandledRejection")`
+handlers (commit `05e99de`), which logged the EPIPE stack trace
+pointing at `logToFile` line 133.
+
+**Rule:** for any long-lived child process, register these handlers
+on day one:
+- `process.on("uncaughtException")`: log and exit(1)
+- `process.on("unhandledRejection")`: log and exit(1)
+- `process.on("beforeExit")`: log the code (event loop drained)
+- `process.on("exit")`: log the code via sync appendFileSync
+
+These are the only way to see what killed the process. Without
+them, silent death looks like "the daemon just stopped" and you
+end up guessing.
+
+### Distinguish hypothesis-confirming diagnostics from actual fixes
+
+In the Phase 2 EPIPE debug, two commits were wrong hypothesis
+attempts that turned out to be no-ops:
+- `92ef569` removed the hello-time refresh clearActivity under
+  the theory that "Discord drops SET_ACTIVITY within 1-2s of
+  clearActivity". Real cause was something else, but the removal
+  is still correct (refresh was redundant safety net).
+- `05e99de` added `.catch()` to fire-and-forget async calls. The
+  real cause was EPIPE, not unhandled rejections, but the catches
+  are still correct (any future rejection should not crash).
+
+**Rule:** when the user's symptom persists across multiple fix
+attempts, the next step is to add a diagnostic that would
+definitively confirm or deny the current hypothesis (not just
+another attempt at the fix). For "every other cycle fails", the
+right diagnostic was a unique log line that ONLY appears in the
+failing cycle, which is exactly what `process.on("uncaughtException")`
+provided.
+
+### User's detailed observation is the most valuable debugging data
+
+The user's report "odd cycles work, even cycles fail" was the
+smoking gun. From that single sentence:
+- The bug must be related to cycle parity (alternating behavior)
+- The most likely culprit is process lifecycle (start/exit)
+- Diagnostic focus should be on what changes between odd and even
+  cycles (parent process death, daemon spawn, etc.)
+
+Without that observation, this could have been days of guessing
+about Discord's IPC behavior, app-id rate-limits, or any number
+of other theories. When debugging, always ask the user for
+specific patterns they observed, even if they seem small. The
+"every other cycle" pattern immediately narrowed the search to
+process lifecycle, which is where the bug was.

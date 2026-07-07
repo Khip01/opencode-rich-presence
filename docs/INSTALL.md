@@ -20,41 +20,58 @@ Detailed setup for `opencode-rich-presence` v2.1.1+ and v3.x Phase 1.
 
 Pick one installation method.
 
-### A. From a specific release tag (recommended for end users)
+### A. Latest stable release (recommended for end users)
 
 ```bash
-# v2.1.1 (stable, pre-redesign)
-npm install -g 'Khip01/opencode-rich-presence#v2.1.1'
-
-# v3 Phase 1 (redesign branch, no Discord push yet)
-npm install -g 'Khip01/opencode-rich-presence#redesign/v3-daemon'
+opencode-rpc update                  # latest stable release tag
+opencode-rpc install                 # link the plugin to OpenCode
 ```
 
-This installs the `opencode-rpc` CLI globally from the chosen tag/branch.
-`npm` clones the repo at that ref and installs from there. No separate
-tarball download is needed.
+This is the cleanest path. `update` clones the repo, packs a tarball,
+and installs it via `npm install -g <path>.tgz`, which sidesteps the
+npm v11 git-dep bug described below.
 
-### B. Latest stable release
+### B. From a specific release tag
 
 ```bash
-npm install -g 'Khip01/opencode-rich-presence#semver:^2.0.0'
+opencode-rpc update --ref v3.0.4-phase2
+opencode-rpc install
 ```
 
-`npm` finds the latest tag matching `^2.0.0` (e.g. v2.1.1) and installs
-from that. Pin to a specific tag (option A) for reproducibility.
+Use this when you want a specific version (reproducibility, downgrade,
+or staying on a known-good release).
 
-### C. Dev / bleeding-edge (latest commit on main)
+### C. Dev branch (e.g. a feature branch you want to test)
 
 ```bash
-npm install -g Khip01/opencode-rich-presence
+opencode-rpc update --ref redesign/v3-daemon
+opencode-rpc install
 ```
 
-No `#ref` means `npm` uses the default branch (main), i.e. the latest
-commit. Use this if you want the newest features/fixes before they are
-tagged. (No `#` in the URL, so zsh quoting is not needed for this
-command.)
+`--ref` accepts any git ref: branch name, tag, or commit SHA. Use
+this for pre-release branches.
 
-### D. From local source (for development)
+> **Do NOT use `npm install -g <url>#<branch>` for branches.** npm v11
+> has a bug installing git deps with `#ref` for global packages: the
+> install creates a partial directory at
+> `lib/node_modules/opencode-rich-presence/` (only `src/`, no
+> `package.json`, no `bin/`) and never creates the
+> `~/.nvm/.../bin/opencode-rpc` symlink. You would then see
+> `zsh: command not found: opencode-rpc` even though npm reported
+> "added 1 package". `opencode-rpc update --ref <branch>` avoids this
+> bug by installing from a local tarball.
+
+### D. Latest commit on main (no specific ref)
+
+```bash
+opencode-rpc update --dev
+opencode-rpc install
+```
+
+Equivalent to `--ref main`. Use this for the absolute newest changes
+before they are tagged.
+
+### E. From local source (for development of the plugin itself)
 
 ```bash
 git clone https://github.com/Khip01/opencode-rich-presence.git
@@ -136,19 +153,20 @@ opencode
 
 ```bash
 opencode-rpc update                  # upgrade to latest stable release (if newer)
+opencode-rpc update --stable         # force install latest stable tag (switch off dev)
 opencode-rpc update --dev            # upgrade to latest commit on main (developer)
-opencode-rpc update --stable         # force install latest stable tag (use to switch off dev)
+opencode-rpc update --ref REF        # install a specific branch, tag, or commit SHA
 ```
 
-Fetches the latest tag (or commit, with `--dev`) from GitHub, then
-clones the repo, runs `npm pack`, and installs the resulting local
-tarball via `npm install -g <path>.tgz`. This avoids npm v11's git-dep
-symlink bug (which produces broken symlinks at
-`lib/node_modules/opencode-rich-presence/` and fails with `ENOTDIR` on
-subsequent installs). `--stable` skips version comparison and always
-installs the latest tag, useful for switching back from `--dev` mode.
-`--stable` and `--dev` are mutually exclusive. Restart OpenCode
-afterwards.
+Fetches the chosen ref from GitHub, then clones the repo, runs
+`npm pack`, and installs the resulting local tarball via
+`npm install -g <path>.tgz`. This avoids npm v11's git-dep symlink bug
+(which produces broken symlinks at `lib/node_modules/opencode-rich-presence/`
+and fails with `ENOTDIR` on subsequent installs). `--stable` skips
+version comparison and always installs the latest tag, useful for
+switching back from `--dev` mode. `--ref <REF>` is the recommended way
+to install a pre-release branch (e.g. `--ref redesign/v3-daemon`).
+All four flags are mutually exclusive. Restart OpenCode afterwards.
 
 ## Uninstalling
 
