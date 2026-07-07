@@ -78,13 +78,19 @@ User reported two issues after daily use:
    silently drops SET_ACTIVITY sent within ~1-2s of clearActivity on
    the same IPC connection. The display stayed blank until a second
    instance fired (whose clearActivity + SET_ACTIVITY pair landed
-   after the cooldown window). Fix: track `lastClearSentAt` and skip
-   the hello-time refresh if we cleared within the last 60s. 60s
-   covers the typical "reopen after /exit-all" sequence while still
-   refreshing for genuinely long idle periods. The fingerprint is
-   still reset in both branches so the next SET_ACTIVITY is not
-   deduped. Recovery for stuck displays after very long idle (>60s
-   with stale Discord state): `opencode-rpc restart`.
+   after the cooldown window). Fix attempt (aedfa2d): track
+   `lastClearSentAt` and skip the hello refresh if we cleared within
+   the last 60s. This worked for the "old daemon still alive" case but
+   not for the "daemon died and got respawned" case (the new daemon
+   has `lastClearSentAt = 0`, so the refresh still fires). Fix
+   (current): remove the hello-time refresh clearActivity entirely.
+   Trust SET_ACTIVITY alone. Discord reliably accepts SET_ACTIVITY
+   when there is no preceding clearActivity on the same connection.
+   Recovery for stuck displays after a very long idle (genuine stale
+   Discord state, App-ID rate-limit survival longer than the daemon's
+   lifetime): `opencode-rpc restart`. This path is rarer than the
+   false-positive refresh-drop bug, so we trade it for simpler,
+   reliable behavior.
 
 ### Added
 
