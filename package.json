@@ -1,7 +1,7 @@
 {
   "name": "opencode-rich-presence",
-  "version": "2.1.1",
-  "description": "Cross-platform Discord Rich Presence plugin for OpenCode AI. Displays your AI session status in Discord.",
+  "version": "3.1.3-phase2",
+  "description": "OpenCode plugin + daemon that pushes AI session state to Discord via a single persistent connection.",
   "type": "module",
   "main": "./src/plugin/index.js",
   "bin": {
@@ -17,11 +17,13 @@
     "CHANGELOG.md"
   ],
   "scripts": {
-    "test": "node --test test/",
+    "test": "node tests/phase1-harness.mjs && node tests/phase2-harness.mjs && node tests/phase2-v2-harness.mjs",
+    "test:phase1": "node tests/phase1-harness.mjs",
+    "test:phase2": "node tests/phase2-harness.mjs",
+    "test:phase2-v2": "node tests/phase2-v2-harness.mjs",
+    "syntax": "node scripts/syntax-check.js",
     "smoke": "node scripts/smoke-test.js",
     "prepack": "node scripts/check-pkg.js"
-  },
-  "dependencies": {
   },
   "engines": {
     "node": ">=18",

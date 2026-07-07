@@ -1,10 +1,8 @@
 import { existsSync, readFileSync, writeFileSync, copyFileSync, mkdirSync, lstatSync, symlinkSync, unlinkSync } from "node:fs";
-import { execSync } from "node:child_process";
 import { dirname, join, basename } from "node:path";
-import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { OPENCODE_DIR, CONFIG_PATH } from "../shared/paths.js";
-import { confirm, question } from "./prompt.js";
+import { confirm } from "./prompt.js";
 
 const PKG_ROOT = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
 const EXAMPLE_CONFIG = join(PKG_ROOT, "config", "discord-config.example.json");
@@ -13,6 +11,7 @@ const PLUGIN_ENTRY_RELATIVE = "src/plugin/index.js";
 
 export async function install() {
     console.log("\nopencode-rich-presence installer\n");
+    console.log("Phase 1: local state collector + activity log (no Discord push yet).");
 
     if (!existsSync(OPENCODE_DIR)) {
         console.log(`Creating OpenCode config directory: ${OPENCODE_DIR}`);
@@ -32,7 +31,6 @@ export async function install() {
 
     await maybeMigrateRemoveFromOpencodeConfig();
     await installLocalPlugin();
-    await pruneLegacyDependencies();
 
     printNextSteps();
 }
@@ -149,30 +147,6 @@ async function installLocalPlugin() {
 
 function readlinkTarget(p) {
     return require("node:fs").readlinkSync(p);
-}
-
-// Ensure legacy dependencies are cleaned up from older installs. v2.1.2
-// replaced @xhayper/discord-rpc with our own minimal DiscordIPC client, so
-// any pre-v2.1.2 install that still has @xhayper in their
-// ~/.config/opencode/package.json should have it removed.
-async function pruneLegacyDependencies() {
-    const pkgPath = join(OPENCODE_DIR, "package.json");
-    if (!existsSync(pkgPath)) return;
-    let pkg;
-    try { pkg = JSON.parse(readFileSync(pkgPath, "utf-8")); } catch { return; }
-    if (!pkg.dependencies || !pkg.dependencies["@xhayper/discord-rpc"]) return;
-
-    delete pkg.dependencies["@xhayper/discord-rpc"];
-    writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n", "utf-8");
-    console.log(`  Pruned @xhayper/discord-rpc from ${pkgPath} (replaced by inline client)`);
-
-    console.log(`  Running npm prune in ${OPENCODE_DIR}...`);
-    try {
-        execSync("npm prune --no-audit --no-fund", { cwd: OPENCODE_DIR, stdio: "inherit" });
-    } catch (e) {
-        console.log(`  npm prune failed: ${e.message}`);
-        console.log(`  You can run it manually later: cd ${OPENCODE_DIR} && npm prune`);
-    }
 }
 
 function printNextSteps() {

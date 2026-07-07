@@ -1,0 +1,635 @@
+#!/usr/bin/env node
+// Discord RPC daemon.
+//
+// Phase 2 of the v3 redesign. Holds a single Discord IPC connection
+// for the whole machine. All OpenCode plugin instances connect to this
+// daemon via local socket, send their session state, and the daemon
+// renders + pushes to Discord. When the last OpenCode instance
+// disposes, the daemon clears presence and exits.
+//
+// Why a daemon (not per-session worker like v2.x):
+//   - Discord IPC allows only one connection per App ID. Per-session
+//     workers force a reconnect on every leadership handoff (1-3s of
+//     "display gone"). The daemon keeps one connection forever and
+//     pushes state updates in place via SET_ACTIVITY.
+//   - The user does not have to manually restart anything when
+//     switching OpenCode windows; the same Discord connection just
+//     keeps showing the most-recently-active session.
+//
+// Lifecycle:
+//   - Spawned by the first OpenCode plugin instance that fires a
+//     chat.message event (the user picked this trigger; spawning on
+//     OpenCode launch would over-eagerly start Discord when most
+//     launches don't need it).
+//   - Listens on ~/.config/opencode/.opencode-rich-presence.sock
+//     (Unix domain socket on Linux/macOS).
+//   - Connects to Discord IPC at startup. Reconnects with backoff if
+//     the Discord side drops the socket mid-session.
+//   - Tracks connected plugin instances by PID. Receives state from
+//     each. Picks the global most-recently-active session across all
+//     instances for display.
+//   - Exits when the last instance sends "goodbye" (clears Discord
+//     presence first so Discord does not show stale activity).
+//
+// IPC protocol (newline-delimited JSON over the local socket):
+//   Plugin -> Daemon:
+//     {"type": "hello", "pid": 12345}
+//         Register a new OpenCode instance.
+//     {"type": "state", "pid": 12345, "session": {...}, "config": {...}}
+//         Update this instance's session state. The daemon picks the
+//         global most-recently-active session across all instances.
+//     {"type": "goodbye", "pid": 12345}
+//         Unregister. Daemon may exit if this was the last instance.
+//   Daemon -> Plugin:
+//     {"type": "ack"}
+//         Acknowledgement (always sent in response to client messages).
+//     {"type": "discord-state", "connected": true|false, "error": "..."}
+//         Status of the Discord IPC connection. Sent on change.
+//     {"type": "log", "level": "info|warn|error", "msg": "..."}
+//         Daemon log lines for the plugin to forward to the user's
+//         activity log.
+//
+// Discord-side behavior:
+//   - SET_ACTIVITY is fire-and-forget. The daemon does not wait for
+//     the response; missing one update is harmless (the next state
+//     change will land).
+//   - Throttled to at most one SET_ACTIVITY per DISCORD_PUSH_INTERVAL_MS
+//     to respect Discord's 5-updates-per-20-seconds rate limit.
+//   - Reconnect to Discord only on socket death. Backoff: 5s -> 30s cap.
+
+import net from "node:net";
+import { unlinkSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync } from "node:fs";
+import {
+    DAEMON_SOCKET,
+    DAEMON_PID_FILE,
+    OPENCODE_DIR,
+    CONFIG_PATH,
+    DEBUG_LOG,
+    ACTIVITY_LOG,
+} from "../shared/paths.js";
+import { DiscordIPC } from "./discord-ipc.mjs";
+
+const CONNECT_TIMEOUT_MS = 30000;
+// Initial backoff after Discord IPC socket death. Grows exponentially
+// up to MAX_RECONNECT_BACKOFF_MS. Discord silently blocks new
+// connections from the same App ID after rapid disconnect/reconnect
+// cycles, so we wait a while between attempts.
+const INITIAL_RECONNECT_BACKOFF_MS = 5000;
+const MAX_RECONNECT_BACKOFF_MS = 30000;
+// Minimum interval between SET_ACTIVITY pushes. Discord limits to 5
+// updates per 20 seconds; we throttle to once per 4s to stay safely
+// under that.
+const DISCORD_PUSH_INTERVAL_MS = 4000;
+// The daemon stays alive indefinitely after the last client
+// disconnects. It only exits when explicitly signaled (SIGINT/SIGTERM,
+// sent by `opencode-rpc restart` or a manual kill). The rationale:
+// every daemon exit requires a Discord reconnect, which can hit
+// Discord's App-ID cooldown window. If the cooldown blocks the next
+// push, the user's display stays blank until they run
+// `opencode-rpc restart` again. Keeping the daemon alive avoids the
+// reconnect entirely; new OpenCode instances connect to the existing
+// daemon and reuse its Discord connection. When the last instance
+// disconnects, the daemon sends clearActivity so Discord hides the
+// stale presence; when a new instance fires, the daemon immediately
+// pushes the new state without needing to re-handshake with Discord.
+// Resource cost: ~30MB RAM, ~0% CPU when idle.
+
+// ─── State ────────────────────────────────────────────────────────────────
+
+let appId = null;
+let discordClient = null;
+let discordConnected = false;
+let lastPushAt = 0;
+let reconnectBackoffMs = INITIAL_RECONNECT_BACKOFF_MS;
+let reconnectTimer = null;
+let disposed = false;
+// Pending delayed push to guarantee the final state lands on Discord
+// even when rapid state changes (e.g. fast AI responses) hit the
+// throttle window. Set when a push is throttled, fired after the
+// throttle expires, and re-armed if a newer state arrives before it
+// fires (we always push the LATEST state, not a stale intermediate).
+let finalStateTimer = null;
+// Hash of the payload currently displayed on Discord, used to decide
+// whether the throttled delayed push would actually change anything.
+// Without this, a delayed push could repeat the same Typing payload
+// many times even after the user has fired another message.
+let lastPushedFingerprint = null;
+
+// Map of pid -> { lastSeen, sessionInfo, rendered }
+// sessionInfo is the minimal {sessionID, state, lastActivity} the
+// plugin sends. rendered is the pre-rendered presence payload the
+// plugin sent. The daemon picks the global most-recently-active.
+const instances = new Map();
+// The instance whose rendered payload is currently on Discord.
+let displayedPid = null;
+
+// ─── Logging ──────────────────────────────────────────────────────────────
+
+function logToFile(...args) {
+    const line = `[daemon ${process.pid}] ${args.join(" ")}`;
+    try { appendFileSync(DEBUG_LOG, line + "\n"); } catch {}
+    try { appendFileSync(ACTIVITY_LOG, `[${new Date().toISOString().replace("T", " ").replace("Z", "")}] [pid ${process.pid}] [daemon] ${args.join(" ")}\n`); } catch {}
+    // stderr is piped to the parent plugin process (see daemon-spawner.js
+    // `stdio: ["ignore", "ignore", "pipe"]`). When the parent opencode
+    // process exits, the pipe closes. Writing to a closed pipe throws
+    // EPIPE on Linux. EPIPE was propagating as an uncaughtException
+    // and terminating the daemon with code=1, which made the next
+    // opencode launch spawn a fresh daemon instead of reusing the
+    // existing one. Catch EPIPE explicitly so the daemon stays alive
+    // even if its stderr pipe is closed.
+    try { process.stderr.write(line + "\n"); } catch (e) {
+        if (e?.code !== "EPIPE") {
+            // Re-throw unexpected errors so the uncaughtException
+            // handler still logs them.
+            throw e;
+        }
+    }
+}
+
+// ─── Discord lifecycle ────────────────────────────────────────────────────
+
+async function loadAppId() {
+    if (process.env.DISCORD_APP_ID) return process.env.DISCORD_APP_ID;
+    if (!existsSync(CONFIG_PATH)) {
+        throw new Error(`No Discord App ID. Set DISCORD_APP_ID or create ${CONFIG_PATH}`);
+    }
+    try {
+        const cfg = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+        if (cfg.discordAppId) return cfg.discordAppId;
+    } catch (e) {
+        throw new Error(`Could not parse ${CONFIG_PATH}: ${e?.message || e}`);
+    }
+    throw new Error(`No discordAppId in ${CONFIG_PATH}`);
+}
+
+async function connectDiscord() {
+    if (disposed) return;
+    if (discordConnected) return;
+    try {
+        if (!appId) appId = await loadAppId();
+        if (!discordClient) {
+            discordClient = new DiscordIPC({ clientId: appId, timeoutMs: CONNECT_TIMEOUT_MS });
+            discordClient.onDisconnected((reason) => {
+                logToFile(`Discord IPC disconnected: ${reason}`);
+                discordConnected = false;
+                broadcastDiscordState();
+                scheduleReconnect();
+            });
+        }
+        await discordClient.connect();
+        discordConnected = true;
+        reconnectBackoffMs = INITIAL_RECONNECT_BACKOFF_MS;
+        logToFile(`Discord connected (appId=${appId})`);
+        broadcastDiscordState();
+        // Push current state immediately after reconnect.
+        pushCurrentPresence().catch((e) => {
+            logToFile(`post-connect push failed: ${e?.message || e}`);
+        });
+    } catch (e) {
+        logToFile(`Discord connect failed: ${e?.message || e}`);
+        discordConnected = false;
+        broadcastDiscordState();
+        scheduleReconnect();
+    }
+}
+
+// Note: a previous version of this daemon ran a periodic PING-based
+// health check that triggered reconnect after 30s without a PONG.
+// That turned out to be too aggressive: Discord does not reliably
+// reply to PING (or the reply is dropped at the OS layer), so the
+// daemon was reconnecting every ~20-30s and clearing the display each
+// time. We now trust write errors on the IPC socket to surface a
+// real disconnect (the _sendFrame write callback invokes
+// _markDisconnected, which calls our disconnected handler). The
+// remaining risk: a "silently-dead" socket where writes buffer
+// forever. In practice Discord does surface close/error quickly when
+// the IPC socket dies, and the write-error fallback covers the rest.
+
+function scheduleReconnect() {
+    if (reconnectTimer || disposed) return;
+    reconnectTimer = setTimeout(() => {
+        reconnectTimer = null;
+        connectDiscord();
+    }, reconnectBackoffMs);
+    if (reconnectTimer.unref) reconnectTimer.unref();
+    // Grow backoff for next time, capped.
+    reconnectBackoffMs = Math.min(MAX_RECONNECT_BACKOFF_MS, Math.floor(reconnectBackoffMs * 1.5));
+    logToFile(`Reconnect in ${reconnectBackoffMs}ms`);
+}
+
+async function disconnectDiscord() {
+    if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+    if (discordClient) {
+        try { await discordClient.disconnect(); } catch {}
+    }
+    discordConnected = false;
+}
+
+// ─── State selection + push ───────────────────────────────────────────────
+
+// Pick the global most-recently-active instance. "Active" = the
+// instance's session state !== "Waiting for command". If no active
+// instance exists, fall back to the most-recently-updated instance
+// overall (idle display).
+function pickDisplayedInstance() {
+    let bestActive = null;
+    let bestActiveActivity = -Infinity;
+    let bestAny = null;
+    let bestAnyActivity = -Infinity;
+    for (const [pid, inst] of instances.entries()) {
+        if (!inst.sessionInfo) continue;
+        const activity = inst.sessionInfo.lastActivity || 0;
+        const isActive = inst.sessionInfo.state && inst.sessionInfo.state !== "Waiting for command";
+        if (isActive && activity > bestActiveActivity) {
+            bestActiveActivity = activity;
+            bestActive = pid;
+        }
+        if (activity > bestAnyActivity) {
+            bestAnyActivity = activity;
+            bestAny = pid;
+        }
+    }
+    return { active: bestActive, any: bestAny };
+}
+
+// Compute a stable fingerprint for the rendered payload. Used to
+// decide whether a delayed push would actually change what Discord
+// shows. We compare by details + state text (the user-visible
+// fields); largeImage/smallImage changes alone are not interesting.
+function fingerprintRendered(r) {
+    if (!r) return null;
+    return `${r.details || ""}||${r.state || ""}`;
+}
+
+async function pushCurrentPresence() {
+    if (!discordConnected || !discordClient) return;
+
+    const picked = pickDisplayedInstance();
+    const chosenPid = picked.active || picked.any;
+    if (!chosenPid) return;
+    const inst = instances.get(chosenPid);
+    if (!inst || !inst.rendered) return;
+
+    const sid = inst.sessionInfo?.sessionID ? inst.sessionInfo.sessionID.slice(-8) : "?";
+
+    // Compute the fingerprint of what we WOULD push now. If it
+    // matches what is already on Discord, skip entirely (no point
+    // pushing the same text again even when the throttle has
+    // expired).
+    const fp = fingerprintRendered(inst.rendered);
+    if (fp && fp === lastPushedFingerprint) return;
+
+    // Reset the throttle when the displayed instance changes (user
+    // switched terminals, or initial display). The 4s throttle is to
+    // prevent flooding when a single instance fires many events in
+    // quick succession; it should NOT delay a legitimate switch.
+    if (chosenPid !== displayedPid) {
+        lastPushAt = 0;
+    }
+    const now = Date.now();
+    if (now - lastPushAt < DISCORD_PUSH_INTERVAL_MS) {
+        // Throttled. Schedule a delayed push for the LATEST state
+        // (we re-arm the timer so a stale intermediate never lands).
+        // Without this, a fast AI response leaves Discord stuck on
+        // Typing because the WAITING push never lands within the
+        // 4s throttle window.
+        scheduleFinalStatePush();
+        return;
+    }
+    lastPushAt = now;
+
+    logToFile(
+        `push pid=${chosenPid} sid=${sid} ` +
+        `details="${inst.rendered.details || ""}" ` +
+        `state="${inst.rendered.state || ""}"`,
+    );
+
+    try {
+        await discordClient.setActivity(inst.rendered);
+        displayedPid = chosenPid;
+        lastPushedFingerprint = fp;
+        // A successful push satisfies any pending delayed push.
+        if (finalStateTimer) {
+            clearTimeout(finalStateTimer);
+            finalStateTimer = null;
+        }
+    } catch (e) {
+        logToFile(`setActivity failed: ${e?.message || e}`);
+    }
+}
+
+// Schedule a delayed push that fires after the throttle window
+// expires. The push will run pushCurrentPresence again, which will
+// re-evaluate the latest state. If the state has not changed in the
+// meantime (fingerprint matches lastPushedFingerprint), the push is
+// skipped. If the displayed instance changed, the throttle is reset
+// and the push fires immediately.
+function scheduleFinalStatePush() {
+    if (finalStateTimer) clearTimeout(finalStateTimer);
+    const wait = DISCORD_PUSH_INTERVAL_MS - (Date.now() - lastPushAt);
+    finalStateTimer = setTimeout(() => {
+        finalStateTimer = null;
+        // Wrap in catch so a rejection here becomes an unhandled
+        // rejection (which would terminate the process on Node 15+
+        // with the default --unhandled-rejections=throw policy).
+        pushCurrentPresence().catch((e) => {
+            logToFile(`scheduleFinalStatePush push failed: ${e?.message || e}`);
+        });
+    }, Math.max(50, wait));
+    if (finalStateTimer.unref) finalStateTimer.unref();
+}
+
+async function clearPresence() {
+    if (!discordConnected || !discordClient) return;
+    try {
+        await discordClient.clearActivity();
+        logToFile("clearActivity sent");
+    } catch (e) {
+        logToFile(`clearActivity failed: ${e?.message || e}`);
+    }
+}
+
+// ─── Local socket server ──────────────────────────────────────────────────
+
+let server = null;
+const clients = new Map(); // pid -> socket
+
+function broadcast(msg) {
+    const line = JSON.stringify(msg) + "\n";
+    for (const sock of clients.values()) {
+        try { sock.write(line); } catch {}
+    }
+}
+
+function broadcastDiscordState() {
+    broadcast({ type: "discord-state", connected: discordConnected });
+}
+
+function handleClientMessage(msg, sock) {
+    if (!msg || typeof msg !== "object") return;
+    const pid = msg.pid;
+
+    switch (msg.type) {
+        case "hello":
+            clients.set(pid, sock);
+            instances.set(pid, { lastSeen: Date.now(), sessionInfo: null, rendered: null });
+            // The daemon stays alive across all-exit, so a new
+            // instance connecting here just resumes on the existing
+            // Discord connection. No exit-cancel needed (the daemon
+            // does not auto-exit anymore).
+            logToFile(`instance registered: pid=${pid}`);
+            try { sock.write(JSON.stringify({ type: "ack" }) + "\n"); } catch {}
+            broadcastDiscordState();
+            // Reset the fingerprint so the new instance's first
+            // setActivity actually fires (the fingerprint might
+            // match the last clearActivity-driven push from a prior
+            // session, otherwise the first push would be deduped).
+            //
+            // We deliberately do NOT send a refresh clearActivity
+            // here. Earlier versions did (commit 0b73f42, then
+            // refined in aedfa2d to skip within 60s) but Discord
+            // silently drops SET_ACTIVITY sent within ~1-2s of
+            // clearActivity on the same IPC connection. Sending
+            // both back-to-back causes the first SET_ACTIVITY after
+            // reopening opencode to be dropped, leaving the display
+            // blank until a second instance fires.
+            //
+            // If Discord ever gets stuck after a very long idle
+            // (genuine stale display, App-ID rate-limit survival
+            // longer than the daemon's lifetime), the user can run
+            // `opencode-rpc restart` to force a fresh daemon and a
+            // fresh Discord handshake. That recovery path is rarer
+            // than the false-positive refresh-drop bug, so we trade
+            // it for the simpler, reliable behavior.
+            lastPushedFingerprint = null;
+            break;
+
+        case "state": {
+            const inst = instances.get(pid);
+            if (!inst) {
+                logToFile(`state from unknown pid ${pid}, dropping`);
+                return;
+            }
+            inst.lastSeen = Date.now();
+            inst.sessionInfo = msg.session || inst.sessionInfo;
+            inst.rendered = msg.rendered || inst.rendered;
+            // Re-push if the picked session might have changed. Throttling
+            // inside pushCurrentPresence prevents flooding. Wrap in
+            // .catch so a rejection does not become an unhandled
+            // rejection (which would terminate the process on Node
+            // 15+ with --unhandled-rejections=throw).
+            pushCurrentPresence().catch((e) => {
+                logToFile(`state push failed: ${e?.message || e}`);
+            });
+            try { sock.write(JSON.stringify({ type: "ack" }) + "\n"); } catch {}
+            break;
+        }
+
+        case "goodbye":
+            logToFile(`instance goodbye: pid=${pid}`);
+            instances.delete(pid);
+            clients.delete(pid);
+            try { sock.end(); } catch {}
+            // If this was the instance whose payload is currently
+            // on Discord, reset the fingerprint so the next push
+            // (for whichever instance takes over) is not skipped as
+            // a duplicate.
+            if (displayedPid === pid) {
+                displayedPid = null;
+                lastPushedFingerprint = null;
+            }
+            pushCurrentPresence().catch((e) => {
+                logToFile(`goodbye push failed: ${e?.message || e}`);
+            });
+            if (instances.size === 0) {
+                // Last instance just disconnected. Hide the display
+                // (clearActivity) so Discord does not show a stale
+                // presence while we wait for a new instance. The
+                // daemon itself STAYS ALIVE so a subsequent OpenCode
+                // launch does not require a Discord reconnect (which
+                // can hit Discord's App-ID cooldown window). The next
+                // instance's hello + state immediately resumes pushing
+                // on the existing Discord connection.
+                logToFile("all instances disconnected; clearing Discord presence (daemon stays alive)");
+                clearPresence().catch((e) => {
+                    logToFile(`goodbye clearPresence failed: ${e?.message || e}`);
+                });
+            }
+            break;
+
+        default:
+            logToFile(`unknown message type: ${msg.type}`);
+    }
+}
+
+// scheduleExit was removed: the daemon now stays alive after the
+// last client disconnects. See EXIT_GRACE_MS comment above for
+// rationale. If you ever want the old behavior back, reintroduce
+// this function and call it from the goodbye handler when
+// instances.size === 0.
+
+async function startServer() {
+    if (existsSync(DAEMON_SOCKET)) {
+        // Stale socket from a previous crash. Remove it.
+        try { unlinkSync(DAEMON_SOCKET); } catch {}
+    }
+    server = net.createServer((sock) => {
+        let buf = "";
+        sock.setEncoding("utf-8");
+        sock.on("data", (chunk) => {
+            buf += chunk;
+            let idx;
+            while ((idx = buf.indexOf("\n")) !== -1) {
+                const line = buf.slice(0, idx);
+                buf = buf.slice(idx + 1);
+                if (!line.trim()) continue;
+                try {
+                    const msg = JSON.parse(line);
+                    handleClientMessage(msg, sock);
+                } catch (e) {
+                    logToFile(`parse error: ${e?.message || e}`);
+                }
+            }
+        });
+        sock.on("close", () => {
+            // Find the pid this socket belonged to and remove it.
+            // Note: we do NOT call scheduleExit here. The daemon stays
+            // alive after the last client disconnects so a subsequent
+            // OpenCode launch can reuse the existing Discord
+            // connection. scheduleExit was removed in this commit;
+            // see the EXIT_GRACE_MS comment for rationale.
+            for (const [pid, s] of clients.entries()) {
+                if (s === sock) {
+                    clients.delete(pid);
+                    instances.delete(pid);
+                    logToFile(`client disconnected: pid=${pid}`);
+                    break;
+                }
+            }
+        });
+        sock.on("error", (e) => {
+            logToFile(`client socket error: ${e?.message || e}`);
+        });
+    });
+    // Retry listen() until the socket actually binds. The OS can hold a
+    // recently-closed Unix socket in TIME_WAIT for several seconds; if
+    // we get EADDRINUSE during that window the plugin would otherwise
+    // see no daemon (because we exited) and have to wait for the next
+    // spawn attempt. We retry instead so the new daemon becomes
+    // available immediately. Also handles the concurrent-spawn race
+    // where a second spawn grabs EADDRINUSE while the first daemon is
+    // still binding.
+    const start = Date.now();
+    const maxWaitMs = 15000;
+    let attempt = 0;
+    while (!disposed && Date.now() - start < maxWaitMs) {
+        attempt++;
+        try {
+            await new Promise((resolve, reject) => {
+                const onError = (err) => {
+                    server.removeListener("listening", onListening);
+                    reject(err);
+                };
+                const onListening = () => {
+                    server.removeListener("error", onError);
+                    resolve();
+                };
+                server.once("error", onError);
+                server.once("listening", onListening);
+                try {
+                    server.listen(DAEMON_SOCKET);
+                } catch (e) {
+                    server.removeListener("error", onError);
+                    server.removeListener("listening", onListening);
+                    reject(e);
+                }
+            });
+            logToFile(`listening on ${DAEMON_SOCKET} (after ${attempt} attempt(s))`);
+            return;
+        } catch (e) {
+            if (e?.code === "EADDRINUSE") {
+                logToFile(`EADDRINUSE on listen (attempt ${attempt}); retrying in 500ms`);
+                await new Promise((r) => setTimeout(r, 500));
+                continue;
+            }
+            // Unrecoverable: surface the error so main() exits and the
+            // plugin can respawn a fresh daemon.
+            throw e;
+        }
+    }
+    throw new Error(`failed to bind ${DAEMON_SOCKET} after ${maxWaitMs}ms`);
+}
+
+// ─── Lifecycle ────────────────────────────────────────────────────────────
+
+async function shutdown() {
+    if (disposed) return;
+    disposed = true;
+    logToFile("shutting down");
+    if (finalStateTimer) { clearTimeout(finalStateTimer); finalStateTimer = null; }
+    if (instances.size === 0) {
+        await clearPresence();
+    }
+    await disconnectDiscord();
+    if (server) {
+        for (const sock of clients.values()) {
+            try { sock.end(); } catch {}
+        }
+        await new Promise((r) => server.close(() => r()));
+    }
+    try { unlinkSync(DAEMON_SOCKET); } catch {}
+    try { unlinkSync(DAEMON_PID_FILE); } catch {}
+    process.exit(0);
+}
+
+process.on("SIGINT", () => { logToFile("SIGINT"); shutdown(); });
+process.on("SIGTERM", () => { logToFile("SIGTERM"); shutdown(); });
+
+// Diagnostic handlers. The daemon has been observed to die silently
+// (process gone, no SIGINT/SIGTERM log, no stderr output) right after
+// processing a `hello` from a new client. The most likely cause on
+// Node 24.x is an unhandled promise rejection terminating the process
+// (Node 15+ defaults to --unhandled-rejections=throw). These handlers
+// log every abnormal exit path so the next reproduction has a trail.
+process.on("uncaughtException", (e) => {
+    try { logToFile(`uncaughtException: ${e?.stack || e?.message || e}`); } catch {}
+    // Best-effort cleanup. Do NOT call shutdown() here because we may
+    // be in an unstable state. Exit non-zero so the next plugin
+    // chat.message spawns a fresh daemon.
+    process.exit(1);
+});
+process.on("unhandledRejection", (reason) => {
+    try { logToFile(`unhandledRejection: ${reason?.stack || reason?.message || reason}`); } catch {}
+    // Same policy: log and exit non-zero. Keep the daemon alive is
+    // risky when we do not know what state it is in.
+    process.exit(1);
+});
+process.on("beforeExit", (code) => {
+    try { logToFile(`beforeExit code=${code} (event loop drained)`); } catch {}
+});
+process.on("exit", (code) => {
+    // Synchronous-only. appendFileSync is sync so this is safe.
+    try {
+        appendFileSync(ACTIVITY_LOG,
+            `[${new Date().toISOString().replace("T", " ").replace("Z", "")}] [pid ${process.pid}] [daemon] exit code=${code}\n`);
+    } catch {}
+});
+
+async function main() {
+    try { await mkdirOpencodeDir(); } catch {}
+    logToFile(`daemon starting (pid ${process.pid})`);
+    writeFileSync(DAEMON_PID_FILE, String(process.pid));
+    await startServer();
+    await connectDiscord();
+}
+
+async function mkdirOpencodeDir() {
+    const { mkdir } = await import("node:fs/promises");
+    try { await mkdir(OPENCODE_DIR, { recursive: true }); } catch {}
+}
+
+main().catch((e) => {
+    logToFile(`fatal: ${e?.message || e}`);
+    process.exit(1);
+});
