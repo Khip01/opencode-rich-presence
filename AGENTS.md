@@ -9,7 +9,7 @@ need to navigate this codebase safely.
 
 - **Plugin name**: `opencode-rich-presence`
 - **CLI command**: `opencode-rpc`
-- **Latest version**: v3.1.3-phase2 (pre-release line on the
+- **Latest version**: v3.1.4-phase2 (pre-release line on the
   `redesign/v3-daemon` branch). v3 adds the daemon architecture
   that holds a single Discord connection for the whole machine;
   OpenCode plugin instances connect to it via local Unix socket
@@ -26,7 +26,7 @@ need to navigate this codebase safely.
   `NPM_TOKEN` secret enables auto-publish on tagged releases.
 - **Repository**: github.com/Khip01/opencode-rich-presence
 - **Default branch**: `main` (currently v2.1.1)
-- **Active dev branch**: `redesign/v3-daemon` (currently v3.1.3-phase2)
+- **Active dev branch**: `redesign/v3-daemon` (currently v3.1.4-phase2)
 - **Plugin author Discord App ID** (default fallback in
   config-resolver.js): `1512803991300476989`
 - **Asset key** (Discord rich presence image):
@@ -188,7 +188,7 @@ The five CLI commands are:
 - Optionally publishes to npm if `NPM_TOKEN` secret is set.
 
 Tags accepted: `v*` (e.g. `v3.1.0`) and `[0-9]+.*` (e.g.
-`3.1.3-phase2`). Tags containing `-rc`, `-beta`, or `-alpha` are
+`3.1.4-phase2`). Tags containing `-rc`, `-beta`, or `-alpha` are
 filtered out so pre-release noise does not pollute the Releases
 sidebar. The tarball is for offline / air-gapped installs and
 optional npm publish; the git URL + CLI install path remains

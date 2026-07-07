@@ -5,7 +5,7 @@ on:
     tags:
       - "v*"
       # Also accept semantic-version tags without the "v" prefix
-      # (e.g. "3.1.3-phase2") so we can publish the redesign branch's
+      # (e.g. "3.1.4-phase2") so we can publish the redesign branch's
       # pre-release line. The filter below rejects unstable suffixes.
       - "[0-9]+.*"
 
@@ -52,7 +52,7 @@ jobs:
           npm pack
           # Rename to include the tag name so multiple releases can
           # coexist as release assets (e.g.
-          # opencode-rich-presence-v3.1.3-phase2.tgz).
+          # opencode-rich-presence-v3.1.4-phase2.tgz).
           mv opencode-rich-presence-*.tgz opencode-rich-presence-${{ github.ref_name }}.tgz
 
       - name: Publish to npm registry (optional)

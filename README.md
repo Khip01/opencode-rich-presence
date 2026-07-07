@@ -2,7 +2,7 @@
 
 OpenCode plugin that displays your AI session status in Discord.
 
-**Status: v3.1.3-phase2** (daemon-based push, multi-instance safe).
+**Status: v3.1.4-phase2** (daemon-based push, multi-instance safe).
 A long-lived daemon holds the single Discord IPC connection for the
 whole machine. OpenCode plugin instances connect to it via local
 Unix socket and forward their state. Handoff between OpenCode

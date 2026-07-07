@@ -28,7 +28,7 @@ Options (update):
                    symlinks (the opencode-rpc command would be missing).
                     Examples:
                       opencode-rpc update --ref redesign/v3-daemon
-                      opencode-rpc update --ref v3.1.3-phase2
+                      opencode-rpc update --ref v3.1.4-phase2
                       opencode-rpc update --ref 6664bfb
                       opencode-rpc update --ref 471ce940ba316180fa08617dcb04ee1b59599e7f
   --repo OWNER/REPO  Install from a fork instead of the upstream repo.
