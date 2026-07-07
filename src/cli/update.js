@@ -72,17 +72,17 @@ function resolveGlobalInstallPath() {
         const result = spawnSync("npm", ["root", "-g"], { encoding: "utf-8" });
         if (result.status === 0) {
             const root = result.stdout.trim();
-            if (root) return join(root, REPO);
+            if (root) return join(root, DEFAULT_REPO);
         }
     } catch {}
 
     if (process.env.npm_config_prefix) {
-        return join(process.env.npm_config_prefix, "lib", "node_modules", REPO);
+        return join(process.env.npm_config_prefix, "lib", "node_modules", DEFAULT_REPO);
     }
     if (process.env.NVM_BIN) {
-        return join(process.env.NVM_BIN, "..", "..", "lib", "node_modules", REPO);
+        return join(process.env.NVM_BIN, "..", "..", "lib", "node_modules", DEFAULT_REPO);
     }
-    return join(dirname(process.execPath), "..", "lib", "node_modules", REPO);
+    return join(dirname(process.execPath), "..", "lib", "node_modules", DEFAULT_REPO);
 }
 
 // Remove the previously-installed package directory if present, including
@@ -185,7 +185,7 @@ function writeInstallMarker(channel, ref) {
         return;
     }
     const globalRoot = result.stdout.trim();
-    const markerDir = join(globalRoot, REPO);
+    const markerDir = join(globalRoot, DEFAULT_REPO);
     const markerFile = join(markerDir, ".install-channel");
     try {
         writeFileSync(

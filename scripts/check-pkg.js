@@ -15,7 +15,6 @@ if (!pkg.name || !pkg.version) {
     process.exit(1);
 }
 
-const declared = new Set(pkg.files || []);
 const required = [
     "src/",
     "bin/",
@@ -26,9 +25,25 @@ const required = [
     "CHANGELOG.md",
 ];
 
+// If `files` is set in package.json, verify every required entry is listed.
+// If `files` is absent (relying on .npmignore), skip the check. In that
+// case npm includes all git-tracked files minus .npmignore matches, so
+// the required files should be present as long as git tracks them.
+if (pkg.files) {
+    const declared = new Set(pkg.files);
+    for (const r of required) {
+        if (!declared.has(r)) {
+            console.error(`package.json 'files' missing required entry: ${r}`);
+            process.exit(1);
+        }
+    }
+}
+
+// Regardless of the `files` field, verify the essential entries exist on disk.
 for (const r of required) {
-    if (!declared.has(r)) {
-        console.error(`package.json 'files' missing required entry: ${r}`);
+    const target = join(PKG_ROOT, r.endsWith("/") ? r.slice(0, -1) : r);
+    if (!existsSync(target)) {
+        console.error(`Required file/directory does not exist on disk: ${r}`);
         process.exit(1);
     }
 }

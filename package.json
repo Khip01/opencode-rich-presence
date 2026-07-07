@@ -7,15 +7,6 @@
   "bin": {
     "opencode-rpc": "./bin/opencode-rpc.js"
   },
-  "files": [
-    "src/",
-    "bin/",
-    "config/",
-    "docs/",
-    "README.md",
-    "LICENSE",
-    "CHANGELOG.md"
-  ],
   "scripts": {
     "test": "node tests/phase1-harness.mjs && node tests/phase2-harness.mjs && node tests/phase2-v2-harness.mjs",
     "test:phase1": "node tests/phase1-harness.mjs",

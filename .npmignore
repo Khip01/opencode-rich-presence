@@ -1,0 +1,46 @@
+# .npmignore: controls which files are included in npm publish tarball.
+# Without a `files` field in package.json, npm v11 git dep installs can
+# include incomplete file sets. We omit `files` and use .npmignore to
+# exclude non-essential files instead. See also .gitignore for the
+# complementary git-side exclusions.
+
+# Git / tooling
+.gitignore
+.gitattributes
+.gitmodules
+.gitkeep
+
+# Project-specific
+AGENTS.md
+
+# CI / workflows
+.github/
+
+# Development / build
+scripts/
+tests/
+node_modules/
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# npm artifacts
+*.tgz
+.npm/
+package-lock.json
+
+# Sensitive / personal
+.env
+.env.local
+*.log
+
+# Runtime artifacts (safety net)
+.install-channel

@@ -5,6 +5,54 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.4-phase2] - 2026-07-08
+
+### Fixed
+
+- **`secrets` context in step-level `if:` (workflow YAML broken).**
+  GitHub Actions step-level `if:` does not support the `secrets`
+  context directly. Using `if: ${{ secrets.NPM_TOKEN != '' }}` or
+  `if: secrets.NPM_TOKEN != ''` both fail with "Unrecognized
+  named-value: secrets". Fixed by passing the secret to an `env:`
+  variable (`NPM_TOKEN_CHECK: ${{ secrets.NPM_TOKEN }}`) and
+  checking `if: env.NPM_TOKEN_CHECK != ''`.
+
+- **`!` operator in job-level `if:` caused workflow parser failure.**
+  The `!` (negation) operator is reserved YAML notation and must
+  be wrapped in `${{ }}` at the job level:
+  `if: ${{ !contains(...) }}`.
+
+- **Tag filter pattern `[0-9]+.*` was regex, not glob.** GitHub
+  Actions uses Fnmatch/glob patterns for tag filters, not regex.
+  Changed to `[0-9]*` (standard glob for digit-starting tags).
+
+- **Missing `registry-url` in `setup-node` step.** Required for
+  `npm publish` to authenticate via `NODE_AUTH_TOKEN`.
+
+- **Missing `id-token: write` permission.** Required for
+  `npm publish --provenance` OIDC token generation.
+
+- **Test harness isolation via `test-env.mjs`.** Harnesses no longer
+  use the user's real `~/.config/opencode` directory; each run gets
+  a fresh `mkdtempSync` temp directory.
+
+- **Daemon logs push intent unconditionally.** `pushCurrentPresence`
+  and `clearPresence` now log their decision even when Discord is
+  not connected, so CI environments without Discord can verify the
+  daemon's push logic.
+
+- **Assertion string updates for Typing template and asset key.**
+  The Typing template renders as `<model> · Typing` (Typing followed
+  by closing quote), and the default asset key was changed to
+  `opencode-logo-too-opencode-rpc`.
+
+### CI/CD
+
+- GitHub Actions `test.yml` runs full test matrix on Node 20/22/24
+  (Ubuntu) on push/PR to `main` or `redesign/v3-daemon`.
+- `release.yml` builds tarball + creates GitHub Release on tag
+  push, with optional npm publish (requires `NPM_TOKEN` secret).
+
 ## [3.0.0-phase2] - Unreleased
 
 Phase 2 of the v3 redesign. Adds the daemon that holds a single
