@@ -9,16 +9,24 @@ need to navigate this codebase safely.
 
 - **Plugin name**: `opencode-rich-presence`
 - **CLI command**: `opencode-rpc`
-- **Phase**: v3 redesign. Currently on **Phase 1**: local state
-  collector + activity log (no Discord push yet). Phase 2 adds the
-  daemon architecture that holds a single Discord connection for the
-  whole machine.
-- **Latest stable release**: v2.1.1 (tag `v2.1.1`). v2.x is the
-  pre-redesign line and uses per-session worker + leader election.
-- **Node.js**: 18+ required, tested with 24.x
-- **npm registry**: package is NOT published there. Distributed
-  via `npm install -g <repo>#<ref>` (see Distribution Workflow below).
+- **Latest version**: v3.1.3-phase2 (pre-release line on the
+  `redesign/v3-daemon` branch). v3 adds the daemon architecture
+  that holds a single Discord connection for the whole machine;
+  OpenCode plugin instances connect to it via local Unix socket
+  and forward their rendered presence payload.
+- **Latest stable release on `main`**: v2.1.1 (tag `v2.1.1`).
+  v2.x is the pre-redesign line and uses per-session worker +
+  leader election. `main` is currently being held at v2.1.1
+  while `redesign/v3-daemon` carries the v3 development.
+- **Node.js**: 18+ required, tested with 24.x (CI runs 20, 22, 24)
+- **npm registry**: package is NOT currently published to npmjs.com.
+  Distribution is via `opencode-rpc update --ref <ref>` (the
+  recommended path; sidesteps npm v11's git-dep bug) OR
+  `npm install -g <repo>#<tag>` for stable tags. Optional
+  `NPM_TOKEN` secret enables auto-publish on tagged releases.
 - **Repository**: github.com/Khip01/opencode-rich-presence
+- **Default branch**: `main` (currently v2.1.1)
+- **Active dev branch**: `redesign/v3-daemon` (currently v3.1.3-phase2)
 - **Plugin author Discord App ID** (default fallback in
   config-resolver.js): `1512803991300476989`
 - **Asset key** (Discord rich presence image):
@@ -110,53 +118,81 @@ monitoring.
 
 ## Distribution Workflow
 
-Since v2.1.0, this project is distributed via `npm install -g <repo>#<ref>`
-directly from the GitHub repo.
+v3 distributes via `opencode-rpc update --ref <ref>` for branches
+and SHAs (recommended; sidesteps npm v11's git-dep symlink bug),
+and via `npm install -g <repo>#<tag>` for stable tags. The CLI's
+`update` family does a clean clone+pack+tarball install that works
+around the npm v11 bug.
 
-**Install paths**:
+**Install paths** (in recommended order):
 
 | Audience | Command |
 |----------|---------|
-| End user (stable, v2.1.1) | `npm install -g Khip01/opencode-rich-presence#v2.1.1` |
-| End user (auto-resolve latest stable) | `npm install -g Khip01/opencode-rich-presence#semver:^2.0.0` |
-| Developer (Phase 1 branch) | `npm install -g Khip01/opencode-rich-presence#redesign/v3-daemon` |
-| Developer (specific commit) | `npm install -g Khip01/opencode-rich-presence#abc1234` |
+| End user (stable v2.x) | `npm install -g 'Khip01/opencode-rich-presence#v2.1.1'` (zsh: quote) |
+| End user (auto-resolve latest stable) | `npm install -g 'Khip01/opencode-rich-presence#semver:^2.0.0'` |
+| User (v3 stable, once released) | `opencode-rpc update --ref v3.0.0 && opencode-rpc install` |
+| Developer (v3 redesign branch) | `opencode-rpc update --ref redesign/v3-daemon && opencode-rpc install` |
+| Developer (track a branch for ongoing dev installs) | `opencode-rpc update --dev redesign/v3-daemon && opencode-rpc install` |
+| Developer (specific commit SHA) | `opencode-rpc update --ref <sha> && opencode-rpc install` |
+| Test your own fork | `opencode-rpc update --repo <fork-owner>/opencode-rich-presence --ref <branch>` |
+
+**DO NOT use `npm install -g Khip01/opencode-rich-presence#<branch>`**
+for branches — npm v11 has a bug installing git deps with `#ref` for
+global packages that creates a partial
+`lib/node_modules/opencode-rich-presence/` directory (only `src/`,
+no `package.json`, no `bin/`) and never creates the `opencode-rpc`
+symlink. You would see `zsh: command not found: opencode-rpc` even
+though npm reported "added 1 package". For tags this still works
+because tags are simple refs that npm handles without git's
+shallow-clone machinery.
 
 The five CLI commands are:
 
-1. `npm install -g <spec>`: install the package (see the table above).
-2. `opencode-rpc install`: one-time setup. Symlink the plugin into
-   `~/.config/opencode/plugins/`, write the example config. Phase 1
-   no longer adds any npm dependency under `~/.config/opencode/`
-   (the v2.x `@xhayper/discord-rpc` install step is gone).
-3. `opencode-rpc update`: upgrade an existing installation to the
+1. `opencode-rpc install`: one-time setup. Symlink the plugin
+   into `~/.config/opencode/plugins/`, write the example config.
+   v3 installs no additional npm dependency under
+   `~/.config/opencode/`.
+2. `opencode-rpc update`: upgrade an existing installation to the
    latest stable release tag.
-4. `opencode-rpc update --dev`: developer-only upgrade. Always
-   installs the latest commit on `main`. Phase 1 uses
-   `redesign/v3-daemon` as the developer branch.
-5. `opencode-rpc update --stable`: force install latest stable tag,
-   for switching back from --dev mode. `--stable` and `--dev` are
-   mutually exclusive (exit 2 if both passed).
-6. `opencode-rpc uninstall` plus `npm uninstall -g
-   Khip01/opencode-rich-presence`. Full removal. Phase 1 uninstall
-   also clears `presence-activity.log` and any
-   `presence-state-pid*.txt`.
+3. `opencode-rpc update --stable`: force install latest stable tag,
+   for switching back from --dev mode.
+4. `opencode-rpc update --dev [BRANCH]`: developer-only upgrade.
+   Installs the latest commit on BRANCH (defaults to `main`,
+   which is currently v2.1.1 — pass the branch explicitly when on
+   v3 to avoid a silent downgrade to v2.x).
+5. `opencode-rpc update --ref REF`: install a specific git ref
+   (tag, branch, or commit SHA). Works for any ref including short
+   SHAs (`--ref 471ce94`) and full SHAs.
+6. `opencode-rpc update --repo OWNER/REPO`: install from a fork
+   instead of the upstream repo. Combine with --dev, --stable,
+   or --ref.
+7. `opencode-rpc uninstall` plus `npm uninstall -g
+   opencode-rich-presence`. Full removal. v3 uninstall also clears
+   `presence-activity.log` and any `presence-state-pid*.txt`.
 
 **Why git install is the primary install path**:
 
-- Single source of truth (the repo); no separate tarball to keep in
-  sync with source.
+- Single source of truth (the repo); no separate tarball to keep
+  in sync with source.
 - Avoids cluttering the GitHub Releases sidebar with `-rc` pre-release
   tags while iterating.
-- npm's git URL install (`<owner>/<repo>#<ref>`) supports tag / branch
-  / commit / semver-range refs natively.
+- The CLI's `update` family handles all ref types uniformly and
+  works around the npm v11 git-dep symlink bug.
 
-**GitHub Releases (stable only, fallback)**:
+**GitHub Releases**:
 
-`.github/workflows/release.yml` builds a `.tgz` and creates a GitHub
-Release for STABLE tags only. Tags containing `-rc`, `-beta`, or
-`-alpha` are skipped. The tarball is for offline / air-gapped installs;
-the git URL is the primary install path.
+`.github/workflows/release.yml` runs on tag push. It:
+- Runs the full test suite (`npm test`).
+- Builds the tarball via `npm pack`.
+- Creates a GitHub Release with the tarball attached.
+- Optionally publishes to npm if `NPM_TOKEN` secret is set.
+
+Tags accepted: `v*` (e.g. `v3.1.0`) and `[0-9]+.*` (e.g.
+`3.1.3-phase2`). Tags containing `-rc`, `-beta`, or `-alpha` are
+filtered out so pre-release noise does not pollute the Releases
+sidebar. The tarball is for offline / air-gapped installs and
+optional npm publish; the git URL + CLI install path remains
+canonical.
 
 ## Critical Implementation Details (Phase 1)
 

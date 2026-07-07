@@ -300,7 +300,7 @@ $ opencode-rpc update --dev redesign/v3-daemon
 
 opencode-rich-presence update (--dev redesign/v3-daemon)
 
-Current: v3.1.1-phase2 (dev: redesig)
+Current: v3.1.3-phase2 (dev: redesig)
 Latest:  471ce94 (latest commit on redesign/v3-daemon)
 Installing dev build (471ce94)...
 
@@ -350,7 +350,7 @@ $ opencode-rpc update --repo myname/opencode-rich-presence --ref my-branch
 opencode-rich-presence update (--ref my-branch)
 Source repo:    myname/opencode-rich-presence
 
-Current: v3.1.1-phase2 (stable)
+Current: v3.1.3-phase2 (stable)
 Treating as channel=dev for version reporting.
 
 Cloning repo...
