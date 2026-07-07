@@ -7,23 +7,17 @@ on:
       # Also accept semantic-version tags without the "v" prefix
       # (e.g. "3.1.4-phase2") so we can publish the redesign branch's
       # pre-release line. The filter below rejects unstable suffixes.
-      - "[0-9]+.*"
+      - "[0-9]*"
 
 permissions:
   contents: write
+  id-token: write
 
 jobs:
   release:
     name: Build & publish GitHub release
     runs-on: ubuntu-latest
-    # Only run for STABLE tags. Tags containing -rc, -beta, or -alpha
-    # are skipped — they are pre-release markers, not full releases.
-    # Tags containing -phase2 / -phase1 are accepted (they are the
-    # official pre-release line for this project).
-    if: |
-      !contains(github.ref_name, '-rc') &&
-      !contains(github.ref_name, '-beta') &&
-      !contains(github.ref_name, '-alpha')
+    if: ${{ !contains(github.ref_name, '-rc') && !contains(github.ref_name, '-beta') && !contains(github.ref_name, '-alpha') }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -33,6 +27,7 @@ jobs:
         with:
           node-version: "22"
           cache: npm
+          registry-url: "https://npmjs.org"
 
       - name: Install dependencies
         run: npm install
@@ -61,15 +56,18 @@ jobs:
         # which links the published artifact back to this workflow
         # run. Skip with an explicit message if the secret is missing
         # so users running their own forks see what would happen.
-        if: ${{ secrets.NPM_TOKEN != '' }}
+        if: env.NPM_TOKEN_CHECK != ''
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_TOKEN_CHECK: ${{ secrets.NPM_TOKEN }}
         run: |
           echo "Publishing to npm registry..."
           npm publish --provenance --access public
 
       - name: Publish to npm registry (skipped)
-        if: ${{ secrets.NPM_TOKEN == '' }}
+        if: env.NPM_TOKEN_CHECK == ''
+        env:
+          NPM_TOKEN_CHECK: ${{ secrets.NPM_TOKEN }}
         run: |
           echo "NPM_TOKEN secret not set; skipping npm publish."
           echo "Set the NPM_TOKEN secret in repo settings to enable auto-publish."
