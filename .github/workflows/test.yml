@@ -2,9 +2,9 @@ name: Test
 
 on:
   push:
-    branches: [main, redesign/v3-daemon]
+    branches: [main]
   pull_request:
-    branches: [main, redesign/v3-daemon]
+    branches: [main]
   # Allow manual trigger from the Actions tab for one-off runs.
   workflow_dispatch:
 

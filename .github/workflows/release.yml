@@ -5,8 +5,8 @@ on:
     tags:
       - "v*"
       # Also accept semantic-version tags without the "v" prefix
-      # (e.g. "3.1.4-phase2") so we can publish the redesign branch's
-      # pre-release line. The filter below rejects unstable suffixes.
+      # (e.g. "3.1.5") for users who prefer that convention.
+      # The filter below rejects unstable suffixes (-rc, -beta, -alpha).
       - "[0-9]*"
 
 permissions:
@@ -83,39 +83,45 @@ jobs:
             ### Stable (recommended for end users)
 
             ```bash
-            # Easiest path: use the CLI's built-in installer. It
-            # handles git ref syntax, works around npm v11's broken
-            # git-dep symlinks, and supports version pinning.
-            opencode-rpc update --ref ${{ github.ref_name }}
-            opencode-rpc install
+            # Easiest path: one-liner curl installer. Works on
+            # Linux, macOS, and Windows (Git Bash / MSYS2 / Cygwin / WSL).
+            curl -fsSL https://raw.githubusercontent.com/Khip01/opencode-rich-presence/main/install.sh | bash
+            ```
 
-            # Or install via npm directly (zsh users: wrap in single quotes):
-            npm install -g 'Khip01/opencode-rich-presence#${{ github.ref_name }}'
+            Pin to a specific version:
+
+            ```bash
+            curl -fsSL https://raw.githubusercontent.com/Khip01/opencode-rich-presence/main/install.sh \
+              | ORP_VERSION=${{ github.ref_name }} bash
+            ```
+
+            ### Manual install from the tarball (any platform, including Windows)
+
+            ```bash
+            # Download from the asset below, then:
+            npm install -g ./opencode-rich-presence-${{ github.ref_name }}.tgz
             opencode-rpc install
             ```
 
-            ### Install from a specific branch (e.g. redesign/v3-daemon)
+            ### Why not `npm install -g Khip01/opencode-rich-presence#${{ github.ref_name }}`?
+
+            npm v11 has a bug installing global git deps: the install
+            appears to succeed (`added 1 package`) but the
+            `opencode-rpc` binary is missing. Always install from a
+            local tarball. See
+            [TROUBLESHOOTING.md](https://github.com/Khip01/opencode-rich-presence/blob/main/docs/TROUBLESHOOTING.md#opencode-rpc-command-not-found-after-install)
+            for the full story.
+
+            ### Upgrade
+
+            Once installed, use `opencode-rpc update` to upgrade:
 
             ```bash
-            # DO NOT use 'npm install -g <url>#<branch>' for branches.
-            # npm v11 has a bug that creates a partial install without
-            # the opencode-rpc symlink. Use the CLI instead:
-            opencode-rpc update --ref redesign/v3-daemon
-            opencode-rpc install
-
-            # Track a branch for ongoing dev installs:
-            opencode-rpc update --dev redesign/v3-daemon
-            opencode-rpc install
-            ```
-
-            ### Update
-
-            ```bash
-            opencode-rpc update                  # latest stable release tag
-            opencode-rpc update --stable         # force install latest stable
-            opencode-rpc update --dev <branch>   # latest commit on <branch>
-            opencode-rpc update --ref <ref>      # specific ref (tag, branch, or SHA)
-            opencode-rpc update --repo <fork>    # install from a fork
+            opencode-rpc update                    # latest stable release tag
+            opencode-rpc update --stable           # force install latest stable
+            opencode-rpc update --dev <branch>     # latest commit on <branch>
+            opencode-rpc update --ref ${{ github.ref_name }}    # install a specific tag, branch, or SHA
+            opencode-rpc update --repo <fork>      # install from a fork
             ```
 
             ## What's in ${{ github.ref_name }}

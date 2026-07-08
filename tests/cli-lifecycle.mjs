@@ -80,11 +80,47 @@ function run(cmd, args, opts = {}) {
 // of this file sets OPENCODE_CONFIG_DIR to a temp dir, which would
 // make the CLI look at a non-existent config. Use this helper for
 // tests that exercise the user's real install.
-function runUser(cmd, args, opts = {}) {
+//
+// If `opencode-rpc` is not on PATH (e.g., when running in CI
+// without a global install), fall back to invoking the local
+// bin/opencode-rpc.js via node. This makes the test suite work in
+// both dev (with a global install) and CI (without one).
+function findOpencodeRpc() {
+    // First, check PATH for an installed binary.
+    const onPath = spawnSync("which", ["opencode-rpc"], { encoding: "utf8" });
+    if (onPath.status === 0 && onPath.stdout.trim()) {
+        return { cmd: onPath.stdout.trim(), isNode: false };
+    }
+    // Fall back to local bin/opencode-rpc.js via node.
+    const local = join(REPO_ROOT, "bin", "opencode-rpc.js");
+    if (existsSync(local)) {
+        return { cmd: local, isNode: true };
+    }
+    return null;
+}
+
+function runUser(args, opts = {}) {
+    const cli = findOpencodeRpc();
+    if (!cli) {
+        // No CLI available. Caller should have skipped; return a
+        // synthetic "not found" result.
+        return {
+            status: 127,
+            stdout: "",
+            stderr: "opencode-rpc: command not found",
+        };
+    }
     const cleanEnv = { ...process.env };
     delete cleanEnv.OPENCODE_CONFIG_DIR;
     delete cleanEnv.XDG_RUNTIME_DIR;
-    return spawnSync(cmd, args, {
+    if (cli.isNode) {
+        return spawnSync("node", [cli.cmd, ...args], {
+            encoding: "utf8",
+            env: { ...cleanEnv, ...(opts.env || {}) },
+            ...opts,
+        });
+    }
+    return spawnSync(cli.cmd, args, {
         encoding: "utf8",
         env: { ...cleanEnv, ...(opts.env || {}) },
         ...opts,
@@ -104,7 +140,7 @@ function shellSource(script, env = {}) {
 section("0. CLI output validation (read-only)");
 
 {
-    const r = runUser("opencode-rpc", ["version"]);
+    const r = runUser(["version"]);
     assert(r.status === 0, "`opencode-rpc version` exits 0");
     assert(/^opencode-rich-presence v\d+\.\d+\.\d+/.test(r.stdout.trim()),
         "`opencode-rpc version` output matches expected format");
@@ -125,7 +161,7 @@ function recommendsBrokenNpmInstall(helpText) {
 }
 
 {
-    const r = runUser("opencode-rpc", ["help"]);
+    const r = runUser(["help"]);
     assert(r.status === 0, "`opencode-rpc help` exits 0");
     assert(r.stdout.includes("opencode-rpc"),
         "help text mentions the CLI name");
@@ -143,7 +179,7 @@ function recommendsBrokenNpmInstall(helpText) {
 }
 
 {
-    const r = runUser("opencode-rpc", ["info"]);
+    const r = runUser(["info"]);
     assert(r.status === 0, "`opencode-rpc info` exits 0");
     assert(r.stdout.includes("Environment"), "info shows Environment section");
     assert(r.stdout.includes("Paths"), "info shows Paths section");
@@ -168,7 +204,7 @@ const badInputs = [
 ];
 
 for (const { label, value } of badInputs) {
-    const r = runUser("opencode-rpc", ["update", "--ref", value]);
+    const r = runUser(["update", "--ref", value]);
     assert(r.status !== 0, `update --ref with ${label} exits non-zero`);
     if (r.status === 0) {
         failures.push(`update --ref with ${label} unexpectedly succeeded`);
@@ -178,22 +214,22 @@ for (const { label, value } of badInputs) {
 {
     // --ref without value: capture from stdin-less environment so the CLI
     // actually gets undefined for the next arg.
-    const r = runUser("opencode-rpc", ["update", "--ref"]);
+    const r = runUser(["update", "--ref"]);
     assert(r.status !== 0, "update --ref without value exits non-zero");
 }
 
 {
-    const r = runUser("opencode-rpc", ["update", "--dev", "  bad branch  "]);
+    const r = runUser(["update", "--dev", "  bad branch  "]);
     assert(r.status !== 0, "update --dev with whitespace branch exits non-zero");
 }
 
 {
-    const r = runUser("opencode-rpc", ["update", "--repo"]);
+    const r = runUser(["update", "--repo"]);
     assert(r.status !== 0, "update --repo without value exits non-zero");
 }
 
 {
-    const r = runUser("opencode-rpc", ["update", "--bogus-flag"]);
+    const r = runUser(["update", "--bogus-flag"]);
     // update.js ignores unknown flags silently (loose parsing). Either
     // an error or a normal exit is acceptable; we just don't crash.
     assert(r.status === 0 || r.status !== 0, "update --bogus-flag does not crash");
@@ -201,7 +237,7 @@ for (const { label, value } of badInputs) {
 
 // After all the bad-input tests, verify the user's real install is intact.
 {
-    const r = runUser("opencode-rpc", ["version"]);
+    const r = runUser(["version"]);
     assert(r.status === 0, "user's opencode-rpc still works after bad-input tests");
     assert(/^opencode-rich-presence v\d+\.\d+\.\d+/.test(r.stdout.trim()),
         "user's opencode-rpc version output is intact");
@@ -473,12 +509,18 @@ async function installTarballAtVersion(version, sandboxName) {
     // ref from GitHub). If the current version is not yet tagged,
     // skip this section with a clear message.
     //
-    // Detect by HEAD-ing the GitHub release for the current tag.
+    // Detect by querying the GitHub Releases API. The HTML release
+    // page returns 200 even for missing tags (it shows a "not found"
+    // page), so we use the API which returns 404 for missing tags.
     const releaseCheck = run("curl", [
-        "-fsIL",
-        `https://github.com/Khip01/opencode-rich-presence/releases/tag/v${currentVersion}`,
+        "-fsSL",
+        "-o",
+        "/dev/null",
+        "-w",
+        "%{http_code}",
+        `https://api.github.com/repos/Khip01/opencode-rich-presence/releases/tags/v${currentVersion}`,
     ]);
-    if (releaseCheck.status !== 0) {
+    if (releaseCheck.status !== 0 || releaseCheck.stdout.trim() !== "200") {
         console.log(`\n=== 4. Update flow in isolated npm prefix (SKIPPED) ===`);
         console.log(`  SKIP: v${currentVersion} is not yet tagged on GitHub.`);
         console.log(`  Run this test after tagging v${currentVersion} to verify the update flow.`);
@@ -556,7 +598,7 @@ async function installTarballAtVersion(version, sandboxName) {
 
     // Final cleanup: verify user's real install is untouched.
     {
-        const r = runUser("opencode-rpc", ["version"]);
+        const r = runUser(["version"]);
         assert(/^opencode-rich-presence v\d+\.\d+\.\d+/.test(r.stdout.trim()),
             "user's real opencode-rpc is still intact after all sandbox tests");
     }
