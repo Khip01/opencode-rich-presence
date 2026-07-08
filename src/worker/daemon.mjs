@@ -81,6 +81,10 @@ const MAX_RECONNECT_BACKOFF_MS = 30000;
 // updates per 20 seconds; we throttle to once per 4s to stay safely
 // under that.
 const DISCORD_PUSH_INTERVAL_MS = 4000;
+// Client messages are tiny JSON objects (hello/state/goodbye). Keep a
+// generous per-line cap so a malformed local client cannot grow the daemon's
+// buffer indefinitely by writing a huge line without a newline.
+const MAX_CLIENT_LINE_BYTES = 1024 * 1024;
 // The daemon stays alive indefinitely after the last client
 // disconnects. It only exits when explicitly signaled (SIGINT/SIGTERM,
 // sent by `opencode-rpc restart` or a manual kill). The rationale:
@@ -390,6 +394,12 @@ function broadcastDiscordState() {
     broadcast({ type: "discord-state", connected: discordConnected });
 }
 
+function closeOversizedClient(sock, length) {
+    logToFile(`client message too large (${length} bytes); closing connection`);
+    try { sock.end(); } catch {}
+    try { sock.destroy(); } catch {}
+}
+
 function handleClientMessage(msg, sock) {
     if (!msg || typeof msg !== "object") return;
     const pid = msg.pid;
@@ -508,12 +518,21 @@ async function startServer() {
                 const line = buf.slice(0, idx);
                 buf = buf.slice(idx + 1);
                 if (!line.trim()) continue;
+                const lineBytes = Buffer.byteLength(line, "utf-8");
+                if (lineBytes > MAX_CLIENT_LINE_BYTES) {
+                    closeOversizedClient(sock, lineBytes);
+                    return;
+                }
                 try {
                     const msg = JSON.parse(line);
                     handleClientMessage(msg, sock);
                 } catch (e) {
                     logToFile(`parse error: ${e?.message || e}`);
                 }
+            }
+            const bufferedBytes = Buffer.byteLength(buf, "utf-8");
+            if (bufferedBytes > MAX_CLIENT_LINE_BYTES) {
+                closeOversizedClient(sock, bufferedBytes);
             }
         });
         sock.on("close", () => {
