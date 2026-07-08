@@ -9,25 +9,36 @@ need to navigate this codebase safely.
 
 - **Plugin name**: `opencode-rich-presence`
 - **CLI command**: `opencode-rpc`
-- **Latest version**: v3.1.4-phase2 (pre-release line on the
-  `redesign/v3-daemon` branch). v3 adds the daemon architecture
-  that holds a single Discord connection for the whole machine;
-  OpenCode plugin instances connect to it via local Unix socket
-  and forward their rendered presence payload.
-- **Latest stable release on `main`**: v3.1.4-phase2 (tag
-  `v3.1.4-phase2`). `redesign/v3-daemon` has been merged into
+- **Latest version**: v3.1.5 (the v3 daemon-based push
+  architecture). v3 adds the daemon architecture that holds a
+  single Discord connection for the whole machine; OpenCode
+  plugin instances connect to it via local Unix socket and
+  forward their rendered presence payload.
+- **Latest stable release on `main`**: v3.1.5 (tag
+  `v3.1.5`). `redesign/v3-daemon` has been merged into
   `main`. v3 uses the daemon architecture that holds a single
   Discord connection for the whole machine.
 - **Legacy stable (v2.x)**: v2.1.1 (tag `v2.1.1`). Still tagged
   for users who need the per-session worker design.
 - **Node.js**: 18+ required, tested with 24.x (CI runs 20, 22, 24)
 - **npm registry**: package is NOT currently published to npmjs.com.
-  Distribution is via `opencode-rpc update --ref <ref>` (the
-  recommended path; sidesteps npm v11's git-dep bug) OR
-  `npm install -g <repo>#<tag>` for stable tags. Optional
-  `NPM_TOKEN` secret enables auto-publish on tagged releases.
+  Distribution is via:
+  1. **Curl installer (recommended for fresh installs):**
+     `curl -fsSL https://raw.githubusercontent.com/Khip01/opencode-rich-presence/main/install.sh | bash`.
+     Always installs from a local tarball (sidesteps npm v11's
+     git-dep bug, see "Known Bugs" below). Supports Linux, macOS,
+     and Windows via Git Bash / MSYS2 / Cygwin / WSL.
+  2. **CLI upgrade (recommended once `opencode-rpc` is on PATH):**
+     `opencode-rpc update --ref <tag>`. Also installs from a
+     local tarball.
+  3. **Manual tarball install:** download from GitHub Releases
+     and `npm install -g <tarball>`.
+  Do NOT use `npm install -g <repo>#<ref>` for the initial
+  install. It is broken on npm v11 (see "Known Bugs"). Optional
+  `NPM_TOKEN` secret enables auto-publish to npmjs.com on
+  tagged releases.
 - **Repository**: github.com/Khip01/opencode-rich-presence
-- **Default branch**: `main` (currently v3.1.4-phase2)
+- **Default branch**: `main` (currently v3.1.5)
 - **Active dev branch**: `main` (v3 redesign merged from
   `redesign/v3-daemon`)
 - **Plugin author Discord App ID** (default fallback in
@@ -131,17 +142,20 @@ around the npm v11 bug.
 
 | Audience | Command |
 |----------|---------|
-| End user (stable) | `npm install -g 'Khip01/opencode-rich-presence#v2.1.1'` (zsh: quote) |
-| End user (auto-resolve latest stable) | `npm install -g 'Khip01/opencode-rich-presence#semver:^2.0.0'` |
-| User (v3 release) | `opencode-rpc update --ref v3.1.4-phase2 && opencode-rpc install` |
-| Developer (v3 main branch) | `opencode-rpc update --dev main && opencode-rpc install` |
-| Developer (track a branch) | `opencode-rpc update --dev <branch> && opencode-rpc install` |
-| Developer (specific commit SHA) | `opencode-rpc update --ref <sha> && opencode-rpc install` |
+| End user (fresh install, stable) | `curl -fsSL https://raw.githubusercontent.com/Khip01/opencode-rich-presence/main/install.sh \| bash` |
+| End user (pin to a specific version) | `curl ... \| ORP_VERSION=v3.1.5 bash` |
+| End user (auto-resolve latest stable, requires existing install) | `opencode-rpc update` |
+| User (upgrade, v3 release) | `opencode-rpc update --ref v3.1.5 && opencode-rpc install` |
+| Developer (v3 main branch, requires existing install) | `opencode-rpc update --dev main && opencode-rpc install` |
+| Developer (track a branch, requires existing install) | `opencode-rpc update --dev <branch> && opencode-rpc install` |
+| Developer (specific commit SHA, requires existing install) | `opencode-rpc update --ref <sha> && opencode-rpc install` |
 | Test your own fork | `opencode-rpc update --repo <fork-owner>/opencode-rich-presence --ref <branch>` |
+| Windows (Git Bash / MSYS2 / Cygwin / WSL) | Run the curl installer from a bash shell |
+| Windows (pure cmd.exe / PowerShell) | Download tarball from GitHub Releases, then `npm install -g <tarball>` |
 
 **DO NOT use `npm install -g Khip01/opencode-rich-presence#<ref>`**
-for ANY ref type (branches, tags, SHAs). npm v11 has a bug
-installing git deps for global packages that produces a partial
+for ANY ref type (branches, tags, SHAs) on npm v11. npm v11 has a
+bug installing git deps for global packages that produces a partial
 `lib/node_modules/opencode-rich-presence/` directory (only `src/`
 and `.github/`, no `package.json`, no `bin/`, no `config/`)
 and never creates the `opencode-rpc` binary symlink. You would see
@@ -154,9 +168,10 @@ bug where it extracts incompletely. This project removed the
 `files` field (replaced with `.npmignore`) as a workaround, but
 npm v11 still has the underlying bug for some scenarios.
 
-Use `opencode-rpc update --ref <ref>` instead, which does a full
-`git clone` + `npm pack` + tarball install, bypassing npm's git
-dep handler entirely.
+Use the curl installer (or manual tarball install) for fresh
+installs, and `opencode-rpc update --ref <ref>` for upgrades
+once `opencode-rpc` is on PATH. Both paths bypass npm's git-dep
+handler entirely.
 
 The five CLI commands are:
 
@@ -169,8 +184,8 @@ The five CLI commands are:
 3. `opencode-rpc update --stable`: force install latest stable tag,
    for switching back from --dev mode.
 4. `opencode-rpc update --dev [BRANCH]`: developer-only upgrade.
-    Installs the latest commit on BRANCH (defaults to `main`,
-    which is currently v3.1.4-phase2).
+     Installs the latest commit on BRANCH (defaults to `main`,
+     which is currently v3.1.5).
 5. `opencode-rpc update --ref REF`: install a specific git ref
    (tag, branch, or commit SHA). Works for any ref including short
    SHAs (`--ref 471ce94`) and full SHAs.
@@ -478,6 +493,43 @@ modify the system state (`update`, `install`, `uninstall`,
 `restart`) are NOT dry runs, even if the modification is
 small or "obviously safe". Verify behavior with non-destructive
 commands first.
+
+### npm v11 git-dep install bug is permanent on npm's side
+
+Phase 2 commit `6664bfb`: `npm install -g <repo>#<tag>` (or branch
+or SHA) on npm v11.x produces a broken install. Symptom: npm
+reports "added 1 package", `npm list -g opencode-rich-presence`
+shows the package as a symlink to `~/.npm/_cacache/tmp/<id>`, but
+the `bin/opencode-rpc` symlink is never created. Result: `zsh:
+command not found: opencode-rpc`. The bug is consistent across
+branches, tags, and SHAs, on npm v11.0.0 through at least v11.8.0.
+
+We tried to work around it from `package.json` side: removed the
+`files` field, added `.npmignore`. Both improvements landed more
+files in the partial install, but did not create the missing bin
+symlink. The bug is in npm's git-dep install handler, not in any
+package-level configuration. There is no fix from our side.
+
+**Rule:** never recommend `npm install -g <repo>#<ref>` for any
+package (including this one) on npm v11. Always install from a
+local tarball:
+
+- Fresh install: `curl ... | bash install.sh` (the `install.sh`
+  script at the repo root).
+- Upgrade: `opencode-rpc update --ref <tag>` (clones the repo,
+  packs a tarball, installs from the local tarball).
+- Manual: download tarball from GitHub Releases and
+  `npm install -g <tarball>`.
+
+The tarball install path was added in v2.1.1 for the upgrade flow.
+The `install.sh` script (v3.1.5+) closes the fresh-install
+gap where `opencode-rpc` was not yet on PATH.
+
+`update.js` (`src/cli/update.js`) is the reference implementation
+of the tarball-based upgrade flow. The order of operations is:
+validate ref -> `npm pack` to a temp dir -> remove the existing
+install -> `npm install -g <tarball>`. NEVER reverse this order
+(remove old before building new); see the previous lesson.
 
 ## Documentation Maintenance
 

@@ -5,6 +5,39 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.5] - 2026-07-08
+
+### Added
+
+- **`install.sh` one-liner installer.** A bash script at the repo
+  root that downloads the latest stable tarball from GitHub
+  Releases and runs `npm install -g <tarball>` + `opencode-rpc
+  install`. Closes the fresh-install gap that the npm v11 git-dep
+  bug creates: previously, `opencode-rpc update --ref <tag>` was
+  the recommended path, but it required `opencode-rpc` to already
+  be on PATH, which is impossible on a fresh machine.
+
+  Supports Linux, macOS, and Windows (via Git Bash / MSYS2 /
+  Cygwin / WSL). Pure cmd.exe / PowerShell users should use the
+  manual tarball install path documented in `docs/INSTALL.md`.
+
+  Usage:
+
+  ```bash
+  curl -fsSL https://raw.githubusercontent.com/Khip01/opencode-rich-presence/main/install.sh | bash
+  ```
+
+  Pin to a specific version with `ORP_VERSION=vX.Y.Z`.
+
+### Changed
+
+- **README.md and docs/INSTALL.md updated to recommend the curl
+  installer and tarball install as the primary install paths.**
+  `npm install -g <repo>#<ref>` is documented as broken on npm v11
+  with a clear explanation of why the package cannot work around
+  it. The curl installer is presented as supported on Windows via
+  Git Bash / MSYS2 / Cygwin / WSL.
+
 ## [3.1.4-phase2] - 2026-07-08
 
 ### Fixed

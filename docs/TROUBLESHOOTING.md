@@ -1,7 +1,7 @@
 # Troubleshooting
 
-Common issues and fixes for `opencode-rich-presence` v2.0.0+ and the
-v3 redesign.
+Common issues and fixes for `opencode-rich-presence` v3.x
+(daemon-based push, multi-instance safe).
 
 ## Quick Diagnostics
 
@@ -209,11 +209,16 @@ running v2.x. Check `opencode-rpc version`.)
 **Fix:**
 
 1. Wait a few minutes and retry.
-2. Manual fallback:
+2. Manual fallback: download the tarball directly.
    ```bash
-   npm install -g 'Khip01/opencode-rich-presence#v2.1.1'
+   # Get the URL from: https://github.com/Khip01/opencode-rich-presence/releases/latest
+   curl -fL -o opencode-rich-presence.tgz <tarball-url>
+   npm install -g ./opencode-rich-presence.tgz
    ```
-   (zsh users: quote the URL, see INSTALL.md.)
+   If you already have `opencode-rpc` on PATH, prefer
+   `opencode-rpc update --stable` once the network is back. The
+   manual tarball install only matters for the initial install on a
+   fresh machine.
 
 ---
 
@@ -221,20 +226,48 @@ running v2.x. Check `opencode-rpc version`.)
 
 **Symptom:** `npm list -g` shows `opencode-rich-presence@` in the
 list, but running `opencode-rpc` errors with `command not found`.
+This can happen immediately after install, or after a reboot / npm
+cache cleanup:
 
-**Cause:** npm v11 (Node 24.x) installs git deps as symlinks under
-`lib/node_modules/<name>` that point at a temp directory under
-`~/.npm/_cacache/tmp/<id>`. After npm cleans up that temp dir, the
-symlink becomes broken. v2.1.0's `opencode-rpc update --dev` and
-`opencode-rpc update --stable` called `npm install -g <repo>#<ref>`
-directly. v2.1.0 is the last version with this bug; v2.1.1+ uses
-clone+pack+install-from-tarball internally and is unaffected.
+```
+$ npm install -g 'Khip01/opencode-rich-presence#v3.1.5'
+added 1 package in 4s
+
+$ opencode-rpc
+zsh: command not found: opencode-rpc
+
+$ npm list -g opencode-rich-presence
+└── opencode-rich-presence@ -> ./../../../../../.npm/_cacache/tmp/git-cloneAmM1cO
+```
+
+**Cause:** npm v11 has a bug installing global git deps
+(`<owner>/<repo>#<ref>`). It:
+
+1. Clones the repo to a temp dir under `~/.npm/_cacache/tmp/`.
+2. Symlinks `lib/node_modules/<repo>` to that temp dir.
+3. Never creates the `bin/<binary>` symlink that should point into
+   the package.
+
+The package appears in `npm list -g` but the CLI binary is missing.
+After npm cleans its cache temp dir, or after a reboot that touches
+the cache path, the symlink dangles and the install appears to
+vanish entirely.
+
+The bug is consistent across branches, tags, and commit SHAs, and
+across npm v11.0.0 through at least v11.8.0. It is on npm's side,
+not the package's. The package cannot fix it from
+`package.json` (we already tried removing the `files` field, which
+exposed more files but did not create the missing bin symlink).
 
 **How to verify:**
 
 ```bash
 npm list -g opencode-rich-presence
+# Output shows a dangling symlink under ~/.npm/_cacache/tmp/:
+#   opencode-rich-presence@ -> ./../../../../../.npm/_cacache/tmp/git-cloneAmM1cO
+
 ls -la "$(npm root -g)/opencode-rich-presence"
+# Output: symlink to a path that no longer exists.
 ```
 
 **Fix (recovery):**
@@ -243,19 +276,35 @@ ls -la "$(npm root -g)/opencode-rich-presence"
    ```bash
    npm uninstall -g opencode-rich-presence
    ```
-2. Install via the tarball from the GitHub release:
+2. Install via the curl installer (Linux/macOS):
    ```bash
-   # Download from: https://github.com/Khip01/opencode-rich-presence/releases/latest
-   npm install -g ./Downloads/opencode-rich-presence-2.1.1.tgz
+   curl -fsSL https://raw.githubusercontent.com/Khip01/opencode-rich-presence/main/install.sh | bash
    ```
+   Or download the tarball manually and install from it (any
+   platform):
+    ```bash
+    # Download from: https://github.com/Khip01/opencode-rich-presence/releases/latest
+    # File name: opencode-rich-presence-<version>.tgz
+    npm install -g ./opencode-rich-presence-3.1.5.tgz
+    ```
 3. Verify:
    ```bash
    opencode-rpc version
+   # Expected: opencode-rich-presence v3.1.5 (stable)
    ```
 
-**Prevention:** v2.1.1+ uses a tarball-based install flow inside
-`opencode-rpc update`. Phase 1 (`v3.0.0-phase1`) is unaffected
-because it has no npm dependency.
+**Why `opencode-rpc update --ref <tag>` does not help on a fresh
+install:** the `--ref` flow does work, but it requires
+`opencode-rpc` to already be on PATH. On a fresh machine, the only
+way to get it on PATH is via the curl installer or the manual
+tarball install above.
+
+**Prevention:** never use `npm install -g <repo>#<ref>` for the
+initial install. Always use the curl installer or a manual tarball
+install. After the initial install, `opencode-rpc update --ref
+<tag>` is the recommended upgrade path (it clones the repo, packs
+a tarball, and installs from the tarball, so the npm v11 bug does
+not apply).
 
 ---
 
@@ -297,10 +346,12 @@ If you run OpenCode in WSL but install the plugin in native Windows,
 the paths won't match. OpenCode in WSL sees Linux paths; native npm
 install puts files in Windows paths.
 
-**Fix:** Install the plugin inside WSL:
+**Fix:** Install the plugin inside WSL using the tarball install
+from
+[GitHub Releases](https://github.com/Khip01/opencode-rich-presence/releases/latest):
 
 ```bash
-npm install -g Khip01/opencode-rich-presence#v2.1.1
+npm install -g ./opencode-rich-presence-3.1.5.tgz
 ```
 
 **Check 2: PowerShell execution policy**

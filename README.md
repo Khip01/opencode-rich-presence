@@ -2,15 +2,11 @@
 
 OpenCode plugin that displays your AI session status in Discord.
 
-**Status: v3.1.4-phase2** (daemon-based push, multi-instance safe).
+**Status: v3.1.5** (daemon-based push, multi-instance safe).
 A long-lived daemon holds the single Discord IPC connection for the
 whole machine. OpenCode plugin instances connect to it via local
 Unix socket and forward their state. Handoff between OpenCode
 windows no longer disconnects from Discord.
-
-The `main` branch currently holds the v2.1.1 release (pre-redesign).
-Active v3 development is on the `redesign/v3-daemon` branch; install
-from there for the daemon-based push experience.
 
 ## What you get today (v3)
 
@@ -37,6 +33,12 @@ from there for the daemon-based push experience.
   `unhandledRejection`, `beforeExit`, and `exit` handlers log
   every abnormal exit path so silent daemon deaths have a trail.
 
+## Requirements
+
+- Node.js 18+ (LTS recommended; CI tests on 20, 22, 24)
+- OpenCode CLI
+- Discord Desktop (required for v3 Phase 2 push)
+
 Works on **Linux** and **macOS**. Windows requires named-pipe
 support which is not part of CI; the daemon falls back to a
 named-pipe on Windows but it is not actively tested.
@@ -45,57 +47,72 @@ named-pipe on Windows but it is not actively tested.
 
 ### 1. Install the package
 
-Use the CLI's built-in installer (recommended — it sidesteps a
-npm v11 bug that breaks `npm install -g <url>#<branch>` for
-branches):
+Pick one install path.
+
+#### Quick install (Linux, macOS, and Windows via Git Bash / MSYS2 / Cygwin / WSL, recommended)
 
 ```bash
-# Track the v3 redesign branch for ongoing dev installs:
-opencode-rpc update --dev redesign/v3-daemon
-opencode-rpc install
-
-# Or pin to a specific v3 tag (once published):
-opencode-rpc update --ref v3.0.0
-opencode-rpc install
-
-# Or the latest stable v2 (no daemon, no Discord push):
-npm install -g 'Khip01/opencode-rich-presence#v2.1.1'   # zsh: quote
-opencode-rpc install
-
-# Install from your own fork (test your changes before opening a PR):
-opencode-rpc update --repo myname/opencode-rich-presence --ref my-branch
-opencode-rpc install
+curl -fsSL https://raw.githubusercontent.com/Khip01/opencode-rich-presence/main/install.sh | bash
 ```
 
-Do NOT use `npm install -g <url>#<branch>` for branches — see the
-"npm v11 git-dep bug" section below.
+This downloads the latest stable release tarball, installs it via
+`npm install -g <tarball>`, and runs `opencode-rpc install` to set
+up the plugin symlink and config. Pin to a specific version:
 
-### 2. Set up the config
+```bash
+curl -fsSL https://raw.githubusercontent.com/Khip01/opencode-rich-presence/main/install.sh \
+  | ORP_VERSION=v3.1.5 bash
+```
+
+If you do not have `curl`, replace it with `wget -qO- <url>` or
+fetch the script manually and `bash ./install.sh`.
+
+Pure cmd.exe / PowerShell users: the script runs in bash. Open
+Git Bash (ships with [Git for Windows](https://gitforwindows.org/))
+and run it from there.
+
+#### Manual install from a tarball (Linux, macOS, Windows)
+
+1. Download the tarball for your platform from
+   [GitHub Releases](https://github.com/Khip01/opencode-rich-presence/releases/latest).
+   The tarball name is `opencode-rich-presence-<version>.tgz` and
+   works on any platform with Node.js 18+.
+2. Install it:
+   ```bash
+   npm install -g ./opencode-rich-presence-3.1.5.tgz
+   ```
+3. Continue with step 2 below.
+
+### 2. Set up the plugin
 
 ```bash
 opencode-rpc install
 ```
 
 This creates `~/.config/opencode/discord-config.json` from the
-example and the symlink that OpenCode needs to auto-load the plugin.
-v3 installs no additional npm dependencies.
+bundled example (only if missing, or after confirmation to
+overwrite) and symlinks the plugin entry to
+`~/.config/opencode/plugins/opencode-rich-presence.js`. v3 installs
+no additional npm dependencies.
 
-### 3. Restart OpenCode
+If OpenCode is already installed, `install.sh` runs this step for
+you. Skip it if you already saw the `Replaced / Linked` line.
 
-The plugin is loaded automatically via the symlink at
-`~/.config/opencode/plugins/opencode-rich-presence.js`. After
-OpenCode restart, check status:
+### 3. Restart OpenCode and verify
+
+The plugin loads automatically via the symlink. After OpenCode
+restart:
 
 ```bash
 opencode-rpc info
 ```
 
-This shows the last 30 entries of the activity log so you can verify
-the plugin is capturing events, the daemon is connected, and
+`info` shows the last 30 entries of the activity log so you can
+verify the plugin captured events, the daemon is connected, and
 Discord is reporting presence.
 
-For detailed setup (creating your own Discord App, advanced config),
-see [`docs/INSTALL.md`](./docs/INSTALL.md).
+For detailed setup (creating your own Discord App, advanced
+config), see [`docs/INSTALL.md`](./docs/INSTALL.md).
 
 ## CLI Reference
 
@@ -110,7 +127,7 @@ opencode-rpc <command> [options]
 | `restart` | Kill the daemon so the next chat.message spawns a fresh one. |
 | `update` | Upgrade to latest stable release tag |
 | `update --stable` | Force-install latest stable tag (skip version check) |
-| `update --dev [BRANCH]` | Upgrade to latest commit on BRANCH (default: `main`, which is currently v2.1.1 — pass branch explicitly on v3) |
+| `update --dev [BRANCH]` | Upgrade to latest commit on BRANCH (default: `main`, currently v3.1.5) |
 | `update --ref REF` | Install a specific ref (tag, branch, or commit SHA) |
 | `update --repo OWNER/REPO` | Install from a fork instead of upstream |
 | `info` | Diagnostics: paths, config, daemon status, activity log tail |
@@ -122,16 +139,17 @@ Full reference: [`docs/CLI-REFERENCE.md`](./docs/CLI-REFERENCE.md)
 ## Update
 
 ```bash
-opencode-rpc update                  # latest stable release tag (v2.1.1 today)
+opencode-rpc update                  # latest stable release tag (v3.1.5 today)
 opencode-rpc update --stable         # force install latest stable tag
 opencode-rpc update --dev <branch>   # latest commit on <branch> (developer)
 opencode-rpc update --ref <ref>      # specific ref (tag, branch, or SHA)
 opencode-rpc update --repo <fork>    # install from a fork
 ```
 
-All four flags are mutually exclusive. `--ref` and `--dev <branch>`
-are the recommended paths for non-stable installs because they
-sidestep the npm v11 git-dep bug.
+All four flags are mutually exclusive. `update` always installs from
+a local tarball (clone + `npm pack` + `npm install -g <tarball>`)
+so it sidesteps the npm v11 git-dep bug described at the bottom of
+this file.
 
 ## Activity log: what to look at
 
@@ -180,7 +198,8 @@ Expected on a healthy install:
 
 If you see `uncaughtException: Error: write EPIPE` followed by
 `exit code=1`, you are on a version older than v3.0.4-phase2 and
-need to upgrade (`opencode-rpc update --ref redesign/v3-daemon`).
+need to upgrade (`opencode-rpc update --ref v3.0.4-phase2` or
+newer).
 
 ## Customization
 
@@ -239,27 +258,63 @@ See [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) for the full
 design (template engine, per-instance state, daemon lifecycle,
 single-connection rationale).
 
-## Requirements
-
-- Node.js 18+ (LTS recommended; CI tests on 20, 22, 24)
-- OpenCode CLI
-- Discord Desktop (required for v3 Phase 2 push)
-
 ## The npm v11 git-dep bug
 
-`npm install -g <owner>/<repo>#<branch>` for global packages
-creates a partial install on npm 11.x:
+If you have ever seen this after `npm install -g <repo>#<tag>`:
 
-- The package directory at `lib/node_modules/<repo>/` contains
-  only `src/`, no `package.json`, no `bin/`.
-- The `<repo>` symlink in `~/.nvm/.../bin/` is never created.
-- npm reports "added 1 package" anyway.
+```
+$ npm install -g 'Khip01/opencode-rich-presence#v3.1.5'
+added 1 package in 4s
 
-Symptoms: `zsh: command not found: opencode-rpc` immediately after
-install. Workaround: use `opencode-rpc update --ref <branch>`
-instead — it does a clean clone + `npm pack` + install of the
-local tarball, which is not affected by the bug. See
-[`docs/INSTALL.md`](./docs/INSTALL.md) for the full install flow.
+$ opencode-rpc
+zsh: command not found: opencode-rpc
+
+$ npm list -g opencode-rich-presence
+└── opencode-rich-presence@ -> ./../../../../../.npm/_cacache/tmp/git-cloneAmM1cO
+```
+
+You have hit an npm v11 bug. It is on npm's side, not the
+package's, and there is no fix from the package side.
+
+### What npm v11 does (the bug)
+
+When installing a global git dep like `<owner>/<repo>#<ref>`, npm
+v11:
+
+1. Clones the repo to a temp dir under `~/.npm/_cacache/tmp/`.
+2. Symlinks `lib/node_modules/<repo>` to that temp dir.
+3. Should create `bin/<binary>` symlinks into the package... but
+   does not.
+
+The result: `npm list -g` shows the package, the directory exists,
+but the CLI binary is missing. The bug is consistent across
+branches, tags, and commit SHAs, and across npm v11.0.0 through at
+least v11.8.0.
+
+The temp dir also gets cleaned up by `npm cache clean --force` or
+when the system reboots with tmpfs-backed `/tmp` paths on some
+configurations. After cleanup the symlink dangles and the install
+appears to vanish.
+
+### Why this package cannot work around it
+
+The bug is in npm's git-dep install handler, not in
+`opencode-rich-presence`. Even with a complete `package.json`,
+correct `bin` entries, and no `files` filter, npm v11 still omits
+the bin symlink for global git deps.
+
+### Workarounds (in order of recommendation)
+
+1. **Use the curl installer above.** It downloads a real tarball
+   and runs `npm install -g <tarball>`. Tarball installs are not
+   affected by the bug.
+2. **Manual tarball install** from
+   [GitHub Releases](https://github.com/Khip01/opencode-rich-presence/releases/latest).
+3. **`opencode-rpc update --ref <tag>`** for upgrades after the
+   curl installer has put `opencode-rpc` on PATH.
+
+All three paths install from a local tarball, which sidesteps the
+git-dep handler entirely.
 
 ## Migration from v1.0.0
 
