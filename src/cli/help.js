@@ -5,54 +5,54 @@ Usage:
   opencode-rpc <command> [options]
 
 Commands:
-  install      Set up Rich Presence for OpenCode (creates config)
+  install      Set up Rich Presence for OpenCode (creates config + symlink)
   uninstall    Remove Rich Presence configuration
-  restart      Reload the plugin worker (writes restart signal, kills worker)
-  update       Check for updates and upgrade
+  restart      Kill the daemon so the next chat.message spawns a fresh one
+  update       Upgrade to latest stable release tag, or to a specific ref
   info         Show diagnostic information
   help         Show this message
   version      Print version
 
 Options (update):
-  --dev [BRANCH]  Install latest commit on BRANCH (default: main).
-                   IMPORTANT: --dev defaults to the upstream \`main\` branch,
-                   which is currently v2.1.1 (pre-redesign). If you are
-                   on v3 (e.g. redesign/v3-daemon), you MUST pass the
-                   branch explicitly or you will be downgraded to v2.x:
-                     opencode-rpc update --dev redesign/v3-daemon
   --stable         Force install latest stable tag (use to switch off dev)
   --ref REF        Install a specific git ref: tag, branch, or commit SHA.
-                   Use this for pre-release branches (e.g. redesign/v3-daemon)
-                   instead of \`npm install -g <url>#<branch>\`, which hits
-                   a npm v11 bug that installs the package without bin
-                   symlinks (the opencode-rpc command would be missing).
-                    Examples:
-                      opencode-rpc update --ref redesign/v3-daemon
-                      opencode-rpc update --ref v3.1.5
-                      opencode-rpc update --ref 6664bfb
-                      opencode-rpc update --ref 471ce940ba316180fa08617dcb04ee1b59599e7f
+                   Use this instead of \`npm install -g <url>#<ref>\`, which
+                   hits a npm v11 bug that installs the package without
+                   bin symlinks (the opencode-rpc command would be missing).
+                   Examples:
+                     opencode-rpc update --ref v3.1.6
+                     opencode-rpc update --ref <branch-name>
+                     opencode-rpc update --ref 6664bfb
+                     opencode-rpc update --ref 471ce940ba316180fa08617dcb04ee1b59599e7f
+  --dev [BRANCH]   Install latest commit on BRANCH (defaults to \`main\`,
+                   which is currently v3.1.6). Combine with --repo for
+                   forks.
   --repo OWNER/REPO  Install from a fork instead of the upstream repo.
-                     Use this to test changes in your own fork before
-                     opening a PR:
+                     Combine with --dev, --stable, or --ref:
                        opencode-rpc update --repo myname/opencode-rich-presence --ref my-branch
-                       opencode-rpc update --repo myname/opencode-rich-presence --dev my-branch
 
 Installation (one-time):
-  # Stable release (recommended for normal use):
-  opencode-rpc update                  # latest stable tag, OR
-  npm install -g Khip01/opencode-rich-presence  # default branch tip
+
+  # Quick install (Linux, macOS, Windows via Git Bash / MSYS2 / Cygwin / WSL):
+  curl -fsSL https://raw.githubusercontent.com/Khip01/opencode-rich-presence/main/install.sh | bash
+
+  # Pin to a specific version:
+  curl -fsSL https://raw.githubusercontent.com/Khip01/opencode-rich-presence/main/install.sh \\
+    | ORP_VERSION=v3.1.6 bash
+
+  # Manual tarball install (any platform):
+  # Download from https://github.com/Khip01/opencode-rich-presence/releases/latest
+  npm install -g ./opencode-rich-presence-v3.1.6.tgz
+
+  # After install, set up the OpenCode plugin symlink + config:
   opencode-rpc install
 
-  # Dev branch (e.g. redesign/v3-daemon). DO NOT use the form below,
-  # it triggers npm v11's broken-symlink bug for git deps with #ref:
-  #   npm install -g Khip01/opencode-rich-presence#redesign/v3-daemon
-  # Use this instead:
-  opencode-rpc update --ref redesign/v3-daemon
-  opencode-rpc install
-
-  # Install from your own fork:
-  opencode-rpc update --repo myname/opencode-rich-presence --ref my-branch
-  opencode-rpc install
+  # Why not \`npm install -g Khip01/opencode-rich-presence#v3.1.6\`?
+  # npm v11 has a bug installing global git deps: the package appears
+  # to install (npm reports "added 1 package") but the opencode-rpc
+  # binary is missing (\`zsh: command not found: opencode-rpc\`).
+  # The package cannot fix this from its own package.json; always
+  # install from a local tarball (curl installer or manual download).
 
 Update:
   opencode-rpc update                  # latest stable release tag

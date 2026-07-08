@@ -34,7 +34,7 @@ set up the plugin symlink and config. Pin to a specific version:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Khip01/opencode-rich-presence/main/install.sh \
-  | ORP_VERSION=v3.1.5 bash
+  | ORP_VERSION=v3.1.6 bash
 ```
 
 If you do not have `curl`, replace it with `wget -qO- <url>` or
@@ -53,7 +53,7 @@ use the manual tarball install in path B.
    The tarball name is `opencode-rich-presence-<version>.tgz`.
 2. Install it:
    ```bash
-   npm install -g ./opencode-rich-presence-3.1.5.tgz
+   npm install -g ./opencode-rich-presence-3.1.6.tgz
    ```
 3. Continue with Step 2 below (`opencode-rpc install`).
 
@@ -64,7 +64,7 @@ upgrade without manually downloading a tarball:
 
 ```bash
 opencode-rpc update                    # latest stable release tag
-opencode-rpc update --ref v3.1.5 # pin to a specific tag
+opencode-rpc update --ref v3.1.6 # pin to a specific tag
 opencode-rpc update --dev main         # latest commit on main (developer)
 opencode-rpc update --ref <branch>     # a feature branch you want to test
 opencode-rpc update --repo fork/repo    # install from a fork instead

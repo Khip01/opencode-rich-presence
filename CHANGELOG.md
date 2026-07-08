@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.6] - 2026-07-09
+
+### Fixed
+
+- **`opencode-rpc help` no longer recommends the broken npm v11
+  git-dep install pattern.** v3.1.5's help text included
+  `npm install -g Khip01/opencode-rich-presence` as a "stable
+  release" install option. That command is broken on npm v11:
+  npm reports "added 1 package" but never creates the
+  `opencode-rpc` binary, leaving the user with `zsh: command
+  not found: opencode-rpc`. Replaced with the curl installer
+  and the manual tarball install, both of which work.
+
+- **Removed stale "main is v2.1.1 (pre-redesign)" and
+  "redesign/v3-daemon" references from `src/cli/help.js` and
+  `src/cli/update.js`.** The `redesign/v3-daemon` branch was
+  merged into `main` in v3.0.0-phase2; current `main` is
+  v3.1.6.
+
 ## [3.1.5] - 2026-07-08
 
 ### Added

@@ -139,7 +139,7 @@ function runNpmInstall(ref, repoUrl) {
         // full or short SHA) work without special handling.
         execSync(`git clone ${repoUrl} .`, { cwd: tmpDir, stdio: "inherit" });
         // Checkout the requested ref. Works for branch names (e.g.
-        // `redesign/v3-daemon`), tag names (e.g. `v3.1.5`),
+        // `feature/some-branch`), tag names (e.g. `v3.1.6`),
         // and commit SHAs (e.g. `471ce94` or the full 40-char hash).
         // advice.detachedHead=false suppresses the long warning when
         // checking out a tag or SHA, since this is a throwaway clone
@@ -220,7 +220,7 @@ async function installStable(ref, current, repoUrl) {
 }
 
 // Install latest commit on a branch. branch defaults to "main".
-// Pass any branch name (e.g. "redesign/v3-daemon") to track a
+// Pass any branch name (e.g. "feature/some-branch") to track a
 // pre-release branch instead.
 async function installDev(current, branch, ownerRepo, repoUrl) {
     let sha;
@@ -289,16 +289,16 @@ export async function update(args = []) {
     const isStable = args.includes("--stable");
     // --ref <ref> installs a specific git ref (branch, tag, or SHA).
     // This is the recommended way to install pre-release branches
-    // like `redesign/v3-daemon` because `npm install -g <url>#<branch>`
-    // hits a npm v11 bug that installs the package without bin symlinks.
-    // update.js already does a clean clone+pack+tarball install that
-    // sidesteps that bug.
+    // because `npm install -g <url>#<branch>` hits a npm v11 bug
+    // that installs the package without bin symlinks. update.js
+    // already does a clean clone+pack+tarball install that sidesteps
+    // that bug.
     const refIdx = args.indexOf("--ref");
     const refArg = refIdx !== -1 ? args[refIdx + 1] : null;
     if (refIdx !== -1 && !refArg) {
         console.error("Error: --ref requires a value (branch name, tag, or commit SHA).");
-        console.error("Example: opencode-rpc update --ref redesign/v3-daemon");
-        console.error("         opencode-rpc update --ref v3.1.5");
+        console.error("Example: opencode-rpc update --ref <branch-name>");
+        console.error("         opencode-rpc update --ref v3.1.6");
         console.error("         opencode-rpc update --ref 6664bfb");
         process.exit(2);
     }
@@ -313,7 +313,7 @@ export async function update(args = []) {
 
     // --dev [BRANCH]: install latest commit on BRANCH. BRANCH is
     // optional; if omitted, default to "main". Lets users track a
-    // pre-release branch (e.g. `--dev redesign/v3-daemon`) without
+    // pre-release branch (e.g. `--dev my-feature-branch`) without
     // having to look up the latest commit SHA themselves.
     let devBranch = null;
     if (isDev) {
