@@ -5,6 +5,48 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.7] - 2026-07-09
+
+### Added
+
+- **`tests/cli-lifecycle.mjs`: comprehensive CLI lifecycle regression
+  suite (78 assertions, 4 sections).** Verifies every entry point of
+  the CLI works correctly without breaking the user's real install:
+  - Section 0 (read-only): `version`, `help`, `info` output format
+    and content. Detects if help text regresses to recommend the
+    broken `npm install -g <repo>#<ref>` pattern or includes stale
+    `v2.1.1 pre-redesign` / `redesign/v3-daemon` references.
+  - Section 1 (no mutation): CLI argument validation rejects empty
+    values, whitespace, control characters, and missing args. The
+    user's real install is verified intact after every bad-input
+    test.
+  - Section 2 (unit): `install.sh` syntax check, platform detection
+    for Linux/Darwin/MINGW*/MSYS*/CYGWIN*/FreeBSD, version stripping
+    (with/without leading `v`), tarball URL construction.
+  - Section 3 (sandbox): end-to-end install in an isolated npm
+    prefix. Downloads the real `v3.1.6` tarball from GitHub,
+    installs it, verifies bin symlink + package directory + tarball
+    contents (no `files` field, `install.sh` included, etc.), runs
+    `opencode-rpc install` / `uninstall`, and verifies clean
+    removal via `npm uninstall -g`.
+  - Section 4 (sandbox): update flow. Installs `v3.1.5` then
+    upgrades to `v3.1.6` via `update --ref`, verifies that an
+    invalid `--ref` does NOT clobber the existing install (no
+    regressions on bad input), then exercises `update --stable`
+    and `update --dev`.
+
+  Total assertions across all 4 harnesses (phase1 + phase2 +
+  phase2-v2 + cli-lifecycle): **160**. Run via `npm test` or
+  `npm run test:cli-lifecycle` for the new harness alone.
+
+### Changed
+
+- **v3.1.5 GitHub Release body shortened to a "superseded" note.**
+  The release page previously contained a long install guide that
+  included the broken `npm install -g <repo>#<ref>` pattern. The
+  tag and tarball asset are preserved (for reproducibility) but
+  the install guidance now lives on the v3.1.6 release page.
+
 ## [3.1.6] - 2026-07-09
 
 ### Fixed

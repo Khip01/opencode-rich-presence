@@ -2,7 +2,7 @@
 
 OpenCode plugin that displays your AI session status in Discord.
 
-**Status: v3.1.6** (daemon-based push, multi-instance safe).
+**Status: v3.1.7** (daemon-based push, multi-instance safe).
 A long-lived daemon holds the single Discord IPC connection for the
 whole machine. OpenCode plugin instances connect to it via local
 Unix socket and forward their state. Handoff between OpenCode
@@ -61,7 +61,7 @@ up the plugin symlink and config. Pin to a specific version:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Khip01/opencode-rich-presence/main/install.sh \
-  | ORP_VERSION=v3.1.6 bash
+  | ORP_VERSION=v3.1.7 bash
 ```
 
 If you do not have `curl`, replace it with `wget -qO- <url>` or
@@ -79,7 +79,7 @@ and run it from there.
    works on any platform with Node.js 18+.
 2. Install it:
    ```bash
-   npm install -g ./opencode-rich-presence-3.1.6.tgz
+   npm install -g ./opencode-rich-presence-3.1.7.tgz
    ```
 3. Continue with step 2 below.
 
@@ -127,7 +127,7 @@ opencode-rpc <command> [options]
 | `restart` | Kill the daemon so the next chat.message spawns a fresh one. |
 | `update` | Upgrade to latest stable release tag |
 | `update --stable` | Force-install latest stable tag (skip version check) |
-| `update --dev [BRANCH]` | Upgrade to latest commit on BRANCH (default: `main`, currently v3.1.6) |
+| `update --dev [BRANCH]` | Upgrade to latest commit on BRANCH (default: `main`, currently v3.1.7) |
 | `update --ref REF` | Install a specific ref (tag, branch, or commit SHA) |
 | `update --repo OWNER/REPO` | Install from a fork instead of upstream |
 | `info` | Diagnostics: paths, config, daemon status, activity log tail |
@@ -139,7 +139,7 @@ Full reference: [`docs/CLI-REFERENCE.md`](./docs/CLI-REFERENCE.md)
 ## Update
 
 ```bash
-opencode-rpc update                  # latest stable release tag (v3.1.6 today)
+opencode-rpc update                  # latest stable release tag (v3.1.7 today)
 opencode-rpc update --stable         # force install latest stable tag
 opencode-rpc update --dev <branch>   # latest commit on <branch> (developer)
 opencode-rpc update --ref <ref>      # specific ref (tag, branch, or SHA)
@@ -263,7 +263,7 @@ single-connection rationale).
 If you have ever seen this after `npm install -g <repo>#<tag>`:
 
 ```
-$ npm install -g 'Khip01/opencode-rich-presence#v3.1.6'
+$ npm install -g 'Khip01/opencode-rich-presence#v3.1.7'
 added 1 package in 4s
 
 $ opencode-rpc

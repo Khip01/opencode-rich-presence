@@ -20,12 +20,12 @@ Options (update):
                    hits a npm v11 bug that installs the package without
                    bin symlinks (the opencode-rpc command would be missing).
                    Examples:
-                     opencode-rpc update --ref v3.1.6
+                     opencode-rpc update --ref v3.1.7
                      opencode-rpc update --ref <branch-name>
                      opencode-rpc update --ref 6664bfb
                      opencode-rpc update --ref 471ce940ba316180fa08617dcb04ee1b59599e7f
   --dev [BRANCH]   Install latest commit on BRANCH (defaults to \`main\`,
-                   which is currently v3.1.6). Combine with --repo for
+                   which is currently v3.1.7). Combine with --repo for
                    forks.
   --repo OWNER/REPO  Install from a fork instead of the upstream repo.
                      Combine with --dev, --stable, or --ref:
@@ -38,16 +38,16 @@ Installation (one-time):
 
   # Pin to a specific version:
   curl -fsSL https://raw.githubusercontent.com/Khip01/opencode-rich-presence/main/install.sh \\
-    | ORP_VERSION=v3.1.6 bash
+    | ORP_VERSION=v3.1.7 bash
 
   # Manual tarball install (any platform):
   # Download from https://github.com/Khip01/opencode-rich-presence/releases/latest
-  npm install -g ./opencode-rich-presence-v3.1.6.tgz
+  npm install -g ./opencode-rich-presence-v3.1.7.tgz
 
   # After install, set up the OpenCode plugin symlink + config:
   opencode-rpc install
 
-  # Why not \`npm install -g Khip01/opencode-rich-presence#v3.1.6\`?
+  # Why not \`npm install -g Khip01/opencode-rich-presence#v3.1.7\`?
   # npm v11 has a bug installing global git deps: the package appears
   # to install (npm reports "added 1 package") but the opencode-rpc
   # binary is missing (\`zsh: command not found: opencode-rpc\`).

@@ -1,6 +1,6 @@
 {
   "name": "opencode-rich-presence",
-  "version": "3.1.6",
+  "version": "3.1.7",
   "description": "OpenCode plugin + daemon that pushes AI session state to Discord via a single persistent connection.",
   "type": "module",
   "main": "./src/plugin/index.js",
@@ -8,10 +8,11 @@
     "opencode-rpc": "./bin/opencode-rpc.js"
   },
   "scripts": {
-    "test": "node tests/phase1-harness.mjs && node tests/phase2-harness.mjs && node tests/phase2-v2-harness.mjs",
+    "test": "node tests/phase1-harness.mjs && node tests/phase2-harness.mjs && node tests/phase2-v2-harness.mjs && node tests/cli-lifecycle.mjs",
     "test:phase1": "node tests/phase1-harness.mjs",
     "test:phase2": "node tests/phase2-harness.mjs",
     "test:phase2-v2": "node tests/phase2-v2-harness.mjs",
+    "test:cli-lifecycle": "node tests/cli-lifecycle.mjs",
     "syntax": "node scripts/syntax-check.js",
     "smoke": "node scripts/smoke-test.js",
     "prepack": "node scripts/check-pkg.js"

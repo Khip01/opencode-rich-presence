@@ -9,13 +9,13 @@ need to navigate this codebase safely.
 
 - **Plugin name**: `opencode-rich-presence`
 - **CLI command**: `opencode-rpc`
-- **Latest version**: v3.1.6 (the v3 daemon-based push
+- **Latest version**: v3.1.7 (the v3 daemon-based push
   architecture). v3 adds the daemon architecture that holds a
   single Discord connection for the whole machine; OpenCode
   plugin instances connect to it via local Unix socket and
   forward their rendered presence payload.
-- **Latest stable release on `main`**: v3.1.6 (tag
-  `v3.1.6`). `redesign/v3-daemon` has been merged into
+- **Latest stable release on `main`**: v3.1.7 (tag
+  `v3.1.7`). `redesign/v3-daemon` has been merged into
   `main`. v3 uses the daemon architecture that holds a single
   Discord connection for the whole machine.
 - **Legacy stable (v2.x)**: v2.1.1 (tag `v2.1.1`). Still tagged
@@ -38,7 +38,7 @@ need to navigate this codebase safely.
   `NPM_TOKEN` secret enables auto-publish to npmjs.com on
   tagged releases.
 - **Repository**: github.com/Khip01/opencode-rich-presence
-- **Default branch**: `main` (currently v3.1.6)
+- **Default branch**: `main` (currently v3.1.7)
 - **Active dev branch**: `main` (v3 redesign merged from
   `redesign/v3-daemon`)
 - **Plugin author Discord App ID** (default fallback in
@@ -143,9 +143,9 @@ around the npm v11 bug.
 | Audience | Command |
 |----------|---------|
 | End user (fresh install, stable) | `curl -fsSL https://raw.githubusercontent.com/Khip01/opencode-rich-presence/main/install.sh \| bash` |
-| End user (pin to a specific version) | `curl ... \| ORP_VERSION=v3.1.6 bash` |
+| End user (pin to a specific version) | `curl ... \| ORP_VERSION=v3.1.7 bash` |
 | End user (auto-resolve latest stable, requires existing install) | `opencode-rpc update` |
-| User (upgrade, v3 release) | `opencode-rpc update --ref v3.1.6 && opencode-rpc install` |
+| User (upgrade, v3 release) | `opencode-rpc update --ref v3.1.7 && opencode-rpc install` |
 | Developer (v3 main branch, requires existing install) | `opencode-rpc update --dev main && opencode-rpc install` |
 | Developer (track a branch, requires existing install) | `opencode-rpc update --dev <branch> && opencode-rpc install` |
 | Developer (specific commit SHA, requires existing install) | `opencode-rpc update --ref <sha> && opencode-rpc install` |
@@ -185,7 +185,7 @@ The five CLI commands are:
    for switching back from --dev mode.
 4. `opencode-rpc update --dev [BRANCH]`: developer-only upgrade.
      Installs the latest commit on BRANCH (defaults to `main`,
-     which is currently v3.1.6).
+     which is currently v3.1.7).
 5. `opencode-rpc update --ref REF`: install a specific git ref
    (tag, branch, or commit SHA). Works for any ref including short
    SHAs (`--ref 471ce94`) and full SHAs.
@@ -522,7 +522,7 @@ local tarball:
   `npm install -g <tarball>`.
 
 The tarball install path was added in v2.1.1 for the upgrade flow.
-The `install.sh` script (v3.1.6+) closes the fresh-install
+The `install.sh` script (v3.1.7+) closes the fresh-install
 gap where `opencode-rpc` was not yet on PATH.
 
 `update.js` (`src/cli/update.js`) is the reference implementation

@@ -9,7 +9,7 @@
 #   curl -fsSL https://raw.githubusercontent.com/Khip01/opencode-rich-presence/main/install.sh | bash
 #
 #   # Pin to a specific version (skip the GitHub API lookup):
-#   curl -fsSL https://raw.githubusercontent.com/Khip01/opencode-rich-presence/main/install.sh | ORP_VERSION=v3.1.6 bash
+#   curl -fsSL https://raw.githubusercontent.com/Khip01/opencode-rich-presence/main/install.sh | ORP_VERSION=v3.1.7 bash
 #
 #   # If you do not have curl, replace it with wget -qO- <url> or fetch <url> manually and pipe to bash.
 #
@@ -126,7 +126,7 @@ fetch_text() {
 VERSION="${ORP_VERSION:-}"
 
 # Strip a leading "v" so users can pass either form. The rest of the
-# script works with a bare semver string (e.g. "3.1.6") and
+# script works with a bare semver string (e.g. "3.1.7") and
 # re-adds the "v" only where the GitHub URL requires it.
 VERSION="${VERSION#v}"
 
@@ -140,7 +140,7 @@ if [ -z "$VERSION" ]; then
 
   if [ -z "$VERSION" ]; then
     err "Could not determine the latest release via the GitHub API."
-    err "Pin a version explicitly: ORP_VERSION=v3.1.6 bash install.sh"
+    err "Pin a version explicitly: ORP_VERSION=v3.1.7 bash install.sh"
     err "Or download a tarball manually from:"
     err "  https://github.com/${REPO}/releases/latest"
     exit 1
@@ -153,8 +153,8 @@ log "Target version: v${VERSION}"
 
 # The release.yml workflow renames `npm pack` output to
 # `opencode-rich-presence-${{ github.ref_name }}.tgz`, and
-# `github.ref_name` for a tag like `v3.1.6` is
-# `v3.1.6` (the `v` is part of the ref). So the tarball
+# `github.ref_name` for a tag like `v3.1.7` is
+# `v3.1.7` (the `v` is part of the ref). So the tarball
 # filename on GitHub Releases is `opencode-rich-presence-v<version>.tgz`.
 TAG="v${VERSION}"
 TARBALL_NAME="opencode-rich-presence-${TAG}.tgz"
