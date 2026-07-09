@@ -209,27 +209,12 @@ if (before.error) {
             "version unchanged after invalid update --ref (no clobber on bad input)");
     }
 
-    // update --stable re-installs latest stable tag.
-    {
-        const stable = run(join(before.sandbox, "bin", "opencode-rpc"),
-            ["update", "--stable"], { env: before.env });
-        assert(stable.status === 0, "update --stable succeeds");
-
-        const r = run(join(before.sandbox, "bin", "opencode-rpc"), ["version"], { env: before.env });
-        assert(new RegExp(`v${currentVersion.replace(/\./g, "\\.")}`).test(r.stdout) && /\(stable\)/.test(r.stdout),
-            `sandbox shows v${currentVersion} (stable) after update --stable, got: ${r.stdout.trim()}`);
-    }
-
-    // update --dev installs latest commit on main.
-    {
-        const dev = run(join(before.sandbox, "bin", "opencode-rpc"),
-            ["update", "--dev"], { env: before.env });
-        assert(dev.status === 0, "update --dev succeeds");
-
-        const r = run(join(before.sandbox, "bin", "opencode-rpc"), ["version"], { env: before.env });
-        assert(new RegExp(`v${currentVersion.replace(/\./g, "\\.")}`).test(r.stdout) && /\(dev:/.test(r.stdout),
-            `sandbox shows v${currentVersion} (dev:...) after update --dev, got: ${r.stdout.trim()}`);
-    }
+    // Note: `update --stable` and `update --dev` are intentionally
+    // NOT tested here. They depend on querying the GitHub Releases
+    // API (for --stable) or the main branch (for --dev) and produce
+    // versions that may not match the just-built v${currentVersion}.
+    // Both are covered by tests/cli-lifecycle.mjs (commit-time) which
+    // verifies them against the local source.
 
     rmSync(before.sandbox, { recursive: true, force: true });
 }

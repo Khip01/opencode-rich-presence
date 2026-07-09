@@ -14,15 +14,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   validation, `install.sh` unit checks, and end-to-end install in
   an isolated npm prefix. Falls back to `npm pack` (local tarball)
   when the current version is not yet published.
-- **`tests/release-smoke.mjs`: release-time smoke test (8
-  assertions).** Verifies the update flow (install previous
-  release, upgrade via `update --ref`, invalid ref does not
-  clobber, `update --stable`, `update --dev`). Runs ONLY in the
-  release workflow after the tarball is built but before the
-  GitHub release is published.
+- **`tests/release-smoke.mjs`: release-time smoke test (~10
+  assertions).** Verifies the just-built tarball installs
+  cleanly, that `update --ref` can upgrade from the previous
+  release, and that an invalid `--ref` does not clobber the
+  install. Runs ONLY in the release workflow after the tarball
+  is built but before the GitHub release is published.
+
+  Note: `update --stable` and `update --dev` are covered by
+  `tests/cli-lifecycle.mjs` (commit-time, runs against local
+  source) rather than here, because at release-smoke time the
+  current version is not yet published to the GitHub Releases
+  API so `--stable` would query the previous release.
 
   Total assertions across all 5 harnesses when both run
-  (commit-time + release-time): 158.
+  (commit-time + release-time): 157.
 
 ### Changed
 
