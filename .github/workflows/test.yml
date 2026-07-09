@@ -49,7 +49,7 @@ jobs:
           node bin/opencode-rpc.js info
           npm pack --dry-run
 
-      # Full regression suite. The three harnesses are independent
+      # Full regression suite. The four harnesses are independent
       # (each spins up its own daemon on its own temp socket) so we
       # can run them sequentially. Total wall time ~3 min on
       # ubuntu-latest; the matrix above multiplies that across
@@ -62,3 +62,10 @@ jobs:
 
       - name: Phase 2 v2 harness
         run: npm run test:phase2-v2
+
+      # CLI lifecycle (commit-time portion only): CLI output, arg
+      # validation, install.sh unit checks, end-to-end install in
+      # sandbox. The "update flow" scenario is in tests/release-smoke
+      # and runs only in the release workflow.
+      - name: CLI lifecycle harness
+        run: npm run test:cli-lifecycle

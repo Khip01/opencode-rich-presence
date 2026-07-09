@@ -13,6 +13,7 @@
     "test:phase2": "node tests/phase2-harness.mjs",
     "test:phase2-v2": "node tests/phase2-v2-harness.mjs",
     "test:cli-lifecycle": "node tests/cli-lifecycle.mjs",
+    "test:release-smoke": "node tests/release-smoke.mjs",
     "syntax": "node scripts/syntax-check.js",
     "smoke": "node scripts/smoke-test.js",
     "prepack": "node scripts/check-pkg.js"

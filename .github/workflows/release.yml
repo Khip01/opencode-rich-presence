@@ -50,6 +50,18 @@ jobs:
           # opencode-rich-presence-v3.1.4-phase2.tgz).
           mv opencode-rich-presence-*.tgz opencode-rich-presence-${{ github.ref_name }}.tgz
 
+      - name: Release smoke test
+        # Verifies the just-built tarball installs cleanly and that
+        # `opencode-rpc update --ref` can upgrade from the previous
+        # release to this one. Runs AFTER tarball build but BEFORE
+        # publishing, so a broken release artifact fails the workflow
+        # and never reaches the GitHub release page.
+        # Requires a published previous release on GitHub; the first
+        # release (v0.0.1 or similar) will have nothing to upgrade
+        # from, but the install + idempotent reinstall assertions
+        # still cover the new tarball.
+        run: npm run test:release-smoke
+
       - name: Publish to npm registry (optional)
         # Only runs if the NPM_TOKEN secret is configured on the
         # repo. The publish step uses `npm publish --provenance`

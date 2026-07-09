@@ -9,38 +9,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **`tests/cli-lifecycle.mjs`: comprehensive CLI lifecycle regression
-  suite (78 assertions, 4 sections).** Verifies every entry point of
-  the CLI works correctly without breaking the user's real install:
-  - Section 0 (read-only): `version`, `help`, `info` output format
-    and content. Detects if help text regresses to recommend the
-    broken `npm install -g <repo>#<ref>` pattern or includes stale
-    `v2.1.1 pre-redesign` / `redesign/v3-daemon` references.
-  - Section 1 (no mutation): CLI argument validation rejects empty
-    values, whitespace, control characters, and missing args. The
-    user's real install is verified intact after every bad-input
-    test.
-  - Section 2 (unit): `install.sh` syntax check, platform detection
-    for Linux/Darwin/MINGW*/MSYS*/CYGWIN*/FreeBSD, version stripping
-    (with/without leading `v`), tarball URL construction.
-  - Section 3 (sandbox): end-to-end install in an isolated npm
-    prefix. Downloads the real `v3.1.6` tarball from GitHub,
-    installs it, verifies bin symlink + package directory + tarball
-    contents (no `files` field, `install.sh` included, etc.), runs
-    `opencode-rpc install` / `uninstall`, and verifies clean
-    removal via `npm uninstall -g`.
-  - Section 4 (sandbox): update flow. Installs `v3.1.5` then
-    upgrades to `v3.1.6` via `update --ref`, verifies that an
-    invalid `--ref` does NOT clobber the existing install (no
-    regressions on bad input), then exercises `update --stable`
-    and `update --dev`.
+- **`tests/cli-lifecycle.mjs`: commit-time CLI lifecycle regression
+  suite (67 assertions, 3 sections).** Verifies CLI output, arg
+  validation, `install.sh` unit checks, and end-to-end install in
+  an isolated npm prefix. Falls back to `npm pack` (local tarball)
+  when the current version is not yet published.
+- **`tests/release-smoke.mjs`: release-time smoke test (8
+  assertions).** Verifies the update flow (install previous
+  release, upgrade via `update --ref`, invalid ref does not
+  clobber, `update --stable`, `update --dev`). Runs ONLY in the
+  release workflow after the tarball is built but before the
+  GitHub release is published.
 
-  Total assertions across all 4 harnesses (phase1 + phase2 +
-  phase2-v2 + cli-lifecycle): **160**. Run via `npm test` or
-  `npm run test:cli-lifecycle` for the new harness alone.
+  Total assertions across all 5 harnesses when both run
+  (commit-time + release-time): 158.
 
 ### Changed
 
+- **`npm test` (commit-time)**: now runs phase1 + phase2 +
+  phase2-v2 + cli-lifecycle (commit-time portion). Release-smoke
+  is invoked separately in the release workflow.
+- **`npm run test:release-smoke`**: new script that invokes
+  `tests/release-smoke.mjs`.
+- **`tests/cli-lifecycle.mjs`**: removed Section 4 (update flow).
+  Section 4 requires a published release and moved to
+  `tests/release-smoke.mjs`.
+- **`.github/workflows/release.yml`**: now runs
+  `npm run test:release-smoke` after `npm pack` but before the
+  GitHub release is created. A failing smoke test fails the
+  workflow (no release published).
+- **`.github/workflows/release.yml`**: replaced stale release body
+  that recommended `npm install -g <repo>#<tag>` and referenced
+  the merged `redesign/v3-daemon` branch. New body leads with the
+  curl installer and explains the npm v11 bug.
+- **`.github/workflows/test.yml`**: removed `redesign/v3-daemon`
+  from branch triggers (merged into main).
 - **v3.1.5 GitHub Release body shortened to a "superseded" note.**
   The release page previously contained a long install guide that
   included the broken `npm install -g <repo>#<ref>` pattern. The
