@@ -31,6 +31,15 @@ name: Post-release
 on:
   release:
     types: [published]
+  # Allow manual trigger from the Actions tab so the maintainer can
+  # re-run the validation against an existing release (e.g., when the
+  # workflow file is added AFTER a release was already published).
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to validate (e.g. v3.1.8). Leave empty to use the latest published release."
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -39,8 +48,6 @@ jobs:
   user-simulation:
     name: Simulate user install / update / uninstall
     runs-on: ubuntu-latest
-    # Skip prereleases and drafts (only published stable releases).
-    if: github.event.release.prerelease == false && github.event.release.draft == false
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -53,13 +60,30 @@ jobs:
       - name: Install dependencies
         run: npm install
 
+      - name: Resolve target tag
+        # TAG resolution:
+        #   - Manual trigger with tag input -> use the input
+        #   - Manual trigger without input -> use the latest published
+        #   - Release event -> use github.event.release.tag_name
+        id: resolve-tag
+        run: |
+          if [ -n "${{ inputs.tag }}" ]; then
+            echo "tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          elif [ -n "${{ github.event.release.tag_name }}" ]; then
+            echo "tag=${{ github.event.release.tag_name }}" >> "$GITHUB_OUTPUT"
+          else
+            TAG=$(gh release list --limit 1 --json tagName -q '.[0].tagName')
+            echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          fi
+          echo "Resolved tag: ${{ steps.resolve-tag.outputs.tag }}"
+
       - name: Run user simulation tests
         # Downloads the real published tarball from GitHub Releases
         # and runs install + update + uninstall scenarios. See
         # tests/post-release.mjs for the full test list.
         run: npm run test:post-release
         env:
-          GITHUB_REF_NAME: ${{ github.event.release.tag_name }}
+          GITHUB_REF_NAME: ${{ steps.resolve-tag.outputs.tag }}
           GITHUB_REPOSITORY_OWNER: ${{ github.repository_owner }}
           GITHUB_REPOSITORY_NAME: ${{ github.event.repository.name }}
           CI: "true"
@@ -70,5 +94,5 @@ jobs:
         # log a summary for the maintainer.
         if: always()
         run: |
-          echo "::notice title=Post-release user simulation::Release ${{ github.event.release.tag_name }} tested against the real published asset."
+          echo "::notice title=Post-release user simulation::Release ${{ steps.resolve-tag.outputs.tag }} tested against the real published asset."
           echo "Result: ${{ job.status }}"
