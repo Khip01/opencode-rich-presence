@@ -86,7 +86,7 @@ Installation (one-time):
   opencode-rpc install
 
   # Specific version:
-  opencode-rpc update --ref v3.1.7
+  opencode-rpc update --ref v3.1.8
   opencode-rpc install
 
   # Specific branch:
@@ -106,7 +106,7 @@ Installation (one-time):
   opencode-rpc install
 
   # Or, for npmjs registry / stable tag with npm (zsh needs quotes):
-  npm install -g 'Khip01/opencode-rich-presence#v3.1.7'
+  npm install -g 'Khip01/opencode-rich-presence#v3.1.8'
   opencode-rpc install
 
   # Or default branch tip:
@@ -300,7 +300,7 @@ $ opencode-rpc update --dev redesign/v3-daemon
 
 opencode-rich-presence update (--dev redesign/v3-daemon)
 
-Current: v3.1.7 (dev: redesig)
+Current: v3.1.8 (dev: redesig)
 Latest:  471ce94 (latest commit on redesign/v3-daemon)
 Installing dev build (471ce94)...
 
@@ -323,7 +323,7 @@ $ opencode-rpc update --ref redesign/v3-daemon
 
 opencode-rich-presence update (--ref)
 
-Current: v3.1.7 (stable)
+Current: v3.1.8 (stable)
 Treating as channel=dev for version reporting.
 
 Cloning repo...
@@ -335,7 +335,7 @@ Restart OpenCode to load the new build.
 ```
 
 `--ref` works with any git ref the repo exposes: a tag
-(`--ref v3.1.7`), a branch (`--ref redesign/v3-daemon`), a
+(`--ref v3.1.8`), a branch (`--ref redesign/v3-daemon`), a
 short commit SHA (`--ref 6664bfb`), or a full commit SHA
 (`--ref 6664bfb0ba316180fa08617dcb04ee1b59599e7f`). The channel
 label written to the `.install-channel` marker is inferred from the
@@ -350,7 +350,7 @@ $ opencode-rpc update --repo myname/opencode-rich-presence --ref my-branch
 opencode-rich-presence update (--ref my-branch)
 Source repo:    myname/opencode-rich-presence
 
-Current: v3.1.7 (stable)
+Current: v3.1.8 (stable)
 Treating as channel=dev for version reporting.
 
 Cloning repo...

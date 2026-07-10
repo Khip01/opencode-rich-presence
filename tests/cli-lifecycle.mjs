@@ -22,7 +22,7 @@
 //  2. install.sh unit checks (no mutation):
 //     - bash -n syntax check
 //     - platform detection (Linux, Darwin, MINGW*, MSYS*, CYGWIN*, FreeBSD)
-//     - version stripping (v3.1.7 -> 3.1.7)
+//     - version stripping (v3.1.8 -> 3.1.8)
 //     - tarball URL construction (correct v prefix in URL path AND filename)
 //     - invalid version: 404 error path
 //
@@ -310,8 +310,8 @@ esac`;
 {
     // Version stripping (with and without leading v).
     const cases = [
-        { in: "v3.1.7", expect: "3.1.7" },
-        { in: "3.1.7",  expect: "3.1.7" },
+        { in: "v3.1.8", expect: "3.1.8" },
+        { in: "3.1.8",  expect: "3.1.8" },
         { in: "v3.0.0-phase1", expect: "3.0.0-phase1" },
         { in: "3.0.0-phase1",  expect: "3.0.0-phase1" },
     ];
@@ -326,14 +326,14 @@ esac`;
     // Tarball URL construction: ensure the v prefix appears in BOTH the
     // path segment AND the filename (because the release.yml workflow
     // names the asset after github.ref_name which includes the v).
-    const script = `VERSION="3.1.7"
+    const script = `VERSION="3.1.8"
 TAG="v\${VERSION}"
 TARBALL_NAME="opencode-rich-presence-\${TAG}.tgz"
 TARBALL_URL="https://github.com/Khip01/opencode-rich-presence/releases/download/\${TAG}/\${TARBALL_NAME}"
 echo "$TARBALL_URL"`;
     const r = shellSource(script);
     const url = r.stdout.trim();
-    assert(url === "https://github.com/Khip01/opencode-rich-presence/releases/download/v3.1.7/opencode-rich-presence-v3.1.7.tgz",
+    assert(url === "https://github.com/Khip01/opencode-rich-presence/releases/download/v3.1.8/opencode-rich-presence-v3.1.8.tgz",
         `tarball URL construction correct: ${url}`);
 }
 
@@ -376,22 +376,32 @@ const sandboxEnv = {
 // export NPM_CONFIG_PREFIX (uppercase) which npm reads internally.
 sandboxEnv.NPM_CONFIG_PREFIX = sandbox;
 
-// Download the tarball matching the current package.json version to
-// the sandbox. We use the version on disk (not a hardcoded value) so
-// the test stays valid as we bump versions. If the release is not
-// yet published on GitHub, fall back to building the tarball locally
-// via `npm pack` so the test never blocks on release-pipeline timing.
+// Build the tarball locally via `npm pack` and use it for the install
+// test. We deliberately avoid hitting GitHub Releases from this test
+// to keep `npm test` safe to run repeatedly from a developer's local
+// machine (no 429 risk on shared IP).
+//
+// If a developer explicitly wants to test against the real published
+// tarball (rare, e.g., for debugging a publish-specific issue), they
+// can opt in with:  ORP_USE_GITHUB_RELEASE=1 npm test
 const packageJson = JSON.parse(readFileSync(join(REPO_ROOT, "package.json"), "utf8"));
 const currentVersion = packageJson.version;
 const tarballPath = join(sandbox, `opencode-rich-presence-v${currentVersion}.tgz`);
+const useGithub = process.env.ORP_USE_GITHUB_RELEASE === "1";
 {
     let source = "";
-    const url = `https://github.com/Khip01/opencode-rich-presence/releases/download/v${currentVersion}/opencode-rich-presence-v${currentVersion}.tgz`;
-    const r = run("curl", ["-fsSL", "-o", tarballPath, url]);
-    if (r.status === 0) {
-        source = "downloaded from GitHub Releases";
-    } else {
-        // Release not published yet. Build locally via npm pack.
+    if (useGithub) {
+        // Opt-in: download the real published tarball.
+        const url = `https://github.com/Khip01/opencode-rich-presence/releases/download/v${currentVersion}/opencode-rich-presence-v${currentVersion}.tgz`;
+        const r = run("curl", ["-fsSL", "-o", tarballPath, url]);
+        if (r.status === 0) {
+            source = "downloaded from GitHub Releases (opt-in)";
+        } else {
+            assert(false, `GitHub download failed (ORP_USE_GITHUB_RELEASE=1): ${r.stderr}`);
+        }
+    }
+    if (!useGithub || source === "") {
+        // Default: build locally via npm pack.
         const pack = run("npm", ["pack", "--pack-destination", sandbox], {
             cwd: REPO_ROOT,
         });
@@ -402,16 +412,15 @@ const tarballPath = join(sandbox, `opencode-rich-presence-v${currentVersion}.tgz
         // `version` fields. The expected name is opencode-rich-presence-v<version>.tgz.
         const packed = readdirSync(sandbox).find((f) => f.endsWith(".tgz"));
         if (packed && packed !== `opencode-rich-presence-v${currentVersion}.tgz`) {
-            // Strip the leading `opencode-rich-presence-` that npm pack adds.
             // npm pack output: opencode-rich-presence-<version>.tgz
-            // install.sh expected: opencode-rich-presence-v<version>.tgz
+            // expected: opencode-rich-presence-v<version>.tgz
             // Rename to add the 'v' prefix if missing.
             const expected = `opencode-rich-presence-v${currentVersion}.tgz`;
             if (packed !== expected) {
                 renameSync(join(sandbox, packed), tarballPath);
             }
         }
-        source = "built locally via npm pack";
+        source = "built locally via npm pack (default; no GitHub curl)";
     }
     assert(existsSync(tarballPath), `tarball file exists in sandbox (${source})`);
     const sz = statSync(tarballPath).size;
@@ -443,7 +452,7 @@ const tarballPath = join(sandbox, `opencode-rich-presence-v${currentVersion}.tgz
 
     const pkg = JSON.parse(readFileSync(join(pkgPath, "package.json"), "utf8"));
     assert(pkg.name === "opencode-rich-presence", "package.json name is correct");
-    assert(pkg.version === "3.1.7", "package.json version is correct");
+    assert(pkg.version === "3.1.8", "package.json version is correct");
     assert(pkg.bin && pkg.bin["opencode-rpc"], "package.json declares bin entry");
     assert(!("files" in pkg), "package.json does NOT have a `files` field (npm v11 bug workaround)");
 }

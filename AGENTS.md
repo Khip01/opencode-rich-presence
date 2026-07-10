@@ -9,13 +9,13 @@ need to navigate this codebase safely.
 
 - **Plugin name**: `opencode-rich-presence`
 - **CLI command**: `opencode-rpc`
-- **Latest version**: v3.1.7 (the v3 daemon-based push
+- **Latest version**: v3.1.8 (the v3 daemon-based push
   architecture). v3 adds the daemon architecture that holds a
   single Discord connection for the whole machine; OpenCode
   plugin instances connect to it via local Unix socket and
   forward their rendered presence payload.
-- **Latest stable release on `main`**: v3.1.7 (tag
-  `v3.1.7`). `redesign/v3-daemon` has been merged into
+- **Latest stable release on `main`**: v3.1.8 (tag
+  `v3.1.8`). `redesign/v3-daemon` has been merged into
   `main`. v3 uses the daemon architecture that holds a single
   Discord connection for the whole machine.
 - **Legacy stable (v2.x)**: v2.1.1 (tag `v2.1.1`). Still tagged
@@ -38,7 +38,7 @@ need to navigate this codebase safely.
   `NPM_TOKEN` secret enables auto-publish to npmjs.com on
   tagged releases.
 - **Repository**: github.com/Khip01/opencode-rich-presence
-- **Default branch**: `main` (currently v3.1.7)
+- **Default branch**: `main` (currently v3.1.8)
 - **Active dev branch**: `main` (v3 redesign merged from
   `redesign/v3-daemon`)
 - **Plugin author Discord App ID** (default fallback in
@@ -143,9 +143,9 @@ around the npm v11 bug.
 | Audience | Command |
 |----------|---------|
 | End user (fresh install, stable) | `curl -fsSL https://raw.githubusercontent.com/Khip01/opencode-rich-presence/main/install.sh \| bash` |
-| End user (pin to a specific version) | `curl ... \| ORP_VERSION=v3.1.7 bash` |
+| End user (pin to a specific version) | `curl ... \| ORP_VERSION=v3.1.8 bash` |
 | End user (auto-resolve latest stable, requires existing install) | `opencode-rpc update` |
-| User (upgrade, v3 release) | `opencode-rpc update --ref v3.1.7 && opencode-rpc install` |
+| User (upgrade, v3 release) | `opencode-rpc update --ref v3.1.8 && opencode-rpc install` |
 | Developer (v3 main branch, requires existing install) | `opencode-rpc update --dev main && opencode-rpc install` |
 | Developer (track a branch, requires existing install) | `opencode-rpc update --dev <branch> && opencode-rpc install` |
 | Developer (specific commit SHA, requires existing install) | `opencode-rpc update --ref <sha> && opencode-rpc install` |
@@ -185,7 +185,7 @@ The five CLI commands are:
    for switching back from --dev mode.
 4. `opencode-rpc update --dev [BRANCH]`: developer-only upgrade.
      Installs the latest commit on BRANCH (defaults to `main`,
-     which is currently v3.1.7).
+     which is currently v3.1.8).
 5. `opencode-rpc update --ref REF`: install a specific git ref
    (tag, branch, or commit SHA). Works for any ref including short
    SHAs (`--ref 471ce94`) and full SHAs.
@@ -360,6 +360,85 @@ Before proposing any commit:
    - Verify per-instance state file shows rendered presence
 4. Documentation matches actual code behavior
 
+## Test Distribution Across Workflows
+
+Tests are split across three execution contexts to keep each
+context focused, fast, and free of unnecessary external calls.
+Do not duplicate a test across workflows; pick the context whose
+guarantees the test depends on.
+
+| Context | Trigger | What runs | May curl GitHub? |
+|---------|---------|-----------|-------------------|
+| **Local** (`npm test`) | Manual, by developer | All commit-time harnesses + optionally pre-release (with `--tarball=`) | No (default), opt-in via `ORP_USE_GITHUB_RELEASE=1` in cli-lifecycle §3 |
+| **Commit-time** (`.github/workflows/test.yml`, every push to main) | Push to main / PR | `npm test` = phase1 + phase2 + phase2-v2 + cli-lifecycle | No |
+| **Pre-release gate** (`.github/workflows/release.yml`, tag push) | `on: push: tags: [v*]` between `npm pack` and "Create GitHub release" | `npm run test:pre-release -- --tarball=...` against the just-built tarball | No (uses local npm pack output) |
+| **Post-release user simulation** (`.github/workflows/post-release.yml`, release published) | `on: release: types: [published]` | `npm run test:post-release` downloads REAL published tarball + simulates upgrade flow | **Yes** (CI IP, safe) |
+
+### Test coverage matrix (where each scenario lives)
+
+| # | Scenario | Local | Commit | Pre-release | Post-release |
+|---|----------|:-----:|:------:|:-----------:|:------------:|
+| 1-11 | Plugin logic (events, state, templates, daemon protocol, multi-instance, oversized client, fingerprint skip, long-idle stability) | ✓ | ✓ | inherited | inherited |
+| 12-15 | CLI source (version, help, info, arg validation) | ✓ | ✓ | inherited | inherited |
+| 16-18 | install.sh unit checks (syntax, platform, URL construction) | ✓ | ✓ | inherited | inherited |
+| 19-25 | Install tarball in sandbox + opencode-rpc install/uninstall + npm uninstall + idempotent re-install + tarball contents + package.json sanity | ✓ (npm pack) | ✓ (npm pack) | ✓ (REAL local tarball) | ✓ (REAL published) |
+| 26-28 | Install real published tarball + version + help | — | — | — | ✓ |
+| 29 | `update --ref` from previous release | — | — | — | ✓ |
+| 30 | `update --stable` (queries api.github.com) | — | — | — | ✓ |
+| 31 | `update --dev` (queries api.github.com) | — | — | — | ✓ |
+| 32 | Bad ref does NOT clobber existing install | ✓ (CLI arg only) | ✓ (CLI arg) | — | ✓ (real install) |
+
+### Curl discipline (important)
+
+`npm test` runs from a developer's machine. Repeated `curl` to
+GitHub raw CDN from a developer's IP can trigger GitHub's
+anti-scraping rate limits (60/hour unauthenticated) and
+HTTP 429 responses.
+
+**Rule:** tests that run at commit time or local MUST NOT curl
+GitHub by default. Use `npm pack` instead.
+
+- `tests/cli-lifecycle.mjs` §3 defaults to `npm pack`. Set
+  `ORP_USE_GITHUB_RELEASE=1` to opt-in to GitHub download (rare;
+  only for debugging a publish-specific issue).
+- `tests/pre-release.mjs` uses the local tarball (from `npm pack`
+  in the release workflow). No curl.
+- `tests/post-release.mjs` curls GitHub freely because it runs
+  from GitHub Actions' IP pool, not the developer's. To run it
+  locally, set `ORP_POST_RELEASE_FORCE=1` (still requires a
+  published release matching the version in package.json).
+
+If you add a new test that needs to hit GitHub, ask: does it
+need the published artifact, or can it use `npm pack`? If it
+needs the published artifact, it goes in `tests/post-release.mjs`.
+Otherwise, it goes in `tests/cli-lifecycle.mjs` and uses
+`npm pack`.
+
+### Manual test checklist (CI cannot cover these)
+
+The CI test matrix is comprehensive for code paths, but several
+real-world scenarios require a human. Run these manually before
+declaring a release "ready for production" (after post-release
+passes):
+
+- [ ] **M1: Real Discord IPC connection.** Start Discord Desktop,
+      install the plugin, fire a chat message, verify presence
+      appears in your Discord profile. CI has no Discord.
+- [ ] **M2: Real OpenCode plugin integration.** Start OpenCode
+      with the plugin loaded, fire a message, check
+      `~/.config/opencode/presence-activity.log` shows events.
+- [ ] **M3: End-to-end multi-window handoff.** Open two OpenCode
+      windows, fire messages in each, verify the daemon picks the
+      most recently active and pushes it. CI cannot run multiple
+      OpenCode instances.
+- [ ] **M4: Windows platform-specific.** Run install + uninstall
+      in Git Bash / MSYS2 / Cygwin on Windows. CI runs Ubuntu only.
+- [ ] **M5: macOS platform-specific.** Run install + uninstall on
+      macOS. CI runs Ubuntu only.
+- [ ] **M6: Real network conditions.** Test on a flaky connection
+      (mobile hotspot, captive portal) to verify error messages
+      are helpful. CI has a fast, reliable network.
+
 ## Commit Message Convention
 
 In addition to the global rules in `~/.config/opencode/AGENTS.md`:
@@ -522,7 +601,7 @@ local tarball:
   `npm install -g <tarball>`.
 
 The tarball install path was added in v2.1.1 for the upgrade flow.
-The `install.sh` script (v3.1.7+) closes the fresh-install
+The `install.sh` script (v3.1.8+) closes the fresh-install
 gap where `opencode-rpc` was not yet on PATH.
 
 `update.js` (`src/cli/update.js`) is the reference implementation

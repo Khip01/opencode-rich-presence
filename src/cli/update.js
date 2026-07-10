@@ -139,7 +139,7 @@ function runNpmInstall(ref, repoUrl) {
         // full or short SHA) work without special handling.
         execSync(`git clone ${repoUrl} .`, { cwd: tmpDir, stdio: "inherit" });
         // Checkout the requested ref. Works for branch names (e.g.
-        // `feature/some-branch`), tag names (e.g. `v3.1.7`),
+        // `feature/some-branch`), tag names (e.g. `v3.1.8`),
         // and commit SHAs (e.g. `471ce94` or the full 40-char hash).
         // advice.detachedHead=false suppresses the long warning when
         // checking out a tag or SHA, since this is a throwaway clone
@@ -298,7 +298,7 @@ export async function update(args = []) {
     if (refIdx !== -1 && !refArg) {
         console.error("Error: --ref requires a value (branch name, tag, or commit SHA).");
         console.error("Example: opencode-rpc update --ref <branch-name>");
-        console.error("         opencode-rpc update --ref v3.1.7");
+        console.error("         opencode-rpc update --ref v3.1.8");
         console.error("         opencode-rpc update --ref 6664bfb");
         process.exit(2);
     }

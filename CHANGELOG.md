@@ -5,6 +5,68 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.8] - 2026-07-09
+
+### Added
+
+- **`.github/workflows/post-release.yml`**: post-release user
+  simulation. Triggers on `release: types: [published]`, downloads
+  the REAL published tarball from GitHub Releases, and runs the
+  full install + update + uninstall flow including upgrade from
+  the previous release, `update --stable`, `update --dev`, and
+  bad-ref-doesn't-clobber. This is the only place curl-to-GitHub
+  runs in the test suite (from CI IP, not the developer's).
+  Failures here do NOT retract the release (it is already public);
+  they surface as a failed job so the maintainer can decide
+  whether to cut a hotfix.
+- **`tests/post-release.mjs`**: post-release user simulation
+  harness. 10 assertions covering real-tarball install, version,
+  help, upgrade from previous release, invalid-ref-doesn't-clobber,
+  `update --stable`, `update --dev`, and final uninstall. Can be
+  triggered locally with `ORP_POST_RELEASE_FORCE=1` (requires a
+  published release matching the version in package.json).
+- **Test distribution matrix in `AGENTS.md`**: documents which
+  tests live in which workflow (commit-time / pre-release gate /
+  post-release user simulation / manual checklist), with explicit
+  curl discipline rule (`npm test` MUST NOT curl GitHub by default).
+- **Manual test checklist in `AGENTS.md`**: M1-M6 scenarios CI
+  cannot cover (Discord IPC, OpenCode integration, multi-window
+  handoff, Windows/macOS platform, real network conditions).
+
+### Changed
+
+- **`tests/release-smoke.mjs` renamed to `tests/pre-release.mjs`**.
+  Now the explicit **pre-release gate** that runs between `npm pack`
+  and `Create GitHub release` in the release workflow. Uses the
+  local tarball (no curl), covers install + uninstall + idempotent
+  re-install + tarball contents + package.json sanity. ~10
+  assertions.
+- **`tests/cli-lifecycle.mjs` section 3 default changed**: now
+  defaults to `npm pack` (no GitHub curl) so `npm test` is safe to
+  run repeatedly from a developer's local machine. Set
+  `ORP_USE_GITHUB_RELEASE=1` to opt in to the GitHub download path
+  (rare; only for debugging publish-specific issues).
+- **`.github/workflows/release.yml`**: replaces
+  `npm run test:release-smoke` with
+  `npm run test:pre-release -- --tarball=<built-tarball>`. The
+  release workflow now runs:
+  1. `npm test` (commit-time tests: phase1+2+2-v2+cli-lifecycle)
+  2. Smoke (help/version)
+  3. `npm pack` + rename
+  4. **Pre-release gate** (fail-fast on broken tarball)
+  5. Publish to npm (optional)
+  6. Create GitHub release
+- **npm scripts** (`package.json`): `test:release-smoke` renamed
+  to `test:pre-release`, added `test:post-release`.
+
+### Fixed
+
+- **HTTP 429 risk on local `npm test`**: cli-lifecycle.mjs §3 no
+  longer unconditionally curl-downloads from GitHub Releases.
+  Local runs use `npm pack` (no network). This removes the
+  developer's IP from being flagged by GitHub's anti-scraping
+  rate limiter.
+
 ## [3.1.7] - 2026-07-09
 
 ### Added

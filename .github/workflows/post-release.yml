@@ -1,0 +1,74 @@
+name: Post-release
+
+# Triggers ONLY after a GitHub Release is publicly published. This
+# separates "gate before publish" (release.yml) from "validate after
+# publish" (this workflow). Failures here do not retract the release;
+# they surface as a failed job so the maintainer can decide whether
+# to cut a hotfix release.
+#
+# This workflow downloads the REAL published tarball from GitHub
+# Releases (curl is safe here: the request comes from GitHub
+# Actions' IP pool, not from a developer's local machine). It also
+# hits api.github.com for previous-tag lookup and for `update --stable`
+# / `update --dev` scenarios.
+#
+# Why a separate workflow from commit-time tests:
+#   - Commit-time tests must avoid curl to keep `npm test` safe to
+#     run repeatedly from a developer's machine.
+#   - These scenarios (download real tarball, upgrade from previous
+#     release, query GitHub API) REQUIRE curl and require a published
+#     release, so they cannot live in test.yml.
+#
+# Why a separate workflow from pre-release gate (release.yml):
+#   - Pre-release runs BEFORE publish and gates whether the release
+#     gets created at all. It uses the just-built tarball (npm pack
+#     output) and does NOT curl GitHub.
+#   - Post-release runs AFTER publish. It downloads the REAL published
+#     asset and runs the full user simulation including upgrade flows.
+#   - Failures here are post-publication; the maintainer decides
+#     whether a hotfix is needed.
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  user-simulation:
+    name: Simulate user install / update / uninstall
+    runs-on: ubuntu-latest
+    # Skip prereleases and drafts (only published stable releases).
+    if: github.event.release.prerelease == false && github.event.release.draft == false
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Run user simulation tests
+        # Downloads the real published tarball from GitHub Releases
+        # and runs install + update + uninstall scenarios. See
+        # tests/post-release.mjs for the full test list.
+        run: npm run test:post-release
+        env:
+          GITHUB_REF_NAME: ${{ github.event.release.tag_name }}
+          GITHUB_REPOSITORY_OWNER: ${{ github.repository_owner }}
+          GITHUB_REPOSITORY_NAME: ${{ github.event.repository.name }}
+          CI: "true"
+
+      - name: Report result
+        # Post-release failures don't fail the job by themselves;
+        # the test script already exits non-zero on failure. But we
+        # log a summary for the maintainer.
+        if: always()
+        run: |
+          echo "::notice title=Post-release user simulation::Release ${{ github.event.release.tag_name }} tested against the real published asset."
+          echo "Result: ${{ job.status }}"

@@ -33,7 +33,10 @@ jobs:
         run: npm install
 
       - name: Run test suite
-        # Fail the release if any harness fails. Catch-and-show with
+        # Commit-time tests: plugin logic + CLI source + install.sh
+        # unit checks + install in sandbox (npm pack fallback).
+        # Uses npm test, which runs phase1+2+2-v2+cli-lifecycle.
+        # Fails the release if any harness fails. Catch-and-show with
         # `|| true` would hide regressions; we want a hard fail.
         run: npm test
 
@@ -50,17 +53,20 @@ jobs:
           # opencode-rich-presence-v3.1.4-phase2.tgz).
           mv opencode-rich-presence-*.tgz opencode-rich-presence-${{ github.ref_name }}.tgz
 
-      - name: Release smoke test
-        # Verifies the just-built tarball installs cleanly and that
-        # `opencode-rpc update --ref` can upgrade from the previous
-        # release to this one. Runs AFTER tarball build but BEFORE
-        # publishing, so a broken release artifact fails the workflow
-        # and never reaches the GitHub release page.
-        # Requires a published previous release on GitHub; the first
-        # release (v0.0.1 or similar) will have nothing to upgrade
-        # from, but the install + idempotent reinstall assertions
-        # still cover the new tarball.
-        run: npm run test:release-smoke
+      - name: Pre-release gate
+        # Verifies the just-built tarball (output of `npm pack` above)
+        # installs cleanly in an isolated npm prefix. Gating: failures
+        # here cause the workflow to exit non-zero BEFORE the GitHub
+        # release is published, so a broken tarball never reaches the
+        # release page.
+        #
+        # Uses the LOCAL tarball (no curl to GitHub) so this workflow
+        # does not depend on a previous release being published.
+        # Full user simulation with the REAL published tarball
+        # (including upgrade from previous release, update --stable,
+        # update --dev) is handled by the post-release workflow,
+        # which runs AFTER publish and can safely curl.
+        run: npm run test:pre-release -- --tarball=opencode-rich-presence-${{ github.ref_name }}.tgz
 
       - name: Publish to npm registry (optional)
         # Only runs if the NPM_TOKEN secret is configured on the
