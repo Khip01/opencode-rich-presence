@@ -5,6 +5,52 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.9] - 2026-08-01
+
+### Fixed
+
+- **Discord presence reset to "$0 spent" when the AI finished.** A
+  session in the `"Waiting for command"` state (shown as
+  "Completed!" in the user's config) was treated as idle, so the
+  renderer picked the `idle` template set whose `details`
+  hardcoded `• $0 spent`. The accumulated cost was never reset
+  (it stayed correct on the session), only the displayed text
+  reset to $0. Root cause: `src/plugin/local-presence.js` computed
+  `isIdle = !session || session.state === "Waiting for command"`,
+  which short-circuited `byState["Waiting for command"]` (the
+  user's "Completed!" + dynamic `{costCompact}` template) into
+  dead code. Fix: only a truly absent session (queue empty,
+  nothing displayed) uses the `idle` template set. A session in
+  `"Waiting for command"` now renders through
+  `chooseTemplates(config.templates, state)`, so
+  `byState["Waiting for command"]` takes effect and the real cost
+  (e.g. `$0.26 spent`) persists after the AI finishes.
+- **`byState["Waiting for command"]` template is now honored.** It
+  was previously unreachable because the WAITING state fell through
+  to the `idle` set. Users who configured a "Completed!" state text
+  or a dynamic cost expression there will now see it.
+
+### Added
+
+- **`tests/template-selection.mjs`**: 13-assertion regression unit
+  suite covering template selection for every state. Guards against
+  reintroducing the WAITING-as-idle conflation:
+  - WAITING session renders dynamic cost, not hardcoded `$0 spent`.
+  - WAITING session with zero cost still renders `$0 spent`.
+  - Null session (no session at all) uses the `idle` template set.
+  - Working / Thinking / Typing / Asking still use their `byState`
+    templates.
+  - WAITING selects `byState` even when an `idle` template exists.
+- **`npm run test:template-selection`** script; `npm test` now runs
+  it after phase2-v2 and before cli-lifecycle.
+
+### Changed
+
+- **`src/plugin/local-presence.js`**: `renderPresence` now computes
+  `isIdle = !session`. Documentation comment added explaining the
+  WAITING vs idle distinction.
+- **`src/cli/help.js`** version references bumped to v3.1.9.
+
 ## [3.1.8] - 2026-07-09
 
 ### Added

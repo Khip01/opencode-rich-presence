@@ -452,7 +452,7 @@ const useGithub = process.env.ORP_USE_GITHUB_RELEASE === "1";
 
     const pkg = JSON.parse(readFileSync(join(pkgPath, "package.json"), "utf8"));
     assert(pkg.name === "opencode-rich-presence", "package.json name is correct");
-    assert(pkg.version === "3.1.8", "package.json version is correct");
+    assert(pkg.version === "3.1.9", "package.json version is correct");
     assert(pkg.bin && pkg.bin["opencode-rpc"], "package.json declares bin entry");
     assert(!("files" in pkg), "package.json does NOT have a `files` field (npm v11 bug workaround)");
 }

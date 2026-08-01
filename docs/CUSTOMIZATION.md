@@ -101,15 +101,20 @@ Quoted strings for value:
 
 ### Per-State Templates
 
-Customize per state:
+Customize per state. The `"Waiting for command"` entry is shown when
+a session EXISTS and is waiting for your next input (i.e. right after
+the AI finishes generating). It is a real session with real
+accumulated cost and tokens, so `{costCompact}`, `{contextCompact}`,
+and `{prompts}` are populated there. This is the state your config
+displays as "Completed!".
 
 ```json
 {
   "presence": {
     "byState": {
       "Waiting for command": {
-        "details": "{model} · idle · {elapsed}",
-        "state": "{prompts} prompts · {context} tok"
+        "details": "{model} ({mode}) {{#if cost == \"free\"}} • $0 spent{{else}}{costCompact} spent{{/if}}",
+        "state": "Completed! • {contextCompact}/{contextLimitCompact} token • {prompts} prompts"
       },
       "Working": {
         "details": "{model} · Working",
@@ -126,7 +131,10 @@ Customize per state:
 
 ### Idle Template
 
-Used when no session is active:
+Used only when there is NO session at all (queue empty, nothing
+displayed). It is NOT shown for a session that just finished; a
+finished session is `"Waiting for command"` and uses the `byState`
+entry above (so its cost persists, it does not reset to $0):
 
 ```json
 {

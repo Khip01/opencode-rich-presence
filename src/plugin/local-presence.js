@@ -38,7 +38,15 @@ import { DaemonClient } from "./daemon-client.js";
 // resolved output so the user can verify what we sent to the daemon.
 export function renderPresence(session, config) {
     if (!config) return null;
-    const isIdle = !session || session.state === "Waiting for command";
+    // A session in "Waiting for command" is NOT idle: it is a real
+    // session that just finished generating, and it carries real
+    // accumulated cost/tokens that must still be displayed. Only a
+    // missing session (queue empty, nothing displayed) uses the idle
+    // template set. Routing WAITING through chooseTemplates makes
+    // byState["Waiting for command"] (e.g. "Completed!" text + dynamic
+    // {costCompact}) actually take effect instead of being shadowed by
+    // the hardcoded idle template.
+    const isIdle = !session;
     const tmpls = isIdle
         ? selectIdleTemplates(config.templates)
         : chooseTemplates(config.templates, session?.state);

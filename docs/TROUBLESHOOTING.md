@@ -230,7 +230,7 @@ This can happen immediately after install, or after a reboot / npm
 cache cleanup:
 
 ```
-$ npm install -g 'Khip01/opencode-rich-presence#v3.1.8'
+$ npm install -g 'Khip01/opencode-rich-presence#v3.1.9'
 added 1 package in 4s
 
 $ opencode-rpc
@@ -285,12 +285,12 @@ ls -la "$(npm root -g)/opencode-rich-presence"
     ```bash
     # Download from: https://github.com/Khip01/opencode-rich-presence/releases/latest
     # File name: opencode-rich-presence-<version>.tgz
-    npm install -g ./opencode-rich-presence-3.1.8.tgz
+    npm install -g ./opencode-rich-presence-3.1.9.tgz
     ```
 3. Verify:
    ```bash
    opencode-rpc version
-   # Expected: opencode-rich-presence v3.1.8 (stable)
+   # Expected: opencode-rich-presence v3.1.9 (stable)
    ```
 
 **Why `opencode-rpc update --ref <tag>` does not help on a fresh
@@ -351,7 +351,7 @@ from
 [GitHub Releases](https://github.com/Khip01/opencode-rich-presence/releases/latest):
 
 ```bash
-npm install -g ./opencode-rich-presence-3.1.8.tgz
+npm install -g ./opencode-rich-presence-3.1.9.tgz
 ```
 
 **Check 2: PowerShell execution policy**
@@ -526,6 +526,47 @@ ps aux | grep opencode | grep -v grep
 **Fix:** Restart OpenCode. Fully exit (Ctrl+C or `/exit` in
 OpenCode), then start a fresh `opencode` process. The new process
 re-imports paths.js with the fixed path.
+
+### Discord shows "$0 spent" the moment the AI finishes (v3.1.8 and earlier)
+
+**Symptom:** While the AI is generating, the presence shows the real
+cost (e.g. `$0.26 spent`). The instant it finishes and the state
+flips to "Completed!" (the user's label for `Waiting for command`),
+the displayed cost resets to `$0 spent`, even though the session
+still has the correct cost.
+
+**Root cause:** `src/plugin/local-presence.js` treated a session in
+the `"Waiting for command"` state as idle
+(`isIdle = !session || session.state === "Waiting for command"`), so
+the finished session was rendered with the `idle` template set. Many
+`idle.details` templates hardcode `• $0 spent`. The cost accumulator
+was never reset; only the DISPLAYED text reset to $0, because the
+`byState["Waiting for command"]` template (dynamic `{costCompact}`,
+"Completed!" text) was never reached.
+
+**How to verify:** In `~/.config/opencode/presence-activity.log`,
+find the state transition and the template render after it:
+
+```
+[state] ... Typing -> Waiting for command (message.updated completed)
+[template] sid=... details="{model|OpenCode} ({mode|standby}) • $0 spent" -> "... $0 spent" ...
+```
+
+If the rendered source template is the `idle` one (contains `$0
+spent` hardcoded) for a session that has `cost=$0.26` in the log,
+you are on v3.1.8 or earlier.
+
+**Fix:** Upgrade to v3.1.9+. A session in `"Waiting for command"`
+is now rendered via `chooseTemplates(config.templates, state)`, so
+`byState["Waiting for command"]` takes effect and the real cost
+persists. Only a session-less state (queue empty) uses the `idle`
+template set.
+
+**Workaround on v3.1.8:** Edit
+`~/.config/opencode/discord-config.json` and make `idle.details`
+use the dynamic cost expression instead of the hardcoded `$0 spent`,
+e.g.:
+`"{model|OpenCode} ({mode|standby}) {{#if cost == \"free\"}} • $0 spent{{else}}{costCompact} spent{{/if}}"`
 
 ### JSONC parser treats `://` in URLs as a comment
 

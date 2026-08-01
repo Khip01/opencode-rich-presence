@@ -254,6 +254,22 @@ The template engine supports:
 4. **Comparison conditionals:** `{{#if contextPercent > 50}}...{{else}}...{{/if}}`
 5. **Per-state templates:** `byState.Typing.state`, etc.
 
+Template set selection (in `local-presence.js` `renderPresence`):
+- **No session at all** (queue empty, nothing displayed) -> the
+  `idle` template set.
+- **Any existing session** (including `"Waiting for command"`) ->
+  `chooseTemplates(config.templates, state)`, which prefers
+  `byState[state]` and falls back to the top-level templates.
+
+This means a session in `"Waiting for command"` (shown as
+"Completed!" in user configs) is NOT routed through `idle`. It
+keeps its real accumulated cost and tokens, so
+`byState["Waiting for command"]` (e.g. a dynamic `{costCompact}`
+expression) takes effect. Using the `idle` set for a finished
+session would shadow that entry and (in configs that hardcode
+`$0 spent` in `idle.details`) make the displayed cost reset to $0
+even though the session data is correct.
+
 Variable substitution handles edge cases:
 - `{var}` (typo missing `}` matches, returns fallback or "?")
 - `{var}}` (extra `}` matches, returns var value)
