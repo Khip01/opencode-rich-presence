@@ -16,7 +16,7 @@ export function formatModelName(code) {
     return tokens.map((t) => t.charAt(0).toUpperCase() + t.slice(1)).join(" ");
 }
 
-export function getTemplateVars(session) {
+export function getTemplateVars(session, replacements) {
     const s = session || {};
     const rawModel = s.model || "?";
     const modelCode = formatModelCode(rawModel);
@@ -52,7 +52,66 @@ export function getTemplateVars(session) {
         asking: s.state === STATE.ASKING ? "true" : "false",
         active: s.state !== STATE.WAITING ? "true" : "false",
     };
+    if (Array.isArray(replacements) && replacements.length) {
+        applyReplacements(d, replacements);
+    }
     return d;
+}
+
+// Wildcard replacement engine.
+// `from` may contain a leading and/or trailing `*` as wildcard.
+// Interior `*` is not supported and the rule is skipped.
+// Literal, case-sensitive. Empty `from` or `from` that is only wildcards is skipped.
+export function applyReplacements(vars, rules) {
+    if (!Array.isArray(rules) || !rules.length) return;
+    const seen = new Set();
+    for (const rule of rules) {
+        if (!rule || typeof rule !== "object") continue;
+        const from = rule.from;
+        const to = rule.to;
+        if (typeof from !== "string" || typeof to !== "string") continue;
+        const varsArr = Array.isArray(rule.vars) ? rule.vars : [];
+        if (!varsArr.length) continue;
+
+        // Validate wildcard placement: * only at start and/or end, not interior.
+        const inner = from.replace(/^\*+/, "").replace(/\*+$/, "");
+        const hasInnerStar = inner.includes("*");
+        if (hasInnerStar) continue;
+        // from that is only wildcards (or empty) is invalid.
+        if (inner.length === 0) continue;
+        // from empty string is invalid.
+        if (from.length === 0) continue;
+        // Multiple leading/trailing * collapses to one (tolerate ** as *).
+        const startsWithStar = from.startsWith("*");
+        const endsWithStar = from.endsWith("*");
+        const core = inner;
+
+        for (const vn of varsArr) {
+            if (typeof vn !== "string" || !vn) continue;
+            // Skip unknown vars (allowlist enforced by config-resolver, but also guard here).
+            if (!(vn in vars)) continue;
+            const dedupKey = `${vn}\0${from}\0${to}`;
+            if (seen.has(dedupKey)) continue;
+            seen.add(dedupKey);
+
+            const cur = String(vars[vn] ?? "");
+            let next = cur;
+            if (!startsWithStar && !endsWithStar) {
+                // exact
+                if (cur === core) next = to;
+            } else if (startsWithStar && endsWithStar) {
+                // contains: replace all occurrences (global)
+                if (cur.includes(core)) next = cur.split(core).join(to);
+            } else if (startsWithStar) {
+                // suffix: *core -> ends with core
+                if (cur.endsWith(core)) next = cur.slice(0, cur.length - core.length) + to;
+            } else {
+                // prefix: core* -> starts with core
+                if (cur.startsWith(core)) next = to + cur.slice(core.length);
+            }
+            if (next !== cur) vars[vn] = next;
+        }
+    }
 }
 
 export function renderTemplate(template, vars) {

@@ -246,9 +246,10 @@ Same precedence applies to:
 
 ## Template Engine
 
-The template engine (`src/plugin/template-engine.js`) derives vars in `getTemplateVars(session)`:
+The template engine (`src/plugin/template-engine.js`) derives vars in `getTemplateVars(session, replacements)`:
 
 - **Model variants:** `model` (raw), `modelCode` (after last `/`, any provider level stripped), `modelName` (from code: `-`/`_`/`:` -> space, `.` preserved, Title Cased), `modelNameLower` (lowercased). Example `oc/muse-spark-1.2-contributor-free` -> `modelCode=muse-spark-1.2-contributor-free`, `modelName=Muse Spark 1.2 Contributor Free`.
+- **Replacements:** wildcard rules from `replacements` (top-level, see CUSTOMIZATION.md) are applied to the derived vars before they are substituted into templates. `*` only at the edges of `from` (`Free`, `*Free`, `Free*`, `*Free*`), literal and case-sensitive, chaining in order, duplicates deduped. Config validation lives in `config-resolver.js` (`normalizeReplacements`), render path is `local-presence.js: getTemplateVars(session, config.replacements)`.
 
 The template engine supports:
 

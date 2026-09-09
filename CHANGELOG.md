@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `formatModelCode`, `formatModelName`, `getTemplateVars` model vars,
   `renderTemplate` integration, and `renderPresence` end-to-end. Wired
   as `npm run test:model-name-style` and into `npm test`.
+- **Wildcard replacements** on template vars. Top-level `replacements: [{ vars, from, to }]` rewrites var values before rendering. Wildcard `*` only at the edges of `from` (`Free`, `*Free`, `Free*`, `*Free*`), literal and case-sensitive. Examples: `* Free -> ""` on `modelName` strips tier suffix, `plan -> Planning` on `mode` maps enum. Rules chain in order and apply to all templates (`details`, `state`, `byState`, `idle`). Includes `tests/replacements.mjs` (35 assertions, `npm run test:replacements`).
 
 ### Changed
 
@@ -34,7 +35,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Docs
 
 - **`config/discord-config.example.json`**: added `_help_modelVars` and
-  `_help_modelVars` comment documenting the four variants.
+  `_help_replacements` with wildcard examples.
+- **`src/shared/constants.js`**: added `VALID_TEMPLATE_VARS` allowlist for replacement targets.
+- **`src/plugin/config-resolver.js`**: added `normalizeReplacements` validation.
+- **`src/plugin/template-engine.js`**: added `applyReplacements` and wildcard matching; `getTemplateVars` now takes `replacements`.
+- **`src/plugin/local-presence.js`**: passes `config.replacements` to `getTemplateVars`.
 - **`docs/CUSTOMIZATION.md`**: expanded available variables table
   (`modelCode`, `modelName`, `modelNameLower`) and added a dedicated
   "Model Name Variants" section with mixing examples.

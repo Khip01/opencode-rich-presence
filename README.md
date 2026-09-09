@@ -246,10 +246,8 @@ Edit `~/.config/opencode/discord-config.json`:
 | `{elapsed}` | `1h 23m` | Session duration |
 | `{provider}` | `Khip01` | Provider name |
 
-Plus conditionals (`{{#if mode == "build"}}...{{/if}}`) and fallbacks
-(`{var|fallback}`).
-
-See [`docs/CUSTOMIZATION.md`](./docs/CUSTOMIZATION.md) for full syntax.
+Plus conditionals (`{{#if mode == "build"}}...{{/if}}`), fallbacks
+(`{var|fallback}`), and wildcard `replacements` on any var (e.g. `* Free` -> `""` on `modelName`, `plan` -> `Planning` on `mode`). See [`docs/CUSTOMIZATION.md`](./docs/CUSTOMIZATION.md) for full syntax and the Replacements section.
 
 ## Platform Notes
 

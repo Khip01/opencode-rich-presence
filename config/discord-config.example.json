@@ -9,6 +9,12 @@
     "discordAppId": "1512803991300476989",
     "discordLargeImageKey": "opencode-logo-too-rich-presence",
     "currency": "$",
+    "_help_replacements": "Wildcard text replacements applied to template vars before rendering. Wildcard * only at start and/or end of from (e.g. plan, *Free, Free*, *Free*). Case-sensitive, literal match.",
+    "replacements": [
+        { "vars": ["model", "modelName", "modelCode", "modelNameLower"], "from": "* Free", "to": "" },
+        { "vars": ["mode"], "from": "plan", "to": "Planning" },
+        { "vars": ["mode"], "from": "build", "to": "Building" }
+    ],
 
     "presence": {
         "details": "{model} ({mode}) {{#if cost == \"free\"}} • $0 spent{{else}}{costCompact} spent{{/if}}",

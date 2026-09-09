@@ -8,12 +8,13 @@
     "opencode-rpc": "./bin/opencode-rpc.js"
   },
   "scripts": {
-    "test": "node tests/phase1-harness.mjs && node tests/phase2-harness.mjs && node tests/phase2-v2-harness.mjs && node tests/template-selection.mjs && node tests/model-name-style.mjs && node tests/cli-lifecycle.mjs",
+    "test": "node tests/phase1-harness.mjs && node tests/phase2-harness.mjs && node tests/phase2-v2-harness.mjs && node tests/template-selection.mjs && node tests/model-name-style.mjs && node tests/replacements.mjs && node tests/cli-lifecycle.mjs",
     "test:phase1": "node tests/phase1-harness.mjs",
     "test:phase2": "node tests/phase2-harness.mjs",
     "test:phase2-v2": "node tests/phase2-v2-harness.mjs",
     "test:template-selection": "node tests/template-selection.mjs",
     "test:model-name-style": "node tests/model-name-style.mjs",
+    "test:replacements": "node tests/replacements.mjs",
     "test:cli-lifecycle": "node tests/cli-lifecycle.mjs",
     "test:pre-release": "node tests/pre-release.mjs",
     "test:post-release": "node tests/post-release.mjs",

@@ -49,6 +49,39 @@ export const FALLBACK_MODEL_LIMITS = {
 // Phase 2 will use the same templates via the daemon. The user's
 // discord-config.json `presence` field overrides these (see
 // config-resolver.js).
+// Template variable names that may be targeted by `replacements` rules.
+// `vars` entries outside this set are skipped with a warning.
+export const VALID_TEMPLATE_VARS = new Set([
+    "model",
+    "modelCode",
+    "modelName",
+    "modelNameLower",
+    "provider",
+    "mode",
+    "state",
+    "sessionId",
+    "id",
+    "elapsed",
+    "context",
+    "contextCompact",
+    "contextFull",
+    "contextFullCompact",
+    "contextLimit",
+    "contextLimitCompact",
+    "contextPercent",
+    "cost",
+    "costCompact",
+    "prompts",
+    "promptsCompact",
+    "idle",
+    "thinking",
+    "typing",
+    "waiting",
+    "working",
+    "asking",
+    "active",
+]);
+
 export const DEFAULT_PRESENCE_TEMPLATES = {
     details: "{model} · {mode} · {prompts} prompts",
     state: "{state} · {contextPercent}% ctx",

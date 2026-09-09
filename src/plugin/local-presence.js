@@ -51,7 +51,7 @@ export function renderPresence(session, config) {
         ? selectIdleTemplates(config.templates)
         : chooseTemplates(config.templates, session?.state);
 
-    const vars = getTemplateVars(session);
+    const vars = getTemplateVars(session, config.replacements);
     const sid = session?.sessionID ? session.sessionID.slice(-8) : "?";
 
     const detailsSrc = tmpls.details ?? "";

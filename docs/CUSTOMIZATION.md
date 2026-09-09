@@ -15,7 +15,12 @@
   "discordAppId": "YOUR_APP_ID",
   "discordLargeImageKey": "your-asset-key",
   "discordLargeImageText": "OpenCode",
-  "currency": "$"
+  "currency": "$",
+  "replacements": [
+    { "vars": ["model", "modelName", "modelCode", "modelNameLower"], "from": "* Free", "to": "" },
+    { "vars": ["mode"], "from": "plan", "to": "Planning" },
+    { "vars": ["mode"], "from": "build", "to": "Building" }
+  ]
 }
 ```
 
@@ -25,6 +30,7 @@
 | `discordLargeImageKey` | Rich Presence large image asset key |
 | `discordLargeImageText` | Hover text on the large image |
 | `currency` | Currency symbol for cost formatting (default `$`) |
+| `replacements` | Wildcard text replacements on template variables (see Replacements) |
 | `presence` | Template overrides (see below) |
 
 ## Available Variables
@@ -76,6 +82,45 @@ Fallback syntax works: `{modelCode|OpenCode}`, `{modelName|Unknown}`, etc.
 These resolve to `"true"` or `"false"` and are useful for conditionals:
 
 - `{idle}`, `{working}`, `{thinking}`, `{typing}`, `{asking}`, `{waiting}`, `{active}`
+
+## Replacements
+
+Top-level `replacements` rewrites template variable values before rendering. Each rule targets one or more vars, uses a literal wildcard pattern, and is case-sensitive.
+
+```json
+{
+  "replacements": [
+    { "vars": ["model", "modelName", "modelCode", "modelNameLower"], "from": "* Free", "to": "" },
+    { "vars": ["mode"], "from": "plan", "to": "Planning" },
+    { "vars": ["mode"], "from": "build", "to": "Building" }
+  ]
+}
+```
+
+Effect: `Muse Spark 1.2 Contributor Free` -> `Muse Spark 1.2 Contributor`; `mode` `plan` -> `Planning` across all templates (`details`, `state`, `byState`, `idle`).
+
+### Wildcard in `from`
+
+`*` is allowed only at the start and/or end (not in the middle). `*` at both ends means `contains` and replaces all occurrences.
+
+| `from` | Meaning | Example on `Muse Spark Free` (`to: ""`) |
+|---|---|---|
+| `Free` | Exact — whole var must equal `Free` | No match |
+| `*Free` | Suffix — ends with `Free` | `Muse Spark Free` -> `Muse Spark ` |
+| `Free*` | Prefix — starts with `Free` | No match |
+| `*Free*` | Contains — replace all `Free` substrings | `Muse Spark Free Free` -> `Muse Spark  ` |
+| `* Free` | Suffix with space — ends with ` Free` | `Muse Spark Free` -> `Muse Spark` |
+| `plan` | Exact `plan` | Only matches var `mode` with value `plan` |
+
+Rules on `plan-plan` with `*plan* -> x` become `x-x` (contains replaces globally); with `plan -> x` (exact) there is no match.
+
+### Rules
+
+- `vars` must be known template vars (e.g. `model`, `modelName`, `modelCode`, `provider`, `mode`, `state`, `cost`, `context`, `elapsed`). Unknown names are skipped.
+- `from`/`to` are strings. `from` empty, `from: "*"`, or `from` with `*` in the middle is skipped. `to` may be `""` to delete.
+- Case-sensitive: `Free`, `free`, and `FREE` are different; write separate rules for each casing you want.
+- Rules run in order and chain: the output of rule 1 is the input of rule 2. Identical duplicate rules (same `vars`+`from`+`to`) are deduped to the first occurrence; different casing is not a duplicate.
+- Applied before any template rendering, so conditionals like `{{#if mode == "Planning"}}` see the replaced value.
 
 ## Template Syntax
 
@@ -178,6 +223,10 @@ entry above (so its cost persists, it does not reset to $0):
   "discordLargeImageKey": "opencode-logo-too-rich-presence",
   "discordLargeImageText": "OpenCode",
   "currency": "$",
+  "replacements": [
+    { "vars": ["modelName"], "from": "* Free", "to": "" },
+    { "vars": ["mode"], "from": "plan", "to": "Planning" }
+  ],
   "presence": {
     "details": "{model} ({mode})",
     "state": "{state} · {contextCompact}",

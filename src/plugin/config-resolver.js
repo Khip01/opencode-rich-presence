@@ -1,7 +1,26 @@
 import { readFile } from "node:fs/promises";
 import { CONFIG_PATH } from "../shared/paths.js";
-import { DEFAULT_PRESENCE_TEMPLATES, STATE, FALLBACK_APP_ID, FALLBACK_IMAGE_KEY } from "../shared/constants.js";
+import { DEFAULT_PRESENCE_TEMPLATES, STATE, FALLBACK_APP_ID, FALLBACK_IMAGE_KEY, VALID_TEMPLATE_VARS } from "../shared/constants.js";
 import { log } from "../shared/logger.js";
+
+function normalizeReplacements(raw) {
+    if (!Array.isArray(raw)) return [];
+    const out = [];
+    for (const r of raw) {
+        if (!r || typeof r !== "object") continue;
+        const from = r.from;
+        const to = r.to;
+        if (typeof from !== "string" || typeof to !== "string") continue;
+        if (from.length === 0) continue;
+        const inner = from.replace(/^\*+/, "").replace(/\*+$/, "");
+        if (inner.length === 0) continue; // only wildcards
+        if (inner.includes("*")) continue; // interior *
+        const varsArr = Array.isArray(r.vars) ? r.vars.filter((v) => typeof v === "string" && VALID_TEMPLATE_VARS.has(v)) : [];
+        if (!varsArr.length) continue;
+        out.push({ vars: varsArr, from, to });
+    }
+    return out;
+}
 
 function resolveEnvConfig() {
     return {
@@ -47,18 +66,20 @@ export async function loadConfig() {
     const userTmpl = fileCfg.presence || null;
     const templates = mergeTemplates(userTmpl, DEFAULT_PRESENCE_TEMPLATES);
     const currency = fileCfg.currency || "$";
+    const replacements = normalizeReplacements(fileCfg.replacements);
 
     // Priority: env > config file > fallback (developer's verified App ID for out-of-box use).
     const finalAppId = id || fileCfg.discordAppId || FALLBACK_APP_ID;
     const finalKey = key || fileCfg.discordLargeImageKey || FALLBACK_IMAGE_KEY;
 
-    log(`Config: appId=${finalAppId} key=${finalKey} currency=${currency}`);
+    log(`Config: appId=${finalAppId} key=${finalKey} currency=${currency} replacements=${replacements.length}`);
 
     return {
         appId: finalAppId,
         largeImageKey: finalKey,
         largeImageText: text,
         currency,
+        replacements,
         templates,
     };
 }

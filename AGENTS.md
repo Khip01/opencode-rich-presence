@@ -370,7 +370,7 @@ guarantees the test depends on.
 | Context | Trigger | What runs | May curl GitHub? |
 |---------|---------|-----------|-------------------|
 | **Local** (`npm test`) | Manual, by developer | All commit-time harnesses + optionally pre-release (with `--tarball=`) | No (default), opt-in via `ORP_USE_GITHUB_RELEASE=1` in cli-lifecycle §3 |
-| **Commit-time** (`.github/workflows/test.yml`, every push to main) | Push to main / PR | `npm test` = phase1 + phase2 + phase2-v2 + template-selection + model-name-style + cli-lifecycle | No |
+| **Commit-time** (`.github/workflows/test.yml`, every push to main) | Push to main / PR | `npm test` = phase1 + phase2 + phase2-v2 + template-selection + model-name-style + replacements + cli-lifecycle | No |
 | **Pre-release gate** (`.github/workflows/release.yml`, tag push) | `on: push: tags: [v*]` between `npm pack` and "Create GitHub release" | `npm run test:pre-release -- --tarball=...` against the just-built tarball | No (uses local npm pack output) |
 | **Post-release user simulation** (`.github/workflows/post-release.yml`, release published) | `on: release: types: [published]` | `npm run test:post-release` downloads REAL published tarball + simulates upgrade flow | **Yes** (CI IP, safe) |
 
@@ -389,6 +389,7 @@ guarantees the test depends on.
 | 32 | Bad ref does NOT clobber existing install | ✓ (CLI arg only) | ✓ (CLI arg) | — | ✓ (real install) |
 | 33 | Template selection: WAITING renders dynamic cost, not idle (`tests/template-selection.mjs`) | ✓ | ✓ | inherited | inherited |
 | 34 | Model name variants: `{modelCode}`, `{modelName}`, `{modelNameLower}` + fallback + mixed rendering (`tests/model-name-style.mjs`) | ✓ | ✓ | inherited | inherited |
+| 35 | Wildcard replacements: `*` edges, case-sensitive, multi-var, chaining, dedup (`tests/replacements.mjs`) | ✓ | ✓ | inherited | inherited |
 
 ### Curl discipline (important)
 
