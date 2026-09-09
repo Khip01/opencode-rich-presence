@@ -31,7 +31,10 @@
 
 | Variable | Example | Description |
 |---|---|---|
-| `{model}` | `minimax-m3` | Model in use |
+| `{model}` | `oc/muse-spark-1.2-contributor-free` | Model full code (raw, with provider prefix) |
+| `{modelCode}` | `muse-spark-1.2-contributor-free` | Model code only (provider prefix stripped, after last `/`) |
+| `{modelName}` | `Muse Spark 1.2 Contributor Free` | Human-readable Title Case (Code with `-`/`_`/`:` replaced by space, `.` preserved) |
+| `{modelNameLower}` | `muse spark 1.2 contributor free` | Human-readable lowercase (same as `modelName`, lowercased) |
 | `{mode}` | `build`, `plan` | Agent mode |
 | `{state}` | `Working`, `Thinking` | Current state |
 | `{provider}` | `Khip01` | Provider name |
@@ -49,6 +52,24 @@
 | `{costCompact}` | `$1.5K` | Cost (compact) |
 | `{prompts}` | `12` | User prompt count |
 | `{promptsCompact}` | `1.5K` | Prompt count (compact) |
+
+### Model Name Variants
+
+`{model}` is the raw string from OpenCode (e.g. `oc/muse-spark-1.2-contributor-free`).
+The three derived vars let you mix styles in one template:
+
+- `{model}` — full raw (default, backward compat).
+- `{modelCode}` — strip provider prefix, keep only after the last `/`. `oc/muse-...` -> `muse-...`, `kc/stepfun/step-3.7-flash:free` -> `step-3.7-flash:free`. No `/` means identity.
+- `{modelName}` — from `modelCode`, replace `-`/`_`/`:` with space (`.` is kept so `1.2` stays `1.2`), then Title Case each word. `muse-spark-1.2-contributor-free` -> `Muse Spark 1.2 Contributor Free`.
+- `{modelNameLower}` — same as `modelName` but lowercased.
+
+Example mixing variants in one `details`:
+
+```json
+{ "details": "{modelName} ({mode}) | {modelCode}" }
+```
+
+Fallback syntax works: `{modelCode|OpenCode}`, `{modelName|Unknown}`, etc.
 
 ### Boolean State Variables
 

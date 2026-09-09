@@ -246,9 +246,13 @@ Same precedence applies to:
 
 ## Template Engine
 
+The template engine (`src/plugin/template-engine.js`) derives vars in `getTemplateVars(session)`:
+
+- **Model variants:** `model` (raw), `modelCode` (after last `/`, any provider level stripped), `modelName` (from code: `-`/`_`/`:` -> space, `.` preserved, Title Cased), `modelNameLower` (lowercased). Example `oc/muse-spark-1.2-contributor-free` -> `modelCode=muse-spark-1.2-contributor-free`, `modelName=Muse Spark 1.2 Contributor Free`.
+
 The template engine supports:
 
-1. **Variables:** `{model}`, `{context}`, etc.
+1. **Variables:** `{model}`, `{modelCode}`, `{modelName}`, `{modelNameLower}`, `{context}`, etc.
 2. **Fallbacks:** `{var|fallback}` is used if var is undefined/null.
 3. **Boolean conditionals:** `{{#if thinking}}...{{else}}...{{/if}}`
 4. **Comparison conditionals:** `{{#if contextPercent > 50}}...{{else}}...{{/if}}`

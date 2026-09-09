@@ -9,13 +9,13 @@ need to navigate this codebase safely.
 
 - **Plugin name**: `opencode-rich-presence`
 - **CLI command**: `opencode-rpc`
-- **Latest version**: v3.1.9 (the v3 daemon-based push
+- **Latest version**: v3.2.0 (the v3 daemon-based push
   architecture). v3 adds the daemon architecture that holds a
   single Discord connection for the whole machine; OpenCode
   plugin instances connect to it via local Unix socket and
   forward their rendered presence payload.
-- **Latest stable release on `main`**: v3.1.9 (tag
-  `v3.1.9`). `redesign/v3-daemon` has been merged into
+- **Latest stable release on `main`**: v3.2.0 (tag
+  `v3.2.0`). `redesign/v3-daemon` has been merged into
   `main`. v3 uses the daemon architecture that holds a single
   Discord connection for the whole machine.
 - **Legacy stable (v2.x)**: v2.1.1 (tag `v2.1.1`). Still tagged
@@ -38,7 +38,7 @@ need to navigate this codebase safely.
   `NPM_TOKEN` secret enables auto-publish to npmjs.com on
   tagged releases.
 - **Repository**: github.com/Khip01/opencode-rich-presence
-- **Default branch**: `main` (currently v3.1.9)
+- **Default branch**: `main` (currently v3.2.0)
 - **Active dev branch**: `main` (v3 redesign merged from
   `redesign/v3-daemon`)
 - **Plugin author Discord App ID** (default fallback in
@@ -143,9 +143,9 @@ around the npm v11 bug.
 | Audience | Command |
 |----------|---------|
 | End user (fresh install, stable) | `curl -fsSL https://raw.githubusercontent.com/Khip01/opencode-rich-presence/main/install.sh \| bash` |
-| End user (pin to a specific version) | `curl ... \| ORP_VERSION=v3.1.9 bash` |
+| End user (pin to a specific version) | `curl ... \| ORP_VERSION=v3.2.0 bash` |
 | End user (auto-resolve latest stable, requires existing install) | `opencode-rpc update` |
-| User (upgrade, v3 release) | `opencode-rpc update --ref v3.1.9 && opencode-rpc install` |
+| User (upgrade, v3 release) | `opencode-rpc update --ref v3.2.0 && opencode-rpc install` |
 | Developer (v3 main branch, requires existing install) | `opencode-rpc update --dev main && opencode-rpc install` |
 | Developer (track a branch, requires existing install) | `opencode-rpc update --dev <branch> && opencode-rpc install` |
 | Developer (specific commit SHA, requires existing install) | `opencode-rpc update --ref <sha> && opencode-rpc install` |
@@ -185,7 +185,7 @@ The five CLI commands are:
    for switching back from --dev mode.
 4. `opencode-rpc update --dev [BRANCH]`: developer-only upgrade.
      Installs the latest commit on BRANCH (defaults to `main`,
-     which is currently v3.1.9).
+     which is currently v3.2.0).
 5. `opencode-rpc update --ref REF`: install a specific git ref
    (tag, branch, or commit SHA). Works for any ref including short
    SHAs (`--ref 471ce94`) and full SHAs.
@@ -370,7 +370,7 @@ guarantees the test depends on.
 | Context | Trigger | What runs | May curl GitHub? |
 |---------|---------|-----------|-------------------|
 | **Local** (`npm test`) | Manual, by developer | All commit-time harnesses + optionally pre-release (with `--tarball=`) | No (default), opt-in via `ORP_USE_GITHUB_RELEASE=1` in cli-lifecycle §3 |
-| **Commit-time** (`.github/workflows/test.yml`, every push to main) | Push to main / PR | `npm test` = phase1 + phase2 + phase2-v2 + template-selection + cli-lifecycle | No |
+| **Commit-time** (`.github/workflows/test.yml`, every push to main) | Push to main / PR | `npm test` = phase1 + phase2 + phase2-v2 + template-selection + model-name-style + cli-lifecycle | No |
 | **Pre-release gate** (`.github/workflows/release.yml`, tag push) | `on: push: tags: [v*]` between `npm pack` and "Create GitHub release" | `npm run test:pre-release -- --tarball=...` against the just-built tarball | No (uses local npm pack output) |
 | **Post-release user simulation** (`.github/workflows/post-release.yml`, release published) | `on: release: types: [published]` | `npm run test:post-release` downloads REAL published tarball + simulates upgrade flow | **Yes** (CI IP, safe) |
 
@@ -388,6 +388,7 @@ guarantees the test depends on.
 | 31 | `update --dev` (queries api.github.com) | — | — | — | ✓ |
 | 32 | Bad ref does NOT clobber existing install | ✓ (CLI arg only) | ✓ (CLI arg) | — | ✓ (real install) |
 | 33 | Template selection: WAITING renders dynamic cost, not idle (`tests/template-selection.mjs`) | ✓ | ✓ | inherited | inherited |
+| 34 | Model name variants: `{modelCode}`, `{modelName}`, `{modelNameLower}` + fallback + mixed rendering (`tests/model-name-style.mjs`) | ✓ | ✓ | inherited | inherited |
 
 ### Curl discipline (important)
 
@@ -602,7 +603,7 @@ local tarball:
   `npm install -g <tarball>`.
 
 The tarball install path was added in v2.1.1 for the upgrade flow.
-The `install.sh` script (v3.1.9+) closes the fresh-install
+The `install.sh` script (v3.2.0+) closes the fresh-install
 gap where `opencode-rpc` was not yet on PATH.
 
 `update.js` (`src/cli/update.js`) is the reference implementation
@@ -617,7 +618,7 @@ A session in the `"Waiting for command"` state is a REAL session
 that just finished generating, with real accumulated cost and
 tokens. It is NOT idle.
 
-Regression fixed in v3.1.9: `renderPresence` in
+Regression fixed in v3.2.0: `renderPresence` in
 `src/plugin/local-presence.js` used to compute
 `isIdle = !session || session.state === "Waiting for command"`.
 That routed a finished session into the `idle` template set, whose

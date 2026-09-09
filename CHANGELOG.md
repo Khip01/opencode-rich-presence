@@ -5,6 +5,43 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.2.0] - 2026-08-01
+
+### Added
+
+- **Template model name variants** for `{model}` display. Four variables
+  are now available in any presence template (`details`, `state`,
+  `largeImageText`, `smallImageText`, `byState`, `idle`):
+  - `{model}` — full raw code (existing, unchanged, e.g. `oc/muse-spark-1.2-contributor-free`).
+  - `{modelCode}` — code only, provider prefix stripped (after last `/`, any level). `oc/muse-...` -> `muse-...`, `kc/stepfun/step-3.7-flash:free` -> `step-3.7-flash:free`.
+  - `{modelName}` — from code, replace `-`/`_`/`:` with space (dots kept so `1.2` stays `1.2`), Title Case each word. `muse-spark-1.2-contributor-free` -> `Muse Spark 1.2 Contributor Free`.
+  - `{modelNameLower}` — same as `modelName`, lowercased.
+  Variables can be mixed in one string (e.g. `"{modelName} | {modelCode}"`), and fallback syntax works (`{modelCode|OpenCode}`).
+- **`tests/model-name-style.mjs`**: 44-assertion harness covering
+  `formatModelCode`, `formatModelName`, `getTemplateVars` model vars,
+  `renderTemplate` integration, and `renderPresence` end-to-end. Wired
+  as `npm run test:model-name-style` and into `npm test`.
+
+### Changed
+
+- **`src/plugin/template-engine.js`**: `getTemplateVars` now derives
+  `modelCode`, `modelName`, `modelNameLower` via `formatModelCode` and
+  `formatModelName`. `model` stays the raw full string. Fallback value
+  `?` propagates consistently.
+- **Version bumped to `3.2.0`** across `package.json`, `src/cli/help.js`,
+  `README.md`, `docs/` and `AGENTS.md`.
+
+### Docs
+
+- **`config/discord-config.example.json`**: added `_help_modelVars` and
+  `_help_modelVars` comment documenting the four variants.
+- **`docs/CUSTOMIZATION.md`**: expanded available variables table
+  (`modelCode`, `modelName`, `modelNameLower`) and added a dedicated
+  "Model Name Variants" section with mixing examples.
+- **`docs/ARCHITECTURE.md`**: documented `getTemplateVars` model
+  variant derivation.
+- **`README.md`**: updated available variables table.
+
 ## [3.1.9] - 2026-08-01
 
 ### Fixed

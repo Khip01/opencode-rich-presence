@@ -1,12 +1,35 @@
 import { STATE } from "../shared/constants.js";
 
+export function formatModelCode(raw) {
+    if (!raw || raw === "?") return "?";
+    const s = String(raw);
+    const idx = s.lastIndexOf("/");
+    return idx === -1 ? s : s.slice(idx + 1);
+}
+
+export function formatModelName(code) {
+    if (!code || code === "?") return "?";
+    const s = String(code);
+    // Replace - _ : with space. Keep . (version dots) and alphanumerics intact.
+    const spaced = s.replace(/[-_:]+/g, " ");
+    const tokens = spaced.split(/\s+/).filter(Boolean);
+    return tokens.map((t) => t.charAt(0).toUpperCase() + t.slice(1)).join(" ");
+}
+
 export function getTemplateVars(session) {
     const s = session || {};
+    const rawModel = s.model || "?";
+    const modelCode = formatModelCode(rawModel);
+    const modelName = formatModelName(modelCode);
+    const modelNameLower = modelName === "?" ? "?" : modelName.toLowerCase();
     const d = {
         id: s.sessionID ? s.sessionID.substring(s.sessionID.length - 12) : "?",
         sessionId: s.sessionID || "?",
         provider: s.provider || "?",
-        model: s.model || "?",
+        model: rawModel,
+        modelCode,
+        modelName,
+        modelNameLower,
         mode: s.mode || "?",
         state: s.state || STATE.WAITING,
         elapsed: s.startedAt ? formatDuration(Date.now() - s.startedAt) : "?",

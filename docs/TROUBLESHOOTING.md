@@ -230,7 +230,7 @@ This can happen immediately after install, or after a reboot / npm
 cache cleanup:
 
 ```
-$ npm install -g 'Khip01/opencode-rich-presence#v3.1.9'
+$ npm install -g 'Khip01/opencode-rich-presence#v3.2.0'
 added 1 package in 4s
 
 $ opencode-rpc
@@ -290,7 +290,7 @@ ls -la "$(npm root -g)/opencode-rich-presence"
 3. Verify:
    ```bash
    opencode-rpc version
-   # Expected: opencode-rich-presence v3.1.9 (stable)
+   # Expected: opencode-rich-presence v3.2.0 (stable)
    ```
 
 **Why `opencode-rpc update --ref <tag>` does not help on a fresh
@@ -556,7 +556,7 @@ If the rendered source template is the `idle` one (contains `$0
 spent` hardcoded) for a session that has `cost=$0.26` in the log,
 you are on v3.1.8 or earlier.
 
-**Fix:** Upgrade to v3.1.9+. A session in `"Waiting for command"`
+**Fix:** Upgrade to v3.2.0+. A session in `"Waiting for command"`
 is now rendered via `chooseTemplates(config.templates, state)`, so
 `byState["Waiting for command"]` takes effect and the real cost
 persists. Only a session-less state (queue empty) uses the `idle`

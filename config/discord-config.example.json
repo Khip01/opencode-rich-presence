@@ -3,6 +3,7 @@
     "_help_asset": "Upload image at Rich Presence > Art Assets, use filename (no ext) as key",
     "_help_currency": "Currency symbol for cost display (default $). Change to €, £, ¥, Rp, etc.",
     "_help_templates": "Template syntax: {var} for substitution, {{#if var == \"x\"}}...{{/if}} for conditionals. See docs/CUSTOMIZATION.md",
+    "_help_modelVars": "Model name variants: {model} (full, e.g. oc/muse-...), {modelCode} (code only), {modelName} (Title Case), {modelNameLower} (lowercase)",
     "_help_compact": "Use {varCompact} (e.g. {contextCompact}, {costCompact}, {promptsCompact}) for large numbers (500K, 1.5M, etc.)",
 
     "discordAppId": "1512803991300476989",

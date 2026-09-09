@@ -2,7 +2,7 @@
 
 OpenCode plugin that displays your AI session status in Discord.
 
-**Status: v3.1.9** (daemon-based push, multi-instance safe).
+**Status: v3.2.0** (daemon-based push, multi-instance safe).
 A long-lived daemon holds the single Discord IPC connection for the
 whole machine. OpenCode plugin instances connect to it via local
 Unix socket and forward their state. Handoff between OpenCode
@@ -61,7 +61,7 @@ up the plugin symlink and config. Pin to a specific version:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Khip01/opencode-rich-presence/main/install.sh \
-  | ORP_VERSION=v3.1.9 bash
+  | ORP_VERSION=v3.2.0 bash
 ```
 
 If you do not have `curl`, replace it with `wget -qO- <url>` or
@@ -127,7 +127,7 @@ opencode-rpc <command> [options]
 | `restart` | Kill the daemon so the next chat.message spawns a fresh one. |
 | `update` | Upgrade to latest stable release tag |
 | `update --stable` | Force-install latest stable tag (skip version check) |
-| `update --dev [BRANCH]` | Upgrade to latest commit on BRANCH (default: `main`, currently v3.1.9) |
+| `update --dev [BRANCH]` | Upgrade to latest commit on BRANCH (default: `main`, currently v3.2.0) |
 | `update --ref REF` | Install a specific ref (tag, branch, or commit SHA) |
 | `update --repo OWNER/REPO` | Install from a fork instead of upstream |
 | `info` | Diagnostics: paths, config, daemon status, activity log tail |
@@ -139,7 +139,7 @@ Full reference: [`docs/CLI-REFERENCE.md`](./docs/CLI-REFERENCE.md)
 ## Update
 
 ```bash
-opencode-rpc update                  # latest stable release tag (v3.1.9 today)
+opencode-rpc update                  # latest stable release tag (v3.2.0 today)
 opencode-rpc update --stable         # force install latest stable tag
 opencode-rpc update --dev <branch>   # latest commit on <branch> (developer)
 opencode-rpc update --ref <ref>      # specific ref (tag, branch, or SHA)
@@ -226,7 +226,10 @@ Edit `~/.config/opencode/discord-config.json`:
 
 | Variable | Example | Description |
 |---|---|---|
-| `{model}` | `minimax-m3` | Model in use |
+| `{model}` | `oc/muse-spark-1.2-contributor-free` | Model full code (raw, with provider prefix) |
+| `{modelCode}` | `muse-spark-1.2-contributor-free` | Model code only (after last `/`) |
+| `{modelName}` | `Muse Spark 1.2 Contributor Free` | Human-readable Title Case |
+| `{modelNameLower}` | `muse spark 1.2 contributor free` | Human-readable lowercase |
 | `{mode}` | `build`, `plan` | Agent mode |
 | `{state}` | `Working`, `Thinking` | Current state |
 | `{context}` | `45,321` | Tokens used (raw) |
@@ -263,7 +266,7 @@ single-connection rationale).
 If you have ever seen this after `npm install -g <repo>#<tag>`:
 
 ```
-$ npm install -g 'Khip01/opencode-rich-presence#v3.1.9'
+$ npm install -g 'Khip01/opencode-rich-presence#v3.2.0'
 added 1 package in 4s
 
 $ opencode-rpc

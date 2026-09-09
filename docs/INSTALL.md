@@ -34,7 +34,7 @@ set up the plugin symlink and config. Pin to a specific version:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Khip01/opencode-rich-presence/main/install.sh \
-  | ORP_VERSION=v3.1.9 bash
+  | ORP_VERSION=v3.2.0 bash
 ```
 
 If you do not have `curl`, replace it with `wget -qO- <url>` or
@@ -64,7 +64,7 @@ upgrade without manually downloading a tarball:
 
 ```bash
 opencode-rpc update                    # latest stable release tag
-opencode-rpc update --ref v3.1.9 # pin to a specific tag
+opencode-rpc update --ref v3.2.0 # pin to a specific tag
 opencode-rpc update --dev main         # latest commit on main (developer)
 opencode-rpc update --ref <branch>     # a feature branch you want to test
 opencode-rpc update --repo fork/repo    # install from a fork instead
