@@ -65,23 +65,31 @@ jobs:
         #   - Manual trigger with tag input -> use the input
         #   - Manual trigger without input -> use the latest published
         #   - Release event -> use github.event.release.tag_name
+        # NOTE: don't read steps.resolve-tag.outputs.tag inside this
+        # same step (always empty); use a local TAG var for the echo.
         id: resolve-tag
         run: |
           if [ -n "${{ inputs.tag }}" ]; then
-            echo "tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+            TAG="${{ inputs.tag }}"
+            echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+            echo "Resolved tag: $TAG"
           elif [ -n "${{ github.event.release.tag_name }}" ]; then
-            echo "tag=${{ github.event.release.tag_name }}" >> "$GITHUB_OUTPUT"
+            TAG="${{ github.event.release.tag_name }}"
+            echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+            echo "Resolved tag: $TAG"
           else
             TAG=$(gh release list --limit 1 --json tagName -q '.[0].tagName')
             echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+            echo "Resolved tag: $TAG"
           fi
-          echo "Resolved tag: ${{ steps.resolve-tag.outputs.tag }}"
 
       - name: Run user simulation tests
         # Downloads the real published tarball from GitHub Releases
         # and runs install + update + uninstall scenarios. See
         # tests/post-release.mjs for the full test list.
-        run: npm run test:post-release
+        # Pass --tag explicitly because GITHUB_REF_NAME is a reserved
+        # runner env var that cannot be overridden per-step.
+        run: npm run test:post-release -- --tag=${{ steps.resolve-tag.outputs.tag }}
         env:
           GITHUB_REF_NAME: ${{ steps.resolve-tag.outputs.tag }}
           GITHUB_REPOSITORY_OWNER: ${{ github.repository_owner }}
