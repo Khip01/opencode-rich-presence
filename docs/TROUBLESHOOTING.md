@@ -285,7 +285,7 @@ ls -la "$(npm root -g)/opencode-rich-presence"
     ```bash
     # Download from: https://github.com/Khip01/opencode-rich-presence/releases/latest
     # File name: opencode-rich-presence-<version>.tgz
-    npm install -g ./opencode-rich-presence-3.1.9.tgz
+    npm install -g ./opencode-rich-presence-3.2.0.tgz
     ```
 3. Verify:
    ```bash
@@ -351,7 +351,7 @@ from
 [GitHub Releases](https://github.com/Khip01/opencode-rich-presence/releases/latest):
 
 ```bash
-npm install -g ./opencode-rich-presence-3.1.9.tgz
+npm install -g ./opencode-rich-presence-3.2.0.tgz
 ```
 
 **Check 2: PowerShell execution policy**

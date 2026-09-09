@@ -249,7 +249,7 @@ Upgrades the installed package. Five modes:
 | Mode | What it does |
 |------|--------------|
 | default | Compare current version against latest stable release tag. If newer, install. |
-| `--dev [BRANCH]` | Skip version check. Install latest commit on BRANCH. Defaults to `main`, which is currently v2.1.1 (pre-redesign); pass the branch explicitly if you are on v3. |
+| `--dev [BRANCH]` | Skip version check. Install latest commit on BRANCH. Defaults to `main`, which is currently v3.2.0. |
 | `--stable` | Skip version check. Install latest stable release tag. |
 | `--ref REF` | Install a specific git ref: tag, branch, or commit SHA. Supports any ref including short SHAs (`6664bfb`) and full SHAs (`6664bfb0ba316180fa08617dcb04ee1b59599e7f`). |
 | `--repo OWNER/REPO` | Install from a fork instead of the upstream repo. Combine with `--dev`, `--stable`, or `--ref`. |

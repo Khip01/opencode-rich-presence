@@ -82,7 +82,7 @@ and run it from there.
    works on any platform with Node.js 18+.
 2. Install it:
    ```bash
-   npm install -g ./opencode-rich-presence-3.1.9.tgz
+   npm install -g ./opencode-rich-presence-3.2.0.tgz
    ```
 3. Continue with step 2 below.
 

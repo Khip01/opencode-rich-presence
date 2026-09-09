@@ -53,7 +53,7 @@ use the manual tarball install in path B.
    The tarball name is `opencode-rich-presence-<version>.tgz`.
 2. Install it:
    ```bash
-   npm install -g ./opencode-rich-presence-3.1.9.tgz
+   npm install -g ./opencode-rich-presence-3.2.0.tgz
    ```
 3. Continue with Step 2 below (`opencode-rpc install`).
 
