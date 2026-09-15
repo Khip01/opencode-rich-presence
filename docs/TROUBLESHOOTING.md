@@ -120,6 +120,13 @@ Recovery:
 This is exactly why `on`/`off` keep the daemon alive: they never drop
 the Discord connection, so they never hit the cooldown.
 
+### "opencode-rpc spawn says the daemon is already running"
+
+The daemon is a singleton. When the PID file names a live process,
+`spawn` refuses so a second daemon cannot unlink the running daemon's
+socket and steal its Discord IPC connection. If you really want a
+fresh daemon, use `opencode-rpc restart`.
+
 ### "Display works on odd cycles but fails on even cycles"
 
 Classic symptom of the EPIPE-on-closed-stderr-pipe bug (fixed in

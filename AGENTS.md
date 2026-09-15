@@ -85,7 +85,9 @@ IPC socket actually dies.
     exports `spawnDaemonDetached()` / `waitForDaemonSocket()`
     for the `spawn` CLI command
 - `src/worker/`: Daemon
-  - `daemon.mjs`: long-lived subprocess, holds Discord IPC connection
+  - `daemon.mjs`: long-lived subprocess, holds Discord IPC connection;
+    singleton guard in `main()` exits when the PID file names a live
+    daemon; the hello ack advertises protocol capabilities
   - `discord-ipc.mjs`: inline Discord IPC client (replaces @xhayper)
 - `src/cli/`: CLI commands
   - `install.js`, `uninstall.js`, `restart.js`, `update.js`
@@ -203,7 +205,8 @@ The five CLI commands are:
 7. `opencode-rpc on` / `opencode-rpc off`: toggle Rich Presence
    without stopping the daemon. `off` clears the Discord activity
    and gates the push path; `on` resumes instantly (no Discord
-   reconnect). The intent is persisted to the state marker so it
+   reconnect) and also clears a leftover `daemonStopped` kill lock.
+   The intent is persisted to the state marker so it
    survives restart. A daemon that is already running is notified
    over the local socket.
 8. `opencode-rpc kill`: stop the daemon permanently (with a
@@ -211,7 +214,8 @@ The five CLI commands are:
    chat.message does not undo the kill.
 9. `opencode-rpc spawn`: start the daemon again after a `kill`.
    Clears `daemonStopped`, spawns the daemon, waits for the
-   socket, and re-enables pushing.
+   socket, and re-enables pushing. Refuses when a daemon is
+   already running (singleton) and points at `restart`.
 10. `opencode-rpc uninstall` plus `npm uninstall -g
    opencode-rich-presence`. Full removal. v3 uninstall also clears
    `presence-activity.log`, `presence-state-pid*.txt`, and the
@@ -311,11 +315,11 @@ machine. Each OpenCode instance connects via local Unix socket.
 - **Spawn**: `daemon-spawner.js` checks if the daemon socket
   exists. If not, spawns `node <pkg>/src/worker/daemon.mjs`
   detached and polls for the socket file (up to 5s).
-- **Concurrent spawn race**: if two OpenCode plugins fire
-  chat.message at the same time, both may try to spawn. The
-  second `bind()` gets EADDRINUSE; the daemon handles this by
-  logging "socket in use, another daemon is already running" and
-  exiting cleanly.
+- **Concurrent spawn race / daemon singleton**: if two spawners race,
+  the second daemon's `main()` sees the first daemon's live PID in the
+  PID file and exits without touching the socket. The listen-retry
+  loop (EADDRINUSE, up to 15s) still covers a stale socket held in
+  TIME_WAIT by the OS.
 - **Connect**: `daemon-client.js` opens a Unix socket connection
   to the daemon, sends `{type: "hello", pid}`. The daemon
   registers the instance.
@@ -411,7 +415,7 @@ guarantees the test depends on.
 | 33 | Template selection: WAITING renders dynamic cost, not idle (`tests/template-selection.mjs`) | ✓ | ✓ | inherited | inherited |
 | 34 | Model name variants: `{modelCode}`, `{modelName}`, `{modelNameLower}` + fallback + mixed rendering (`tests/model-name-style.mjs`) | ✓ | ✓ | inherited | inherited |
 | 35 | Wildcard replacements: `*` edges, case-sensitive, multi-var, chaining, dedup (`tests/replacements.mjs`) | ✓ | ✓ | inherited | inherited |
-| 36 | Presence toggle: state marker defaults/fallback, on/off/kill/spawn, dispatcher, help grouping, colors piped (`tests/presence-toggle.mjs`) | ✓ | ✓ | inherited | inherited |
+| 36 | Presence toggle: state marker defaults/fallback, on/off/kill/spawn, `on` clears kill lock, dispatcher, help grouping, colors piped, daemon singleton (CLI refuses over live daemon; second worker exits) (`tests/presence-toggle.mjs`) | ✓ | ✓ | inherited | inherited |
 
 ### Curl discipline (important)
 

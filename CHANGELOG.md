@@ -33,12 +33,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`src/cli/colors.js`**: zero-dependency ANSI helper. Color is off
   when stdout is not a TTY, off when `NO_COLOR` is set, on when
   `FORCE_COLOR` is set.
-- **`tests/presence-toggle.mjs`**: 43-assertion harness covering the
+- **`tests/presence-toggle.mjs`**: 56-assertion harness covering the
   state marker (defaults, corrupt file, merge semantics), dispatcher
   recognition of the new commands, grouped help output, color-off when
-  piped, `on`/`off` persistence, `kill` confirmation (y/N), and `spawn`
-  refusal while disabled. Wired as `npm run test:presence-toggle` and
-  into `npm test`.
+  piped, `on`/`off` persistence, `kill` confirmation (y/N), `spawn`
+  refusal while disabled, `on` clearing the kill lock, and the daemon
+  singleton (the CLI refuses to spawn over a live daemon and a second
+  worker daemon exits immediately). Wired as `npm run
+  test:presence-toggle` and into `npm test`.
 
 ### Changed
 
@@ -50,7 +52,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   marker at daemon start.
 - **`src/plugin/index.js`**: reads the state marker at load and on
   every `REFRESH_INTERVAL` tick, skips `sendStateToDaemon` when
-  presence is off, and skips daemon spawn/connect when `daemonStopped`.
+  presence is off, and suppresses daemon spawn when `daemonStopped`
+  (a daemon that is already listening is always reused).
 - **`src/plugin/daemon-spawner.js`**: honors `daemonStopped`; exports
   `findNodeExecutable`, `spawnDaemonDetached`, and
   `waitForDaemonSocket` for the `spawn` CLI command.
@@ -62,6 +65,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`src/cli/uninstall.js`**: removes the presence state marker.
 - **Version bumped to `3.3.0`** across `package.json`,
   `src/cli/help.js`, `README.md`, `docs/`, and `AGENTS.md`.
+
+### Fixed
+
+- **Stale daemon ignored `on`/`off`**: a daemon started before an
+  upgrade kept running pre-`set-enabled` code (Node does not
+  hot-reload a running process), so `off` silently did nothing and the
+  Discord activity stayed. The hello ack now advertises
+  `capabilities: ["set-enabled"]`; the plugin detects a daemon that
+  lacks the capability and recycles it (SIGTERM, wait for exit,
+  respawn, reconnect).
+- **`on` left the kill lock in place**: after `opencode-rpc kill`,
+  running `on` alone did not clear `daemonStopped`, so the plugin
+  refused to spawn and presence never came back until `spawn` was run
+  manually. `on` now clears both flags ("resume now" semantics).
+- **`daemonStopped` blocked reuse of a live daemon**: the plugin
+  refused to connect to an already-listening daemon while the flag was
+  set. The gate now only suppresses spawning.
+- **`spawn` could steal the socket from a live daemon**: starting a
+  second daemon unlinked the running daemon's socket path and opened a
+  second Discord IPC connection, so `off`/`on` landed on the new
+  daemon while pushes kept flowing through the old one and presence
+  looked hung until OpenCode was restarted. The daemon is now a
+  singleton: `daemon.mjs` `main()` exits when the PID file names a
+  live process, and `opencode-rpc spawn` refuses with "already
+  running" and points at `restart`.
+- **Test daemons leaked**: the phase1/phase2/phase2-v2 harnesses now
+  sweep every daemon bound to their sandbox `OPENCODE_CONFIG_DIR` at
+  start and end, so `npm test` no longer leaves detached daemons
+  behind holding a real Discord IPC connection.
 
 ### Docs
 

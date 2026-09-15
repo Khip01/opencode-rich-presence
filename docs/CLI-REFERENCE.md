@@ -271,6 +271,11 @@ Daemon notified. Presence resumes immediately.
 If no daemon is running, the command still succeeds and persists
 the intent; the next `chat.message` acts on it.
 
+`on` also clears a leftover kill lock: if the daemon was stopped with
+`kill`, `on` alone is enough for the next `chat.message` to spawn a
+fresh daemon. Running `spawn` as well is optional and only warms the
+Discord connection sooner.
+
 ---
 
 ## `opencode-rpc kill`
@@ -317,6 +322,18 @@ Daemon is up. Presence resumes on the next chat.message.
 
 If presence is disabled (`opencode-rpc off`), `spawn` refuses and
 tells the user to run `on` first.
+
+If a daemon is already running, `spawn` refuses (the daemon is a
+singleton: a second one would unlink the running daemon's socket and
+steal its Discord IPC connection) and points at `restart`:
+
+```
+$ opencode-rpc spawn
+
+Daemon is already running (pid 12345).
+Nothing to do. Use 'opencode-rpc restart' if you need
+to force a fresh daemon.
+```
 
 ---
 

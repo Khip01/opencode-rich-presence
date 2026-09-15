@@ -127,11 +127,11 @@ opencode-rpc <command> [options]
 |---------|-------------|
 | `install` | Set up the plugin (config + symlink). v3 installs no deps. |
 | `uninstall` | Remove generated files; back up config to timestamped file |
-| `on` | Enable presence (instant, keeps the daemon alive) |
+| `on` | Enable presence (instant, keeps the daemon alive; clears a kill lock) |
 | `off` | Disable presence (instant, keeps the daemon alive) |
 | `restart` | Kill the daemon so the next chat.message spawns a fresh one. |
 | `kill` | Stop the daemon permanently (use `spawn` to start again) |
-| `spawn` | Start the daemon again after a `kill` |
+| `spawn` | Start the daemon again after a `kill` (refuses if one is running) |
 | `update` | Upgrade to latest stable release tag |
 | `update --stable` | Force-install latest stable tag (skip version check) |
 | `update --dev [BRANCH]` | Upgrade to latest commit on BRANCH (default: `main`, currently v3.3.0) |

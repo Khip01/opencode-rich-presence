@@ -163,8 +163,12 @@ Plugin -> Daemon:
 Daemon -> Plugin:
 
 ```json
-{"type": "ack"}
-    Acknowledgement (always sent in response to client messages).
+{"type": "ack", "capabilities": ["set-enabled"]}
+    Acknowledgement (always sent in response to client messages). The
+    hello ack advertises the daemon's protocol capabilities; the
+    plugin recycles a daemon that does not list a capability it needs
+    (e.g. one started before `set-enabled` existed, which would
+    silently ignore `off`/`on`).
 
 {"type": "discord-state", "connected": true|false}
     Status of the Discord IPC connection. Sent on change.
@@ -212,10 +216,19 @@ Control state lives in a marker file, not in `discord-config.json`:
 - `daemonStopped=true` (from `opencode-rpc kill`): both
   `ensureDaemonAndConnect` (plugin) and `ensureDaemonRunning`
   (spawner) refuse to spawn, so the user's kill survives the next
-  chat.message. `opencode-rpc spawn` clears the flag.
+  chat.message. `opencode-rpc spawn` (and `on`, which means
+  "resume now") clear the flag. The gate only suppresses spawning:
+  a daemon that is already listening is always reused.
 - The plugin re-reads the marker on every `REFRESH_INTERVAL` tick, so a
   toggle made in another terminal takes effect without restarting
   OpenCode.
+- **Daemon singleton**: only one daemon may hold the socket and the
+  Discord IPC connection. `daemon.mjs` `main()` exits when the PID
+  file names a live process, and `opencode-rpc spawn` refuses with
+  "already running". Without this a second daemon unlinked the first
+  one's socket, `off`/`on` landed on the new daemon while pushes kept
+  flowing through the old one, and presence looked hung until the
+  plugin reconnected.
 
 ## Discord-side Behavior
 
@@ -317,9 +330,9 @@ Variable substitution handles edge cases:
 | `install` | Create config; migrate any v2.0.5-era opencode.jsonc entry; create symlink. |
 | `uninstall` | Stop daemon; remove runtime files, per-instance state files, activity log, socket, PID file, presence state marker; optional config backup. |
 | `restart` | Kill running daemon (SIGTERM + 2s grace + SIGKILL); rotate activity log. Auto-respawns on next chat.message. |
-| `on` / `off` | Toggle presence via the state marker + a `set-enabled` socket message. The daemon stays alive, so `on` never pays a Discord reconnect. |
+| `on` / `off` | Toggle presence via the state marker + a `set-enabled` socket message. The daemon stays alive, so `on` never pays a Discord reconnect. `on` also clears a leftover kill lock. |
 | `kill` | Stop the daemon permanently. Sets `daemonStopped` so the auto-spawn on chat.message does not undo it. |
-| `spawn` | Clear `daemonStopped`, start the daemon, wait for the socket, resume pushing. |
+| `spawn` | Clear `daemonStopped`, start the daemon, wait for the socket, resume pushing. Refuses when a daemon is already running (singleton). |
 | `update` | Check GitHub, self-update |
 | `info` | Diagnostics dump + daemon status (socket presence, PID, alive) + presence state + activity log tail |
 | `help`, `version` | Usage info |
