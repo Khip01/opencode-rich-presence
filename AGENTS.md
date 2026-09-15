@@ -9,13 +9,13 @@ need to navigate this codebase safely.
 
 - **Plugin name**: `opencode-rich-presence`
 - **CLI command**: `opencode-rpc`
-- **Latest version**: v3.2.0 (the v3 daemon-based push
+- **Latest version**: v3.3.0 (the v3 daemon-based push
   architecture). v3 adds the daemon architecture that holds a
   single Discord connection for the whole machine; OpenCode
   plugin instances connect to it via local Unix socket and
   forward their rendered presence payload.
-- **Latest stable release on `main`**: v3.2.0 (tag
-  `v3.2.0`). `redesign/v3-daemon` has been merged into
+- **Latest stable release on `main`**: v3.3.0 (tag
+  `v3.3.0`). `redesign/v3-daemon` has been merged into
   `main`. v3 uses the daemon architecture that holds a single
   Discord connection for the whole machine.
 - **Legacy stable (v2.x)**: v2.1.1 (tag `v2.1.1`). Still tagged
@@ -38,7 +38,7 @@ need to navigate this codebase safely.
   `NPM_TOKEN` secret enables auto-publish to npmjs.com on
   tagged releases.
 - **Repository**: github.com/Khip01/opencode-rich-presence
-- **Default branch**: `main` (currently v3.2.0)
+- **Default branch**: `main` (currently v3.3.0)
 - **Active dev branch**: `main` (v3 redesign merged from
   `redesign/v3-daemon`)
 - **Plugin author Discord App ID** (default fallback in
@@ -81,15 +81,23 @@ IPC socket actually dies.
   - `session-state.js`: per-session token/cost/state tracking
   - `template-engine.js`: variables, conditionals, render helpers
   - `daemon-client.js`: local Unix socket client to the daemon
-  - `daemon-spawner.js`: spawns the daemon on first firing
+  - `daemon-spawner.js`: spawns the daemon on first firing;
+    exports `spawnDaemonDetached()` / `waitForDaemonSocket()`
+    for the `spawn` CLI command
 - `src/worker/`: Daemon
   - `daemon.mjs`: long-lived subprocess, holds Discord IPC connection
   - `discord-ipc.mjs`: inline Discord IPC client (replaces @xhayper)
 - `src/cli/`: CLI commands
   - `install.js`, `uninstall.js`, `restart.js`, `update.js`
+  - `on.js`, `off.js`, `kill.js`, `spawn.js`: presence toggle
+    + daemon stop/start (see "Presence Control" below)
+  - `colors.js`: zero-dependency ANSI helper (TTY + NO_COLOR aware)
   - `info.js`, `help.js`, `version.js`, `dispatcher.js`, `prompt.js`
 - `src/cli/platform/`: per-OS helpers (`linux.js`, `macos.js`, `windows.js`)
 - `src/shared/`: `paths.js`, `constants.js`, `logger.js`
+  - `presence-state.js`: read/write the `on/off/kill/spawn` marker
+    (`~/.config/opencode/.opencode-rich-presence.state.json`)
+  - `presence-control.js`: one-shot `set-enabled` message to the daemon
 - `bin/opencode-rpc.js`: CLI entry point
 - `docs/`: documentation
 - `.github/workflows/`: CI
@@ -143,9 +151,9 @@ around the npm v11 bug.
 | Audience | Command |
 |----------|---------|
 | End user (fresh install, stable) | `curl -fsSL https://raw.githubusercontent.com/Khip01/opencode-rich-presence/main/install.sh \| bash` |
-| End user (pin to a specific version) | `curl ... \| ORP_VERSION=v3.2.0 bash` |
+| End user (pin to a specific version) | `curl ... \| ORP_VERSION=v3.3.0 bash` |
 | End user (auto-resolve latest stable, requires existing install) | `opencode-rpc update` |
-| User (upgrade, v3 release) | `opencode-rpc update --ref v3.2.0 && opencode-rpc install` |
+| User (upgrade, v3 release) | `opencode-rpc update --ref v3.3.0 && opencode-rpc install` |
 | Developer (v3 main branch, requires existing install) | `opencode-rpc update --dev main && opencode-rpc install` |
 | Developer (track a branch, requires existing install) | `opencode-rpc update --dev <branch> && opencode-rpc install` |
 | Developer (specific commit SHA, requires existing install) | `opencode-rpc update --ref <sha> && opencode-rpc install` |
@@ -185,16 +193,29 @@ The five CLI commands are:
    for switching back from --dev mode.
 4. `opencode-rpc update --dev [BRANCH]`: developer-only upgrade.
      Installs the latest commit on BRANCH (defaults to `main`,
-     which is currently v3.2.0).
+     which is currently v3.3.0).
 5. `opencode-rpc update --ref REF`: install a specific git ref
    (tag, branch, or commit SHA). Works for any ref including short
    SHAs (`--ref 471ce94`) and full SHAs.
 6. `opencode-rpc update --repo OWNER/REPO`: install from a fork
    instead of the upstream repo. Combine with --dev, --stable,
    or --ref.
-7. `opencode-rpc uninstall` plus `npm uninstall -g
+7. `opencode-rpc on` / `opencode-rpc off`: toggle Rich Presence
+   without stopping the daemon. `off` clears the Discord activity
+   and gates the push path; `on` resumes instantly (no Discord
+   reconnect). The intent is persisted to the state marker so it
+   survives restart. A daemon that is already running is notified
+   over the local socket.
+8. `opencode-rpc kill`: stop the daemon permanently (with a
+   default-N warning). Sets `daemonStopped` so the auto-spawn on
+   chat.message does not undo the kill.
+9. `opencode-rpc spawn`: start the daemon again after a `kill`.
+   Clears `daemonStopped`, spawns the daemon, waits for the
+   socket, and re-enables pushing.
+10. `opencode-rpc uninstall` plus `npm uninstall -g
    opencode-rich-presence`. Full removal. v3 uninstall also clears
-   `presence-activity.log` and any `presence-state-pid*.txt`.
+   `presence-activity.log`, `presence-state-pid*.txt`, and the
+   presence state marker.
 
 **Why git install is the primary install path**:
 
@@ -370,7 +391,7 @@ guarantees the test depends on.
 | Context | Trigger | What runs | May curl GitHub? |
 |---------|---------|-----------|-------------------|
 | **Local** (`npm test`) | Manual, by developer | All commit-time harnesses + optionally pre-release (with `--tarball=`) | No (default), opt-in via `ORP_USE_GITHUB_RELEASE=1` in cli-lifecycle §3 |
-| **Commit-time** (`.github/workflows/test.yml`, every push to main) | Push to main / PR | `npm test` = phase1 + phase2 + phase2-v2 + template-selection + model-name-style + replacements + cli-lifecycle | No |
+| **Commit-time** (`.github/workflows/test.yml`, every push to main) | Push to main / PR | `npm test` = phase1 + phase2 + phase2-v2 + template-selection + model-name-style + replacements + presence-toggle + cli-lifecycle | No |
 | **Pre-release gate** (`.github/workflows/release.yml`, tag push) | `on: push: tags: [v*]` between `npm pack` and "Create GitHub release" | `npm run test:pre-release -- --tarball=...` against the just-built tarball | No (uses local npm pack output) |
 | **Post-release user simulation** (`.github/workflows/post-release.yml`, release published) | `on: release: types: [published]` | `npm run test:post-release` downloads REAL published tarball + simulates upgrade flow | **Yes** (CI IP, safe) |
 
@@ -390,6 +411,7 @@ guarantees the test depends on.
 | 33 | Template selection: WAITING renders dynamic cost, not idle (`tests/template-selection.mjs`) | ✓ | ✓ | inherited | inherited |
 | 34 | Model name variants: `{modelCode}`, `{modelName}`, `{modelNameLower}` + fallback + mixed rendering (`tests/model-name-style.mjs`) | ✓ | ✓ | inherited | inherited |
 | 35 | Wildcard replacements: `*` edges, case-sensitive, multi-var, chaining, dedup (`tests/replacements.mjs`) | ✓ | ✓ | inherited | inherited |
+| 36 | Presence toggle: state marker defaults/fallback, on/off/kill/spawn, dispatcher, help grouping, colors piped (`tests/presence-toggle.mjs`) | ✓ | ✓ | inherited | inherited |
 
 ### Curl discipline (important)
 
@@ -604,7 +626,7 @@ local tarball:
   `npm install -g <tarball>`.
 
 The tarball install path was added in v2.1.1 for the upgrade flow.
-The `install.sh` script (v3.2.0+) closes the fresh-install
+The `install.sh` script (v3.3.0+) closes the fresh-install
 gap where `opencode-rpc` was not yet on PATH.
 
 `update.js` (`src/cli/update.js`) is the reference implementation

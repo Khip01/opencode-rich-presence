@@ -150,6 +150,14 @@ Plugin -> Daemon:
 
 {"type": "goodbye", "pid": 12345}
     Unregister. Daemon may exit if this was the last instance.
+
+{"type": "set-enabled", "enabled": true|false}
+    Runtime toggle from `opencode-rpc on/off`. When false the daemon
+    stops pushing and clears the current activity; when true it
+    resets the push fingerprint and resumes. No daemon restart, no
+    Discord reconnect: the single IPC connection is reused, so `on`
+    is instant. If `on` arrives within ~1.5s of a `clearActivity`,
+    the first push is delayed past Discord's silent-drop window.
 ```
 
 Daemon -> Plugin:
@@ -186,6 +194,28 @@ Discord (which limits to 5 updates per 20 seconds). It is RESET
 when the picked instance changes (legitimate switch), so the user
 sees the new state immediately when they switch terminals, not
 after a 4-second lag.
+
+## Presence Control (on/off/kill/spawn)
+
+Control state lives in a marker file, not in `discord-config.json`:
+
+```
+~/.config/opencode/.opencode-rich-presence.state.json
+{"presenceEnabled": true, "daemonStopped": false, "updatedAt": 1234567890}
+```
+
+- Written atomically (tmp file + rename) by `src/shared/presence-state.js`.
+- Missing, empty, or corrupt file falls back to enabled=true, stopped=false.
+- `presenceEnabled=false` (from `opencode-rpc off`): the plugin still
+  renders locally for the activity log but skips `sendStateToDaemon`;
+  a running daemon is told `set-enabled:false` and clears the activity.
+- `daemonStopped=true` (from `opencode-rpc kill`): both
+  `ensureDaemonAndConnect` (plugin) and `ensureDaemonRunning`
+  (spawner) refuse to spawn, so the user's kill survives the next
+  chat.message. `opencode-rpc spawn` clears the flag.
+- The plugin re-reads the marker on every `REFRESH_INTERVAL` tick, so a
+  toggle made in another terminal takes effect without restarting
+  OpenCode.
 
 ## Discord-side Behavior
 
@@ -285,10 +315,13 @@ Variable substitution handles edge cases:
 | Command | Purpose |
 |---------|---------|
 | `install` | Create config; migrate any v2.0.5-era opencode.jsonc entry; create symlink. |
-| `uninstall` | Stop daemon; remove runtime files, per-instance state files, activity log, socket, PID file; optional config backup. |
-| `restart` | Kill running daemon (SIGTERM + 2s grace + SIGKILL); rotate activity log. |
+| `uninstall` | Stop daemon; remove runtime files, per-instance state files, activity log, socket, PID file, presence state marker; optional config backup. |
+| `restart` | Kill running daemon (SIGTERM + 2s grace + SIGKILL); rotate activity log. Auto-respawns on next chat.message. |
+| `on` / `off` | Toggle presence via the state marker + a `set-enabled` socket message. The daemon stays alive, so `on` never pays a Discord reconnect. |
+| `kill` | Stop the daemon permanently. Sets `daemonStopped` so the auto-spawn on chat.message does not undo it. |
+| `spawn` | Clear `daemonStopped`, start the daemon, wait for the socket, resume pushing. |
 | `update` | Check GitHub, self-update |
-| `info` | Diagnostics dump + daemon status (socket presence, PID, alive) + activity log tail |
+| `info` | Diagnostics dump + daemon status (socket presence, PID, alive) + presence state + activity log tail |
 | `help`, `version` | Usage info |
 
 CLI is zero-dependency (built-in `readline/promises` for confirmations).

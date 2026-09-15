@@ -86,7 +86,7 @@ Installation (one-time):
   opencode-rpc install
 
   # Specific version:
-  opencode-rpc update --ref v3.2.0
+  opencode-rpc update --ref v3.3.0
   opencode-rpc install
 
   # Specific branch:
@@ -106,7 +106,7 @@ Installation (one-time):
   opencode-rpc install
 
   # Or, for npmjs registry / stable tag with npm (zsh needs quotes):
-  npm install -g 'Khip01/opencode-rich-presence#v3.2.0'
+  npm install -g 'Khip01/opencode-rich-presence#v3.3.0'
   opencode-rpc install
 
   # Or default branch tip:
@@ -242,6 +242,84 @@ Next steps:
 
 ---
 
+## `opencode-rpc on` / `opencode-rpc off`
+
+Toggle Rich Presence without touching the daemon. `off` clears the
+Discord activity and gates the push path; `on` resumes immediately.
+Because the daemon (and its single Discord IPC connection) stays
+alive, `on` does not pay the Discord reconnect cost. The intent is
+persisted to `~/.config/opencode/.opencode-rich-presence.state.json`
+so it survives a restart.
+
+```
+$ opencode-rpc off
+
+Rich Presence: disabled
+
+Daemon notified. Discord activity cleared.
+The daemon stays alive so 'opencode-rpc on' resumes instantly.
+```
+
+```
+$ opencode-rpc on
+
+Rich Presence: enabled
+
+Daemon notified. Presence resumes immediately.
+```
+
+If no daemon is running, the command still succeeds and persists
+the intent; the next `chat.message` acts on it.
+
+---
+
+## `opencode-rpc kill`
+
+Stops the daemon permanently. Unlike `restart`, it does NOT come
+back automatically: `kill` sets the `daemonStopped` flag so the
+auto-spawn on `chat.message` is suppressed until `spawn` clears it.
+
+Prompts for confirmation (default N) because killing the daemon
+drops the Discord IPC connection, and reconnecting can hit
+Discord's App-ID cooldown window.
+
+```
+$ opencode-rpc kill
+
+WARNING: 'kill' permanently stops the daemon and drops the
+Discord IPC connection. Only 'opencode-rpc spawn' can start
+it again.
+
+Possible issues after killing:
+  - Discord may silently rate-limit reconnects (App-ID
+    cooldown). Presence could fail to appear for up to a few
+    minutes after spawn.
+  - If Discord Desktop is in a bad state, you may need to
+    restart it too.
+
+Continue? [y/N]
+```
+
+---
+
+## `opencode-rpc spawn`
+
+Starts the daemon again after a `kill`. Clears the `daemonStopped`
+flag, spawns the daemon subprocess, waits for the local socket, and
+re-enables pushing.
+
+```
+$ opencode-rpc spawn
+
+Daemon starting (pid 12345)...
+Daemon is up. Presence resumes on the next chat.message.
+```
+
+If presence is disabled (`opencode-rpc off`), `spawn` refuses and
+tells the user to run `on` first.
+
+---
+
 ## `opencode-rpc update`
 
 Upgrades the installed package. Five modes:
@@ -249,7 +327,7 @@ Upgrades the installed package. Five modes:
 | Mode | What it does |
 |------|--------------|
 | default | Compare current version against latest stable release tag. If newer, install. |
-| `--dev [BRANCH]` | Skip version check. Install latest commit on BRANCH. Defaults to `main`, which is currently v3.2.0. |
+| `--dev [BRANCH]` | Skip version check. Install latest commit on BRANCH. Defaults to `main`, which is currently v3.3.0. |
 | `--stable` | Skip version check. Install latest stable release tag. |
 | `--ref REF` | Install a specific git ref: tag, branch, or commit SHA. Supports any ref including short SHAs (`6664bfb`) and full SHAs (`6664bfb0ba316180fa08617dcb04ee1b59599e7f`). |
 | `--repo OWNER/REPO` | Install from a fork instead of the upstream repo. Combine with `--dev`, `--stable`, or `--ref`. |
@@ -300,7 +378,7 @@ $ opencode-rpc update --dev redesign/v3-daemon
 
 opencode-rich-presence update (--dev redesign/v3-daemon)
 
-Current: v3.2.0 (dev: redesig)
+Current: v3.3.0 (dev: redesig)
 Latest:  471ce94 (latest commit on redesign/v3-daemon)
 Installing dev build (471ce94)...
 
@@ -313,7 +391,7 @@ Restart OpenCode to load the new build.
 ```
 
 `--dev` without a branch name defaults to `main`, which is
-currently v3.2.0.
+currently v3.3.0.
 
 **Example: install a specific branch**
 
@@ -322,7 +400,7 @@ $ opencode-rpc update --ref redesign/v3-daemon
 
 opencode-rich-presence update (--ref)
 
-Current: v3.2.0 (stable)
+Current: v3.3.0 (stable)
 Treating as channel=dev for version reporting.
 
 Cloning repo...
@@ -334,7 +412,7 @@ Restart OpenCode to load the new build.
 ```
 
 `--ref` works with any git ref the repo exposes: a tag
-(`--ref v3.2.0`), a branch (`--ref redesign/v3-daemon`), a
+(`--ref v3.3.0`), a branch (`--ref redesign/v3-daemon`), a
 short commit SHA (`--ref 6664bfb`), or a full commit SHA
 (`--ref 6664bfb0ba316180fa08617dcb04ee1b59599e7f`). The channel
 label written to the `.install-channel` marker is inferred from the
@@ -349,7 +427,7 @@ $ opencode-rpc update --repo myname/opencode-rich-presence --ref my-branch
 opencode-rich-presence update (--ref my-branch)
 Source repo:    myname/opencode-rich-presence
 
-Current: v3.2.0 (stable)
+Current: v3.3.0 (stable)
 Treating as channel=dev for version reporting.
 
 Cloning repo...

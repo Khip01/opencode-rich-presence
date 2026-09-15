@@ -92,6 +92,34 @@ If daemon is missing or stale:
 1. The next chat.message will spawn a fresh daemon.
 2. To force: `opencode-rpc restart` (kills old daemon, rotates log).
 
+### "Presence is off and I don't remember turning it off"
+
+Run `opencode-rpc info` and read the Presence lines:
+
+- `Presence : disabled (run 'opencode-rpc on')` means the state marker
+  has `presenceEnabled=false`. Run `opencode-rpc on`.
+- `Daemon lock : stopped by 'kill' (run 'opencode-rpc spawn')` means
+  `daemonStopped=true`, so the plugin will NOT auto-spawn the daemon.
+  Run `opencode-rpc spawn`.
+
+The marker is `~/.config/opencode/.opencode-rich-presence.state.json`.
+It is internal program state, not user configuration; edit it only as
+a last resort.
+
+### "I killed the daemon and after spawn Discord still shows nothing"
+
+`opencode-rpc kill` drops the single Discord IPC connection. Discord
+silently rate-limits new connections per App ID (cooldown window), so
+a reconnect right after a kill can be refused.
+
+Recovery:
+1. `opencode-rpc spawn` (or `opencode-rpc restart`).
+2. Wait a few minutes, then fire a chat.message.
+3. If Discord still shows nothing, restart Discord Desktop and fire again.
+
+This is exactly why `on`/`off` keep the daemon alive: they never drop
+the Discord connection, so they never hit the cooldown.
+
 ### "Display works on odd cycles but fails on even cycles"
 
 Classic symptom of the EPIPE-on-closed-stderr-pipe bug (fixed in
@@ -230,7 +258,7 @@ This can happen immediately after install, or after a reboot / npm
 cache cleanup:
 
 ```
-$ npm install -g 'Khip01/opencode-rich-presence#v3.2.0'
+$ npm install -g 'Khip01/opencode-rich-presence#v3.3.0'
 added 1 package in 4s
 
 $ opencode-rpc
@@ -285,12 +313,12 @@ ls -la "$(npm root -g)/opencode-rich-presence"
     ```bash
     # Download from: https://github.com/Khip01/opencode-rich-presence/releases/latest
     # File name: opencode-rich-presence-<version>.tgz
-    npm install -g ./opencode-rich-presence-3.2.0.tgz
+    npm install -g ./opencode-rich-presence-3.3.0.tgz
     ```
 3. Verify:
    ```bash
    opencode-rpc version
-   # Expected: opencode-rich-presence v3.2.0 (stable)
+   # Expected: opencode-rich-presence v3.3.0 (stable)
    ```
 
 **Why `opencode-rpc update --ref <tag>` does not help on a fresh
@@ -351,7 +379,7 @@ from
 [GitHub Releases](https://github.com/Khip01/opencode-rich-presence/releases/latest):
 
 ```bash
-npm install -g ./opencode-rich-presence-3.2.0.tgz
+npm install -g ./opencode-rich-presence-3.3.0.tgz
 ```
 
 **Check 2: PowerShell execution policy**

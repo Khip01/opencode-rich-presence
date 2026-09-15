@@ -5,6 +5,75 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.3.0] - 2026-09-15
+
+### Added
+
+- **`opencode-rpc on` / `opencode-rpc off`**: toggle Rich Presence
+  without stopping the daemon. `off` clears the Discord activity and
+  gates the push path; `on` resumes instantly because the daemon (and
+  its single Discord IPC connection) stays alive, avoiding Discord's
+  App-ID reconnect cooldown. The intent is persisted to
+  `~/.config/opencode/.opencode-rich-presence.state.json` so it
+  survives a restart, and a running daemon is notified over the local
+  socket with a new `set-enabled` message.
+- **`opencode-rpc kill`**: stop the daemon permanently, with a
+  default-N confirmation warning about the reconnect cooldown. Sets
+  `daemonStopped` so the auto-spawn on chat.message does not undo the
+  kill.
+- **`opencode-rpc spawn`**: start the daemon again after a `kill`.
+  Clears `daemonStopped`, spawns the daemon, waits for the socket, and
+  re-enables pushing.
+- **Presence state marker** (`src/shared/presence-state.js`): atomic
+  read/write of `{presenceEnabled, daemonStopped, updatedAt}`. Missing,
+  empty, or corrupt file falls back to enabled and not-stopped.
+- **`src/shared/presence-control.js`**: one-shot `set-enabled` message
+  to the daemon over the local socket, with a short timeout. A missing
+  daemon is a no-op, never a CLI failure.
+- **`src/cli/colors.js`**: zero-dependency ANSI helper. Color is off
+  when stdout is not a TTY, off when `NO_COLOR` is set, on when
+  `FORCE_COLOR` is set.
+- **`tests/presence-toggle.mjs`**: 43-assertion harness covering the
+  state marker (defaults, corrupt file, merge semantics), dispatcher
+  recognition of the new commands, grouped help output, color-off when
+  piped, `on`/`off` persistence, `kill` confirmation (y/N), and `spawn`
+  refusal while disabled. Wired as `npm run test:presence-toggle` and
+  into `npm test`.
+
+### Changed
+
+- **`src/worker/daemon.mjs`**: added the `set-enabled` handler, an
+  `enabled` gate at the top of `pushCurrentPresence`, and a
+  `lastClearAt` guard so an `on` right after an `off` waits out
+  Discord's silent SET_ACTIVITY drop window (~1.5s) instead of losing
+  the first push. The enabled flag is bootstrapped from the state
+  marker at daemon start.
+- **`src/plugin/index.js`**: reads the state marker at load and on
+  every `REFRESH_INTERVAL` tick, skips `sendStateToDaemon` when
+  presence is off, and skips daemon spawn/connect when `daemonStopped`.
+- **`src/plugin/daemon-spawner.js`**: honors `daemonStopped`; exports
+  `findNodeExecutable`, `spawnDaemonDetached`, and
+  `waitForDaemonSocket` for the `spawn` CLI command.
+- **`src/cli/help.js`**: commands grouped into Setup, Presence,
+  Daemon, and General sections; headers and command names are
+  colorized when the terminal supports it.
+- **`src/cli/info.js`**: shows the presence state marker path, the
+  enabled/disabled state, and the kill lock when set.
+- **`src/cli/uninstall.js`**: removes the presence state marker.
+- **Version bumped to `3.3.0`** across `package.json`,
+  `src/cli/help.js`, `README.md`, `docs/`, and `AGENTS.md`.
+
+### Docs
+
+- **`docs/ARCHITECTURE.md`**: documented the `set-enabled` IPC message,
+  the presence state marker, the auto-spawn suppression, and the new
+  CLI subcommands.
+- **`docs/TROUBLESHOOTING.md`**: added "presence is off and I don't
+  remember turning it off" and "I killed the daemon and after spawn
+  Discord still shows nothing".
+- **`docs/CLI-REFERENCE.md`**: added sections for `on`/`off`, `kill`,
+  and `spawn`.
+
 ## [3.2.0] - 2026-08-01
 
 ### Added
