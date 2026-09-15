@@ -137,6 +137,18 @@ clearState();
     ok(s.presenceEnabled === true, "'on' persists presenceEnabled=true");
 }
 
+// `on` means "resume now", so it must also clear the kill lock. If it
+// leaves daemonStopped set, the plugin refuses to spawn and the user
+// has to run `spawn` manually even though they asked for `on`.
+{
+    writeState({ presenceEnabled: false, daemonStopped: true });
+    const r = runCli(["on"]);
+    ok(r.status === 0, "'on' exits 0 with daemonStopped=true");
+    const s = readState();
+    ok(s.presenceEnabled === true, "'on' enables presence");
+    ok(s.daemonStopped === false, "'on' clears the kill lock (daemonStopped=false)");
+}
+
 // ── 7. kill confirmation ─────────────────────────────────────────
 section("kill");
 

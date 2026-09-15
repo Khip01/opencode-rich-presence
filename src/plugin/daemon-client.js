@@ -43,6 +43,31 @@ export class DaemonClient {
         this.bufferedLines = [];
         this.lastError = null;
         this.onDisconnected = null;
+        // Capabilities reported by the daemon in its hello ack. Null
+        // until the ack arrives. Used to detect a stale daemon that
+        // predates a feature the plugin depends on.
+        this.capabilities = null;
+        this._ackResolved = false;
+        this._ackWaiters = [];
+    }
+
+    // Resolve once the hello ack has been parsed, or after the timeout.
+    // Returns the capability array (empty when the daemon did not
+    // advertise any, e.g. an older daemon).
+    async waitForHelloAck(timeoutMs = 1500) {
+        if (this._ackResolved) return this.capabilities;
+        return new Promise((resolve) => {
+            let done = false;
+            const finish = () => {
+                if (done) return;
+                done = true;
+                clearTimeout(timer);
+                resolve(this.capabilities);
+            };
+            const timer = setTimeout(finish, timeoutMs);
+            timer.unref?.();
+            this._ackWaiters.push(finish);
+        });
     }
 
     isConnected() {
@@ -95,9 +120,26 @@ export class DaemonClient {
                     const line = buf.slice(0, idx);
                     buf = buf.slice(idx + 1);
                     if (!line.trim()) continue;
-                    // We do not currently consume acks/state messages;
-                    // future enhancement: track daemon-reported Discord
-                    // status for the user's `info` output.
+                    let msg = null;
+                    try { msg = JSON.parse(line); } catch { continue; }
+                    if (msg?.type === "ack") {
+                        this._ackResolved = true;
+                        // Only the hello ack carries `capabilities`. The
+                        // per-message acks (state/goodbye) do not, so do
+                        // not overwrite what we already learned. Getting
+                        // this wrong made every daemon look stale and
+                        // triggered a recycle on the second connection.
+                        if (Array.isArray(msg.capabilities)) {
+                            this.capabilities = msg.capabilities;
+                        } else if (this.capabilities === null) {
+                            this.capabilities = [];
+                        }
+                        const waiters = this._ackWaiters;
+                        this._ackWaiters = [];
+                        for (const w of waiters) {
+                            try { w(); } catch {}
+                        }
+                    }
                 }
             });
 

@@ -41,6 +41,28 @@ function assert(condition, message) {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+async function killSandboxDaemons() {
+    if (process.platform === "win32") return;
+    const sandbox = process.env.OPENCODE_CONFIG_DIR;
+    if (!sandbox) return;
+    let entries = [];
+    try { entries = readdirSync("/proc"); } catch { return; }
+    for (const name of entries) {
+        if (!/^\d+$/.test(name)) continue;
+        const pid = parseInt(name, 10);
+        if (pid === process.pid) continue;
+        let cmd = "";
+        try {
+            cmd = readFileSync(`/proc/${pid}/cmdline`, "utf-8").split("\0").join(" ");
+        } catch { continue; }
+        if (!cmd.includes("worker/daemon.mjs")) continue;
+        let env = "";
+        try { env = readFileSync(`/proc/${pid}/environ`, "utf-8"); } catch { continue; }
+        if (!env.split("\0").includes(`OPENCODE_CONFIG_DIR=${sandbox}`)) continue;
+        try { process.kill(pid, "SIGTERM"); } catch {}
+    }
+}
+
 function shortSid(sid) {
     if (!sid) return "?";
     return sid.length <= 8 ? sid : sid.slice(-8);
@@ -412,6 +434,12 @@ process.exit(0);
     const files = readdirSync(OPENCODE_DIR).filter((f) => f.startsWith(STATE_FILE_PREFIX) && f.endsWith(".txt"));
     assert(files.length >= 2, `at least 2 per-instance state files exist (got ${files.length})`);
 });
+
+// ─── Cleanup ───────────────────────────────────────────────────────────────
+// The plugin spawns the daemon on the first chat.message, so stop every
+// daemon bound to this sandbox before exiting. Without this, `npm test`
+// leaks detached daemons that hold a real Discord IPC connection.
+await killSandboxDaemons();
 
 // ─── Summary ───────────────────────────────────────────────────────────────
 

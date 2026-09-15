@@ -1,5 +1,5 @@
 import { writeFile, mkdir, readFile } from "node:fs/promises";
-import { existsSync, unlinkSync } from "node:fs";
+import { existsSync, unlinkSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, basename } from "node:path";
 import { OPENCODE_DIR, OUTPUT_FILE, DAEMON_SOCKET, DAEMON_PID_FILE } from "../shared/paths.js";
@@ -23,6 +23,7 @@ import {
     getDaemonClient,
     ensureConnected,
     sendStateToDaemon,
+    disconnectFromDaemon,
 } from "./local-presence.js";
 import { ensureDaemonRunning } from "./daemon-spawner.js";
 
@@ -335,28 +336,68 @@ async function loadConfigLimits(p) {
 // specifically: spawning on OpenCode launch would start Discord
 // connections for sessions that never need them.
 async function ensureDaemonAndConnect() {
-    // `opencode-rpc kill` sets daemonStopped; respect it until the user
-    // runs `opencode-rpc spawn`. Without this gate the next chat.message
-    // would immediately respawn the daemon the user just killed.
-    if (daemonStopped) {
-        activity("daemon", "spawn suppressed: daemonStopped=true (run 'opencode-rpc spawn')");
-        return false;
-    }
-    // Try to connect to an already-running daemon first. If the
-    // socket exists but connect fails (e.g. the daemon died after
-    // the socket was created but before we could connect), remove
-    // the stale socket and spawn a fresh one.
     const c = getDaemonClient();
+    // An already-running daemon is always reused. `opencode-rpc kill`
+    // only suppresses SPAWNING a new daemon; it must not make the
+    // plugin ignore a daemon that is demonstrably listening, otherwise
+    // `on` plus a firing looks like it did nothing while the daemon is
+    // still alive and holding the Discord connection.
     if (existsSync(DAEMON_SOCKET)) {
         const ok = await ensureConnected();
-        if (ok) return true;
+        if (ok) {
+            const caps = await c.waitForHelloAck();
+            if (Array.isArray(caps) && caps.includes("set-enabled")) return true;
+            // Daemon is alive but predates a capability we need (e.g.
+            // started before `set-enabled` existed). Node does not
+            // hot-reload, so recycle it instead of silently dropping
+            // control messages.
+            activity(
+                "daemon",
+                `stale daemon detected (capabilities=${JSON.stringify(caps)}); recycling`,
+            );
+            await recycleDaemon();
+            const respawned = await ensureDaemonRunning();
+            if (!respawned) return false;
+            return await ensureConnected();
+        }
         // Stale socket. Remove it and fall through to spawn.
         try { unlinkSync(DAEMON_SOCKET); } catch {}
         try { unlinkSync(DAEMON_PID_FILE); } catch {}
     }
+    if (daemonStopped) {
+        activity("daemon", "spawn suppressed: daemonStopped=true (run 'opencode-rpc spawn')");
+        return false;
+    }
     const spawned = await ensureDaemonRunning();
     if (!spawned) return false;
     return await ensureConnected();
+}
+
+// Stop a daemon that predates a capability the plugin needs. Waits for
+// the old process to actually exit before returning so its shutdown
+// handler cannot unlink the socket of the daemon we spawn next.
+async function recycleDaemon() {
+    disconnectFromDaemon();
+    let pid = null;
+    try {
+        if (existsSync(DAEMON_PID_FILE)) {
+            pid = parseInt(readFileSync(DAEMON_PID_FILE, "utf-8").trim(), 10);
+        }
+    } catch {}
+    if (pid && pid > 0) {
+        try { process.kill(pid, "SIGTERM"); } catch {}
+        const start = Date.now();
+        while (Date.now() - start < 2000) {
+            try { process.kill(pid, 0); } catch { pid = null; break; }
+            await new Promise((r) => setTimeout(r, 50));
+        }
+        if (pid) {
+            try { process.kill(pid, "SIGKILL"); } catch {}
+            await new Promise((r) => setTimeout(r, 150));
+        }
+    }
+    try { unlinkSync(DAEMON_PID_FILE); } catch {}
+    try { unlinkSync(DAEMON_SOCKET); } catch {}
 }
 
 // ─── Main Plugin ───────────────────────────────────────────────────────────

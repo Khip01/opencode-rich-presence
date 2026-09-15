@@ -70,8 +70,38 @@ function lastDaemonPush() {
     return lines.length > 0 ? lines[lines.length - 1] : null;
 }
 
+// Kill every daemon whose OPENCODE_CONFIG_DIR is this harness's sandbox,
+// not just the one recorded in the PID file. A scenario that spawns a
+// second daemon overwrites the PID file, and the earlier daemon then
+// survives the PID-file-only cleanup holding a real Discord IPC
+// connection.
+async function killSandboxDaemons() {
+    if (process.platform === "win32") return;
+    const { readdirSync, readFileSync } = await import("node:fs");
+    const sandbox = process.env.OPENCODE_CONFIG_DIR;
+    if (!sandbox) return;
+    let entries = [];
+    try { entries = readdirSync("/proc"); } catch { return; }
+    for (const name of entries) {
+        if (!/^\d+$/.test(name)) continue;
+        const pid = parseInt(name, 10);
+        if (pid === process.pid) continue;
+        let cmd = "";
+        try {
+            cmd = readFileSync(`/proc/${pid}/cmdline`, "utf-8").split("\0").join(" ");
+        } catch { continue; }
+        if (!cmd.includes("worker/daemon.mjs")) continue;
+        let env = "";
+        try { env = readFileSync(`/proc/${pid}/environ`, "utf-8"); } catch { continue; }
+        if (!env.split("\0").includes(`OPENCODE_CONFIG_DIR=${sandbox}`)) continue;
+        try { process.kill(pid, "SIGTERM"); } catch {}
+    }
+}
+
 async function clear() {
-    // Kill any existing daemon first.
+    // Kill any existing daemon first: the PID-file one and any sandbox
+    // daemon that lost its PID file to a later spawn.
+    await killSandboxDaemons();
     if (existsSync(PID_FILE)) {
         try {
             const pid = parseInt(readFileSync(PID_FILE, "utf-8").trim(), 10);
@@ -400,7 +430,9 @@ try {
     try { sock1?.end(); } catch {}
     try { sock2?.end(); } catch {}
     await sleep(500);
-    // Cleanup: kill the long-lived daemon we spawned
+    // Cleanup: kill the long-lived daemon we spawned, plus any sandbox
+    // daemon that lost its PID file to a later spawn.
+    await killSandboxDaemons();
     try {
         const pid = parseInt(readFileSync(PID_FILE, "utf-8").trim(), 10);
         if (pid > 0) try { process.kill(pid, "SIGTERM"); } catch {}

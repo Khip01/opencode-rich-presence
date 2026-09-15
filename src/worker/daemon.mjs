@@ -133,6 +133,12 @@ let enabled = true;
 // so it is not lost.
 let lastClearAt = 0;
 const CLEAR_SET_ACTIVITY_GUARD_MS = 1500;
+// Capabilities advertised to clients in the hello ack. The plugin
+// compares this list against what it needs and recycles a daemon that
+// predates a feature (Node does not hot-reload a running process, so a
+// daemon started before `set-enabled` existed silently ignores that
+// message and the user sees `off`/`on` do nothing).
+const DAEMON_CAPABILITIES = ["set-enabled"];
 
 // Map of pid -> { lastSeen, sessionInfo, rendered }
 // sessionInfo is the minimal {sessionID, state, lastActivity} the
@@ -430,7 +436,11 @@ function handleClientMessage(msg, sock) {
             // Discord connection. No exit-cancel needed (the daemon
             // does not auto-exit anymore).
             logToFile(`instance registered: pid=${pid}`);
-            try { sock.write(JSON.stringify({ type: "ack" }) + "\n"); } catch {}
+            try {
+                sock.write(
+                    JSON.stringify({ type: "ack", capabilities: DAEMON_CAPABILITIES }) + "\n",
+                );
+            } catch {}
             broadcastDiscordState();
             // Reset the fingerprint so the new instance's first
             // setActivity actually fires (the fingerprint might
