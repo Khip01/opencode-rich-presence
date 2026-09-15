@@ -11,6 +11,7 @@ import {
 } from "../shared/constants.js";
 import { log, activity } from "../shared/logger.js";
 import { loadConfig } from "./config-resolver.js";
+import { readState } from "../shared/presence-state.js";
 import { SessionState } from "./session-state.js";
 import { withTimeout, formatDuration } from "./template-engine.js";
 import {
@@ -35,6 +36,13 @@ let writeTimer = null;
 let config = null;
 const MY_STATE_FILE = OUTPUT_FILE.replace(/\.txt$/, `-pid${process.pid}.txt`);
 
+// Presence control flags mirrored from the on-disk state marker written
+// by `opencode-rpc on/off/kill/spawn`. Refreshed on every activity tick so
+// a toggle made in another terminal takes effect here without an OpenCode
+// restart.
+let presenceEnabled = true;
+let daemonStopped = false;
+
 // ─── File Output ───────────────────────────────────────────────────────────
 
 function scheduleWrite() {
@@ -49,7 +57,11 @@ function scheduleWrite() {
     // most-recently-active session across all instances and pushes to
     // Discord. If the daemon is not connected, this is a no-op (the
     // activity log already shows the local render).
-    if (rendered) {
+    //
+    // When presence is disabled (`opencode-rpc off`), skip the daemon
+    // send entirely. The local render above still runs so the activity
+    // log keeps showing what would have been pushed.
+    if (rendered && presenceEnabled) {
         sendStateToDaemon(d, rendered);
     }
 
@@ -323,6 +335,13 @@ async function loadConfigLimits(p) {
 // specifically: spawning on OpenCode launch would start Discord
 // connections for sessions that never need them.
 async function ensureDaemonAndConnect() {
+    // `opencode-rpc kill` sets daemonStopped; respect it until the user
+    // runs `opencode-rpc spawn`. Without this gate the next chat.message
+    // would immediately respawn the daemon the user just killed.
+    if (daemonStopped) {
+        activity("daemon", "spawn suppressed: daemonStopped=true (run 'opencode-rpc spawn')");
+        return false;
+    }
     // Try to connect to an already-running daemon first. If the
     // socket exists but connect fails (e.g. the daemon died after
     // the socket was created but before we could connect), remove
@@ -348,10 +367,15 @@ export const OpencodeRichPresence = async ({ client, directory }) => {
     activity("load", `plugin loaded workdir=${directory || "(none)"}`);
 
     config = await loadConfig();
+
+    const initialState = readState();
+    presenceEnabled = initialState.presenceEnabled;
+    daemonStopped = initialState.daemonStopped;
     activity(
         "config",
         `appId=${config.appId} key=${config.largeImageKey} currency=${config.currency}`,
     );
+    activity("state", `presenceEnabled=${presenceEnabled} daemonStopped=${daemonStopped}`);
 
     loadFallbackLimits();
 
@@ -372,6 +396,11 @@ export const OpencodeRichPresence = async ({ client, directory }) => {
     scheduleWrite();
 
     const activityTimer = setInterval(() => {
+        // Pick up on/off/kill/spawn toggles from another terminal without
+        // requiring an OpenCode restart.
+        const st = readState();
+        presenceEnabled = st.presenceEnabled;
+        daemonStopped = st.daemonStopped;
         checkAllSessionsActivity(client, directory).catch((e) => log(`Activity check failed: ${e?.message || e}`));
     }, REFRESH_INTERVAL);
     activityTimer.unref?.();

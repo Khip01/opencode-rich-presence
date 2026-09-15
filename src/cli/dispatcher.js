@@ -5,6 +5,10 @@ import { update } from "./update.js";
 import { info } from "./info.js";
 import { help } from "./help.js";
 import { version } from "./version.js";
+import { on } from "./on.js";
+import { off } from "./off.js";
+import { kill } from "./kill.js";
+import { spawn } from "./spawn.js";
 
 const COMMANDS = {
     install,
@@ -14,6 +18,10 @@ const COMMANDS = {
     info,
     help,
     version,
+    on,
+    off,
+    kill,
+    spawn,
     "--help": help,
     "-h": help,
     "--version": version,

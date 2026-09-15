@@ -28,3 +28,8 @@ Thumbs.db
 # committed — this is a safety net in case the marker is ever written
 # into the repo working directory by mistake).
 .install-channel
+
+# Presence control state (written by on/off/kill/spawn at runtime). Lives in
+# ~/.config/opencode, but ignore it here too in case a stray write lands in
+# the repo working directory.
+*.state.json

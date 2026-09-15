@@ -17,6 +17,7 @@ import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
 import { DAEMON_SOCKET } from "../shared/paths.js";
 import { log, activity } from "../shared/logger.js";
+import { readState } from "../shared/presence-state.js";
 
 // Generous timeout: after a previous daemon exits, Linux can hold
 // the Unix socket in TIME_WAIT for several seconds before the OS
@@ -26,7 +27,7 @@ const SPAWN_TIMEOUT_MS = 15000;
 const POLL_INTERVAL_MS = 100;
 
 // Find a node executable. Same approach as the previous worker-spawner.
-function findNodeExecutable() {
+export function findNodeExecutable() {
     const ep = process.execPath || "";
     const bn = basename(ep).toLowerCase();
     if (["node", "node.exe"].includes(bn)) return ep;
@@ -45,6 +46,13 @@ let lastSpawnAt = 0;
 const MIN_SPAWN_INTERVAL_MS = 2000; // debounce so two simultaneous chat.messages don't both spawn
 
 export async function ensureDaemonRunning() {
+    // `opencode-rpc kill` sets daemonStopped. Honor it here so the
+    // auto-spawn on chat.message does not undo the user's kill. The
+    // user clears it with `opencode-rpc spawn`.
+    if (readState().daemonStopped) {
+        activity("daemon", "spawn suppressed: daemonStopped=true");
+        return false;
+    }
     if (existsSync(DAEMON_SOCKET)) {
         return true;
     }
@@ -125,4 +133,40 @@ async function spawnDaemon() {
     log(`daemon socket did not appear within ${SPAWN_TIMEOUT_MS}ms`);
     activity("daemon", `spawn timeout: socket did not appear in ${SPAWN_TIMEOUT_MS}ms`);
     return false;
+}
+
+// Spawn the daemon without waiting for the socket. Used by the
+// `opencode-rpc spawn` CLI command, which polls for the socket itself
+// and can report progress. Returns the child pid, or null on failure.
+export function spawnDaemonDetached() {
+    const pluginUrl = new URL("../worker/daemon.mjs", import.meta.url);
+    const daemonSource = fileURLToPath(pluginUrl);
+    if (!existsSync(daemonSource)) {
+        log(`daemon source missing: ${daemonSource}`);
+        return null;
+    }
+    const nodeExe = findNodeExecutable();
+    try {
+        const proc = spawn(nodeExe, [daemonSource], {
+            detached: true,
+            stdio: ["ignore", "ignore", "ignore"],
+            env: { ...process.env },
+        });
+        proc.unref();
+        return proc.pid ?? null;
+    } catch (e) {
+        log(`daemon spawn threw: ${e?.message || e}`);
+        return null;
+    }
+}
+
+// Poll for the daemon socket to appear. Used by `opencode-rpc spawn`
+// after spawnDaemonDetached() so the CLI can report success or timeout.
+export async function waitForDaemonSocket(timeoutMs = SPAWN_TIMEOUT_MS) {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+        if (existsSync(DAEMON_SOCKET)) return true;
+        await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+    }
+    return existsSync(DAEMON_SOCKET);
 }

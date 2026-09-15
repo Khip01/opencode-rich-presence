@@ -69,6 +69,7 @@ import {
     ACTIVITY_LOG,
 } from "../shared/paths.js";
 import { DiscordIPC } from "./discord-ipc.mjs";
+import { readState } from "../shared/presence-state.js";
 
 const CONNECT_TIMEOUT_MS = 30000;
 // Initial backoff after Discord IPC socket death. Grows exponentially
@@ -119,6 +120,19 @@ let finalStateTimer = null;
 // Without this, a delayed push could repeat the same Typing payload
 // many times even after the user has fired another message.
 let lastPushedFingerprint = null;
+// Presence enabled flag, mirrored from the on-disk state marker
+// (.opencode-rich-presence.state.json) written by `opencode-rpc on/off`.
+// When false the daemon stops pushing and clears the current activity,
+// but stays alive so `on` is instant (no Discord reconnect, which can
+// hit Discord's App-ID cooldown window).
+let enabled = true;
+// Timestamp of the last clearActivity. Discord silently drops
+// SET_ACTIVITY sent within ~1-2s of a clearActivity on the same IPC
+// connection (same reason documented on the hello handler). When `on`
+// arrives right after `off`, the first push is delayed past that window
+// so it is not lost.
+let lastClearAt = 0;
+const CLEAR_SET_ACTIVITY_GUARD_MS = 1500;
 
 // Map of pid -> { lastSeen, sessionInfo, rendered }
 // sessionInfo is the minimal {sessionID, state, lastActivity} the
@@ -267,6 +281,9 @@ function fingerprintRendered(r) {
 }
 
 async function pushCurrentPresence() {
+    // Presence disabled via `opencode-rpc off`: nothing should reach
+    // Discord. The daemon keeps running so `on` resumes instantly.
+    if (!enabled) return;
     const picked = pickDisplayedInstance();
     const chosenPid = picked.active || picked.any;
     if (!chosenPid) return;
@@ -492,6 +509,40 @@ function handleClientMessage(msg, sock) {
             }
             break;
 
+        case "set-enabled": {
+            // Runtime toggle from `opencode-rpc on/off`. No daemon
+            // restart, no Discord reconnect: just gate the push path.
+            const next = msg.enabled === true;
+            logToFile(`set-enabled: ${next}`);
+            enabled = next;
+            if (!next) {
+                lastClearAt = Date.now();
+                clearPresence().catch((e) => {
+                    logToFile(`set-enabled clearPresence failed: ${e?.message || e}`);
+                });
+            } else {
+                // Reset the fingerprint so the first push after re-enable
+                // is not deduped against the pre-off payload.
+                lastPushedFingerprint = null;
+                const wait = CLEAR_SET_ACTIVITY_GUARD_MS - (Date.now() - lastClearAt);
+                if (wait > 0) {
+                    // Recent clearActivity: wait out Discord's silent
+                    // drop window before pushing.
+                    setTimeout(() => {
+                        pushCurrentPresence().catch((e) => {
+                            logToFile(`set-enabled delayed push failed: ${e?.message || e}`);
+                        });
+                    }, wait).unref?.();
+                } else {
+                    pushCurrentPresence().catch((e) => {
+                        logToFile(`set-enabled push failed: ${e?.message || e}`);
+                    });
+                }
+            }
+            try { sock.write(JSON.stringify({ type: "ack" }) + "\n"); } catch {}
+            break;
+        }
+
         default:
             logToFile(`unknown message type: ${msg.type}`);
     }
@@ -662,6 +713,11 @@ process.on("exit", (code) => {
 async function main() {
     try { await mkdirOpencodeDir(); } catch {}
     logToFile(`daemon starting (pid ${process.pid})`);
+    // Bootstrap the enabled flag from the state marker so a daemon
+    // started while presence is off does not push anything.
+    const st = readState();
+    enabled = st.presenceEnabled;
+    logToFile(`presence enabled=${enabled} (state marker)`);
     writeFileSync(DAEMON_PID_FILE, String(process.pid));
     await startServer();
     await connectDiscord();
