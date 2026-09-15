@@ -1,6 +1,6 @@
 import { existsSync, unlinkSync, readFileSync, writeFileSync, renameSync, lstatSync } from "node:fs";
 import { join } from "node:path";
-import { CONFIG_PATH, OUTPUT_FILE, ACTIVITY_LOG, OPENCODE_DIR, DAEMON_SOCKET, DAEMON_PID_FILE } from "../shared/paths.js";
+import { CONFIG_PATH, OUTPUT_FILE, ACTIVITY_LOG, OPENCODE_DIR, DAEMON_SOCKET, DAEMON_PID_FILE, PRESENCE_STATE } from "../shared/paths.js";
 import { confirm } from "./prompt.js";
 
 const PLUGIN_NAME = "opencode-rich-presence";
@@ -36,6 +36,7 @@ export async function uninstall() {
         ACTIVITY_LOG,
         DAEMON_SOCKET,
         DAEMON_PID_FILE,
+        PRESENCE_STATE,
     ]) {
         if (tryRemove(f)) removed++;
     }
