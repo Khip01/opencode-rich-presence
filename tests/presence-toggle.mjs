@@ -1,7 +1,7 @@
 import "./test-env.mjs";
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
-import { mkdtempSync, writeFileSync, existsSync, readFileSync } from "node:fs";
+import { spawnSync, spawn } from "node:child_process";
+import { mkdtempSync, writeFileSync, existsSync, readFileSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -187,6 +187,104 @@ writeState({ presenceEnabled: false, daemonStopped: true });
     ok((r.stdout || "").includes("Presence is disabled"), "spawn refuses and tells user to run 'on'");
     const s = readState();
     ok(s.daemonStopped === true, "spawn does not clear daemonStopped when presence disabled");
+}
+
+// ── 9. spawn refuses when a daemon is already running ────────────
+section("spawn singleton (CLI)");
+
+clearState();
+writeState({ presenceEnabled: true, daemonStopped: false });
+
+{
+    const { DAEMON_PID_FILE, DAEMON_SOCKET } = await import("../src/shared/paths.js");
+    const daemonSrc = join(ROOT, "src", "worker", "daemon.mjs");
+
+    const daemonProc = spawn(process.execPath, [daemonSrc], {
+        detached: true,
+        stdio: ["ignore", "ignore", "ignore"],
+        env: { ...process.env, OPENCODE_CONFIG_DIR: SANDBOX, XDG_RUNTIME_DIR: SANDBOX },
+    });
+    daemonProc.unref();
+
+    const deadline = Date.now() + 8000;
+    while (Date.now() < deadline && !existsSync(DAEMON_SOCKET)) {
+        await new Promise((r) => setTimeout(r, 50));
+    }
+    ok(existsSync(DAEMON_SOCKET), "daemon started for singleton test");
+    const originalPid = parseInt(readFileSync(DAEMON_PID_FILE, "utf-8").trim(), 10);
+    ok(originalPid === daemonProc.pid,
+        `PID file matches spawned daemon pid (${originalPid})`);
+
+    const r = runCli(["spawn"]);
+    ok(r.status === 0, "spawn exits 0 when a daemon is already running");
+    const out = r.stdout || "";
+    ok(out.includes("already running"),
+        "spawn reports the daemon is already running");
+
+    const pidAfter = parseInt(readFileSync(DAEMON_PID_FILE, "utf-8").trim(), 10);
+    ok(pidAfter === originalPid,
+        `PID file unchanged after refused spawn (${pidAfter} == ${originalPid})`);
+
+    let stillAlive = false;
+    try { process.kill(originalPid, 0); stillAlive = true; } catch {}
+    ok(stillAlive, "original daemon still alive after refused spawn");
+
+    try { process.kill(originalPid, "SIGTERM"); } catch {}
+    await new Promise((r) => setTimeout(r, 800));
+    try { process.kill(originalPid, "SIGKILL"); } catch {}
+    try { unlinkSync(DAEMON_SOCKET); } catch {}
+    try { unlinkSync(DAEMON_PID_FILE); } catch {}
+}
+
+// ── 10. daemon singleton guard ───────────────────────────────────
+section("daemon singleton (worker)");
+
+clearState();
+writeState({ presenceEnabled: true, daemonStopped: false });
+
+{
+    const { DAEMON_PID_FILE, DAEMON_SOCKET } = await import("../src/shared/paths.js");
+    const daemonSrc = join(ROOT, "src", "worker", "daemon.mjs");
+
+    const first = spawn(process.execPath, [daemonSrc], {
+        detached: true,
+        stdio: ["ignore", "ignore", "ignore"],
+        env: { ...process.env, OPENCODE_CONFIG_DIR: SANDBOX, XDG_RUNTIME_DIR: SANDBOX },
+    });
+    first.unref();
+
+    const deadline = Date.now() + 8000;
+    while (Date.now() < deadline && !existsSync(DAEMON_SOCKET)) {
+        await new Promise((r) => setTimeout(r, 50));
+    }
+    const firstPid = parseInt(readFileSync(DAEMON_PID_FILE, "utf-8").trim(), 10);
+    ok(firstPid === first.pid, `first daemon pid recorded (${firstPid})`);
+
+    const second = spawn(process.execPath, [daemonSrc], {
+        detached: true,
+        stdio: ["ignore", "ignore", "ignore"],
+        env: { ...process.env, OPENCODE_CONFIG_DIR: SANDBOX, XDG_RUNTIME_DIR: SANDBOX },
+    });
+    second.unref();
+
+    await new Promise((r) => setTimeout(r, 2000));
+
+    let secondAlive = false;
+    try { process.kill(second.pid, 0); secondAlive = true; } catch {}
+    ok(!secondAlive, "second daemon exits immediately (singleton guard)");
+
+    let firstAlive = false;
+    try { process.kill(firstPid, 0); firstAlive = true; } catch {}
+    ok(firstAlive, "first daemon unaffected by rejected second daemon");
+
+    const pidAfter = parseInt(readFileSync(DAEMON_PID_FILE, "utf-8").trim(), 10);
+    ok(pidAfter === firstPid, "PID file still points to first daemon");
+
+    try { process.kill(firstPid, "SIGTERM"); } catch {}
+    await new Promise((r) => setTimeout(r, 800));
+    try { process.kill(firstPid, "SIGKILL"); } catch {}
+    try { unlinkSync(DAEMON_SOCKET); } catch {}
+    try { unlinkSync(DAEMON_PID_FILE); } catch {}
 }
 
 // ── summary ──────────────────────────────────────────────────────

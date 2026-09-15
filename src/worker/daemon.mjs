@@ -566,7 +566,9 @@ function handleClientMessage(msg, sock) {
 
 async function startServer() {
     if (existsSync(DAEMON_SOCKET)) {
-        // Stale socket from a previous crash. Remove it.
+        // We already passed the singleton guard in main(), so no live
+        // daemon is holding this socket. It is a stale path from a
+        // previous crash. Safe to remove.
         try { unlinkSync(DAEMON_SOCKET); } catch {}
     }
     server = net.createServer((sock) => {
@@ -723,6 +725,32 @@ process.on("exit", (code) => {
 async function main() {
     try { await mkdirOpencodeDir(); } catch {}
     logToFile(`daemon starting (pid ${process.pid})`);
+
+    // Singleton guard: the daemon holds the single Discord IPC
+    // connection and every plugin client is attached to it. A second
+    // daemon that unlinks the socket path would orphan the first
+    // daemon's listener, and its own Discord IPC connect would race
+    // the first daemon's connection. The result was that off/on
+    // control messages landed on the new daemon while pushes kept
+    // flowing through the old one, so presence looked hung until the
+    // plugin was restarted. Bail out if another daemon is alive; only
+    // clean up when the recorded PID is stale.
+    if (existsSync(DAEMON_PID_FILE)) {
+        let existingPid = 0;
+        try {
+            existingPid = parseInt(readFileSync(DAEMON_PID_FILE, "utf-8").trim(), 10);
+        } catch {}
+        if (existingPid > 0 && existingPid !== process.pid) {
+            let alive = false;
+            try { process.kill(existingPid, 0); alive = true; } catch {}
+            if (alive) {
+                logToFile(`another daemon is alive (pid ${existingPid}); exiting without touching the socket`);
+                process.exit(0);
+            }
+            logToFile(`stale PID file (pid ${existingPid} not running); taking over`);
+        }
+    }
+
     // Bootstrap the enabled flag from the state marker so a daemon
     // started while presence is off does not push anything.
     const st = readState();
