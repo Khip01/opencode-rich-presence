@@ -41,6 +41,16 @@ import process from "node:process";
 // Multiple pipe IDs (0-9) are tried in order; older Discord versions
 // sometimes pick a higher ID.
 function getSocketPaths(pipeId = 0) {
+    if (process.platform === "win32") {
+        const out = [];
+        for (const id of [pipeId, 0, 1, 2, 3, 4]) {
+            const p1 = `\\\\?\\pipe\\discord-ipc-${id}`;
+            const p2 = `\\\\.\\pipe\\discord-ipc-${id}`;
+            if (!out.includes(p1)) out.push(p1);
+            if (!out.includes(p2)) out.push(p2);
+        }
+        return out;
+    }
     const tmpDirs = [
         process.env.XDG_RUNTIME_DIR,
         process.env.TMPDIR,
@@ -50,9 +60,6 @@ function getSocketPaths(pipeId = 0) {
     ].filter(Boolean);
     const seen = new Set();
     const out = [];
-    // Try the requested pipe ID first, then increment in case Discord
-    // is using a higher one. In practice pipe 0 is always correct on
-    // a single-Discord install.
     for (const id of [pipeId, pipeId + 1, pipeId + 2]) {
         for (const tmp of tmpDirs) {
             const p = path.join(tmp, `discord-ipc-${id}`);

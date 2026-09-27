@@ -31,6 +31,7 @@ function socketPathForPlatform(p) {
 
 // Quick check: is the daemon socket present? Fast (no connect attempt).
 export function isDaemonSocketPresent() {
+    if (process.platform === "win32") return true;
     return existsSync(DAEMON_SOCKET);
 }
 
@@ -76,11 +77,11 @@ export class DaemonClient {
 
     async connect(pid) {
         if (this.connected) return true;
-        if (!existsSync(DAEMON_SOCKET)) {
+        if (process.platform !== "win32" && !existsSync(DAEMON_SOCKET)) {
             this.lastError = "daemon socket not present";
             return false;
         }
-        const socketPath = socketPathForPlatform(DAEMON_SOCKET);
+        const socketPath = DAEMON_SOCKET;
 
         return new Promise((resolve) => {
             let settled = false;

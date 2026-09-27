@@ -27,7 +27,9 @@ export const ACTIVITY_LOG = join(OPENCODE_DIR, "presence-activity.log");
 // Linux/macOS: Unix domain socket at this path.
 // Windows: named pipe at `\\.\pipe\<basename>` (handled by daemon-client
 // by prepending the pipe prefix on win32).
-export const DAEMON_SOCKET = join(OPENCODE_DIR, ".opencode-rich-presence.sock");
+export const DAEMON_SOCKET = process.platform === "win32"
+  ? "\\\\.\\pipe\\opencode-rich-presence"
+  : join(OPENCODE_DIR, ".opencode-rich-presence.sock");
 // File written by the first OpenCode instance when it spawns the daemon.
 // Subsequent OpenCode instances see this file and know the daemon is
 // already running. Used as a quick check before trying to connect to
