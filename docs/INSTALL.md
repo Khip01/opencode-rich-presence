@@ -247,7 +247,7 @@ install:
 If something looks wrong after install:
 
 1. Run `opencode-rpc info`. It shows the plugin symlink target,
-   the config (App ID masked), the daemon socket/PID status, and
+   the config (App ID masked), the daemon IPC/PID status, and
    the last 30 entries of the activity log.
 2. For real-time monitoring: `tail -f
    ~/.config/opencode/presence-activity.log`. The log records every

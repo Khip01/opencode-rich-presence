@@ -12,7 +12,7 @@ need to navigate this codebase safely.
 - **Latest version**: v3.3.0 (the v3 daemon-based push
   architecture). v3 adds the daemon architecture that holds a
   single Discord connection for the whole machine; OpenCode
-  plugin instances connect to it via local Unix socket and
+  plugin instances connect to it via the local IPC endpoint and
   forward their rendered presence payload.
 - **Latest stable release on `main`**: v3.3.0 (tag
   `v3.3.0`). `redesign/v3-daemon` has been merged into
@@ -53,7 +53,8 @@ per-instance state files, no Discord push). Phase 2 adds the daemon
 that holds a single Discord IPC connection for the whole machine:
 
 - `src/worker/daemon.mjs` is the long-lived subprocess that owns
-  the Discord connection. Listens on a local Unix socket for
+  the Discord connection. Listens on the local IPC endpoint (a Unix
+  socket on POSIX, a named pipe on Windows) for
   plugin clients. Picks the global most-recently-active session
   across all connected instances and pushes it via SET_ACTIVITY.
 - `src/plugin/daemon-client.js` is the plugin-side socket client.
@@ -80,7 +81,7 @@ IPC socket actually dies.
   - `local-presence.js`: render payload + send to daemon
   - `session-state.js`: per-session token/cost/state tracking
   - `template-engine.js`: variables, conditionals, render helpers
-  - `daemon-client.js`: local Unix socket client to the daemon
+  - `daemon-client.js`: local IPC client to the daemon
   - `daemon-spawner.js`: spawns the daemon on first firing;
     exports `spawnDaemonDetached()` / `waitForDaemonSocket()`
     for the `spawn` CLI command
@@ -100,6 +101,11 @@ IPC socket actually dies.
   - `presence-state.js`: read/write the `on/off/kill/spawn` marker
     (`~/.config/opencode/.opencode-rich-presence.state.json`)
   - `presence-control.js`: one-shot `set-enabled` message to the daemon
+  - `daemon-liveness.js`: the only module allowed to ask "is a daemon
+    serving?". Answers from the PID file + `process.kill(pid, 0)` on
+    every platform, because a Windows named pipe is not a file and
+    `existsSync` cannot see it. Also owns `unlinkSocketPath()`, a
+    no-op on Windows.
 - `bin/opencode-rpc.js`: CLI entry point
 - `docs/`: documentation
 - `.github/workflows/`: CI
@@ -306,18 +312,21 @@ surface; the per-instance state files are snapshots of one process.
 ### Daemon Lifecycle (Phase 2)
 
 The daemon holds a single Discord IPC connection for the whole
-machine. Each OpenCode instance connects via local Unix socket.
+machine. Each OpenCode instance connects via the local IPC endpoint
+  (Unix socket on Linux/macOS, named pipe on Windows).
 
 - **Spawn trigger**: first `chat.message` from any OpenCode
   instance. The user picked this specifically: spawning on
   OpenCode launch would start Discord connections for sessions
   that never need them.
-- **Spawn**: `daemon-spawner.js` checks if the daemon socket
-  exists. If not, spawns `node <pkg>/src/worker/daemon.mjs`
-  detached and polls for the socket file (up to 5s).
+- **Spawn**: `daemon-spawner.js` checks `isDaemonAlive()`. If not,
+  spawns `node <pkg>/src/worker/daemon.mjs` detached and polls until a
+  daemon reports itself alive (up to 15s). Liveness is PID-based, not
+  path-based, so it also works on Windows where the IPC address is a
+  named pipe rather than a socket file.
 - **Concurrent spawn race / daemon singleton**: if two spawners race,
   the second daemon's `main()` sees the first daemon's live PID in the
-  PID file and exits without touching the socket. The listen-retry
+  PID file and exits without touching the IPC address. The listen-retry
   loop (EADDRINUSE, up to 15s) still covers a stale socket held in
   TIME_WAIT by the OS.
 - **Connect**: `daemon-client.js` opens a Unix socket connection
@@ -416,6 +425,23 @@ guarantees the test depends on.
 | 34 | Model name variants: `{modelCode}`, `{modelName}`, `{modelNameLower}` + fallback + mixed rendering (`tests/model-name-style.mjs`) | ✓ | ✓ | inherited | inherited |
 | 35 | Wildcard replacements: `*` edges, case-sensitive, multi-var, chaining, dedup (`tests/replacements.mjs`) | ✓ | ✓ | inherited | inherited |
 | 36 | Presence toggle: state marker defaults/fallback, on/off/kill/spawn, `on` clears kill lock, dispatcher, help grouping, colors piped, daemon singleton (CLI refuses over live daemon; second worker exits) (`tests/presence-toggle.mjs`) | ✓ | ✓ | inherited | inherited |
+| 37 | Windows named pipes: PID liveness helpers, stale socket/PID cross-check, IPC address shape, no double-prefix, Discord pipe candidates (`tests/win-path.mjs`) | ✓ | ✓ | inherited | inherited |
+
+### CI matrix (`.github/workflows/test.yml`)
+
+The commit-time column above runs on two OS lanes:
+
+- `ubuntu-latest` × Node 20/22/24 (`suite: full`): every harness,
+  including phase1, phase2 and cli-lifecycle.
+- `windows-latest` × Node 22 (`suite: windows`): syntax, smoke, and
+  rows 33-37 plus phase2-v2. This is the lane that actually executes
+  the `IS_WINDOWS` branches and makes the daemon bind a real
+  `\\.\pipe\...` address.
+
+phase1, phase2 and cli-lifecycle are gated to `suite: full` because
+they hardcode `/tmp` working paths and shell out to `bash`. Until
+those are ported to `tmpdir()`, `npm test` will not fully pass on a
+Windows box.
 
 ### Curl discipline (important)
 

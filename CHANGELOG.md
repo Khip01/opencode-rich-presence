@@ -5,6 +5,60 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Windows support**: the daemon IPC address and the Discord IPC
+  lookup now work on Windows. On POSIX these are Unix domain socket
+  files; on Windows they are named pipes (`\\.\pipe\...`), which Node's
+  `net` module drives through the same `listen()` / `createConnection()`
+  API. Discord Desktop is discovered through
+  `\\.\pipe\discord-ipc-N` (and the `\\?\pipe\` NT-namespace form) for
+  ids 0-9, with both spellings tried so the client does not depend on
+  which one the running Discord build accepts. Linux and macOS paths are
+  unchanged: the daemon still uses
+  `~/.config/opencode/.opencode-rich-presence.sock` and Discord is still
+  found under the temp directories.
+- **Per-user pipe names**: Windows named pipes are machine-global, so a
+  fixed pipe name would let two accounts on one PC fight over the same
+  daemon. The pipe name now carries a short hash of the OS username.
+- **`src/shared/daemon-liveness.js`**: one cross-platform answer to "is
+  a daemon serving?", based on the PID file plus `process.kill(pid, 0)`.
+  `isPidAlive()` treats `EPERM` as alive (the process exists but belongs
+  to another user) and only `ESRCH` as dead. `isDaemonAlive()` requires
+  both a readable PID file and a living process, so neither a stale PID
+  file nor a stale socket file is mistaken for a healthy daemon.
+  `unlinkSocketPath()` is a no-op on Windows, where the pipe namespace
+  entry belongs to the process and disappears when it exits.
+- **`tests/win-path.mjs`**: 41-assertion harness covering the liveness
+  helpers, the IPC address shape, and static guards against
+  reintroducing the bugs below. Wired as `npm run test:win-path` and
+  into `npm test`.
+
+### Fixed
+
+- **`on` / `off` could not reach the daemon on Windows**: the full pipe
+  name now lives in `DAEMON_SOCKET`, but `presence-control.js` and
+  `daemon-client.js` still ran the address through a local
+  `socketPathForPlatform()` that prepends `\\.\pipe\`. The result was
+  `\\.\pipe\\.\pipe\opencode-rich-presence`, so control messages went
+  nowhere and the daemon kept pushing. Both helpers are gone;
+  `DAEMON_SOCKET` is now the single source of truth for the address.
+- **Every daemon-liveness check was wrong on Windows**: `existsSync()` is
+  a no-op for a named pipe, so the plugin never reused a running daemon
+  and kept spawning more, the spawner waited out its full timeout, and
+  `info` always printed the socket as absent. All of these now go
+  through `isDaemonAlive()`.
+- **Discord handshake could never succeed on Windows**: the Windows pipe
+  candidates were added to the list but then skipped by an `existsSync`
+  pre-filter that a named pipe never passes. The pre-filter now applies
+  only to real files, and every pipe candidate is probed.
+- **Stale bookkeeping on Windows**: `kill`, `restart`, and `uninstall`
+  tried to `unlink` a pipe path, which cannot work and printed a
+  misleading failure. `restart` also printed "Removed stale socket" on
+  Windows where no socket file exists.
+
 ## [3.3.0] - 2026-09-15
 
 ### Added

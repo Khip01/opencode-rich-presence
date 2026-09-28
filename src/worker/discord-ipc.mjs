@@ -36,11 +36,31 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
 
-// Locate the Discord IPC socket. Discord Desktop opens
-// /tmp/discord-ipc-0 (or pipe-equivalent on Windows) on launch.
-// Multiple pipe IDs (0-9) are tried in order; older Discord versions
-// sometimes pick a higher ID.
+// Candidate Discord IPC addresses, most likely first.
+//
+// Windows: Discord listens on a named pipe, \\.\pipe\discord-ipc-N.
+// The \\?\pipe\ form is the same pipe reached through the Win32 NT
+// namespace, so both spellings are generated and the client does not
+// depend on which one the running Discord build accepts. Ids 0-9 are
+// tried because Discord picks the id at launch, so a second instance or
+// an upgraded install can shift it.
+//
+// Linux/macOS: a Unix socket file under one of the temp directories.
 function getSocketPaths(pipeId = 0) {
+    if (process.platform === "win32") {
+        const out = [];
+        const seen = new Set();
+        for (let id = 0; id <= 9; id++) {
+            for (const prefix of ["\\\\.\\pipe\\", "\\\\?\\pipe\\"]) {
+                const candidate = `${prefix}discord-ipc-${id}`;
+                if (seen.has(candidate)) continue;
+                seen.add(candidate);
+                out.push(candidate);
+            }
+        }
+        return out;
+    }
+
     const tmpDirs = [
         process.env.XDG_RUNTIME_DIR,
         process.env.TMPDIR,
@@ -50,9 +70,6 @@ function getSocketPaths(pipeId = 0) {
     ].filter(Boolean);
     const seen = new Set();
     const out = [];
-    // Try the requested pipe ID first, then increment in case Discord
-    // is using a higher one. In practice pipe 0 is always correct on
-    // a single-Discord install.
     for (const id of [pipeId, pipeId + 1, pipeId + 2]) {
         for (const tmp of tmpDirs) {
             const p = path.join(tmp, `discord-ipc-${id}`);
@@ -63,6 +80,18 @@ function getSocketPaths(pipeId = 0) {
         }
     }
     return out;
+}
+
+// Should we attempt a connect to this candidate?
+//
+// On Windows every candidate is a named pipe, and a pipe is not a
+// filesystem entry, so `existsSync` would reject all of them and the
+// handshake could never succeed. Probe them all and let the connect
+// attempt reject the ones that do not exist. On POSIX the candidates are
+// real socket files, so the cheap existsSync pre-filter is worth keeping.
+function shouldProbe(p) {
+    if (process.platform === "win32") return true;
+    return existsSync(p);
 }
 
 export class DiscordIPC {
@@ -108,7 +137,7 @@ export class DiscordIPC {
             let lastErr;
             for (const socketPath of paths) {
                 try {
-                    if (!existsSync(socketPath)) continue;
+                    if (!shouldProbe(socketPath)) continue;
                     await this._connectToPath(socketPath);
                     return;
                 } catch (e) {

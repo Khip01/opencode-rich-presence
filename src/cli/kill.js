@@ -1,5 +1,6 @@
-import { existsSync, unlinkSync, readFileSync } from "node:fs";
-import { DAEMON_SOCKET, DAEMON_PID_FILE } from "../shared/paths.js";
+import { existsSync, unlinkSync } from "node:fs";
+import { DAEMON_PID_FILE } from "../shared/paths.js";
+import { readDaemonPid, unlinkSocketPath } from "../shared/daemon-liveness.js";
 import { writeState } from "../shared/presence-state.js";
 import { confirm } from "./prompt.js";
 
@@ -28,24 +29,22 @@ export async function kill() {
     writeState({ daemonStopped: true });
 
     let killedPid = null;
-    if (existsSync(DAEMON_PID_FILE)) {
+    const pid = readDaemonPid();
+    if (pid !== null) {
         try {
-            const pid = parseInt(readFileSync(DAEMON_PID_FILE, "utf-8").trim(), 10);
-            if (pid > 0) {
-                try {
-                    process.kill(pid, "SIGTERM");
-                    killedPid = pid;
-                    await new Promise((r) => setTimeout(r, 500));
-                    try { process.kill(pid, "SIGKILL"); } catch {}
-                } catch {}
-            }
+            process.kill(pid, "SIGTERM");
+            killedPid = pid;
+            await new Promise((r) => setTimeout(r, 500));
+            try { process.kill(pid, "SIGKILL"); } catch {}
         } catch {}
+    }
+    if (existsSync(DAEMON_PID_FILE)) {
         try { unlinkSync(DAEMON_PID_FILE); } catch {}
     }
 
-    if (existsSync(DAEMON_SOCKET)) {
-        try { unlinkSync(DAEMON_SOCKET); } catch {}
-    }
+    // No-op on Windows, where the IPC address is a named pipe owned by
+    // the process and removed automatically when it exits.
+    unlinkSocketPath();
 
     console.log("");
     if (killedPid) {

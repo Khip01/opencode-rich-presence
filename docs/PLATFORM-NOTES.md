@@ -63,7 +63,33 @@ Discord is installed in `%LOCALAPPDATA%\Discord\`. `opencode-rpc restart` does n
 
 ### IPC transport
 
-Discord IPC uses **named pipes** at `\\.\pipe\discord-ipc-{0..9}` (not Unix sockets). The `@xhayper/discord-rpc` library handles this transparently, so no code changes are needed in the plugin.
+Windows has no Unix domain sockets, so both IPC endpoints on this
+platform are **named pipes**:
+
+| Endpoint | Address |
+|---|---|
+| Plugin -> daemon | `\\.\pipe\opencode-rich-presence-<userhash>` |
+| Daemon -> Discord | `\\.\pipe\discord-ipc-N` (ids 0-9) |
+
+`<userhash>` is a short hash of the OS username. Windows named pipes
+are machine-global, so without it two accounts on one PC would fight
+over a single daemon.
+
+Two consequences fall out of this:
+
+- **`existsSync()` cannot see a pipe.** It always returns false for a
+  named-pipe address, so any code that asks "does the socket exist?"
+  would report every running daemon as absent. All liveness checks go
+  through `src/shared/daemon-liveness.js` instead, which answers from
+  the PID file plus `process.kill(pid, 0)`.
+- **A pipe cannot be unlinked.** The pipe entry is owned by the
+  process that created it and vanishes when that process exits.
+  Cleanup paths use `unlinkSocketPath()`, a no-op on Windows.
+
+The client is our own `src/worker/discord-ipc.mjs` (the v3 rewrite
+dropped `@xhayper/discord-rpc` over its fixed 10s handshake timeout).
+It probes both the `\\.\pipe\` and `\\?\pipe\` spellings, since both
+resolve to the same pipe.
 
 ### File system
 

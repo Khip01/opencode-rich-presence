@@ -1,6 +1,7 @@
 import { existsSync, unlinkSync, readFileSync, writeFileSync, renameSync, lstatSync } from "node:fs";
 import { join } from "node:path";
-import { CONFIG_PATH, OUTPUT_FILE, ACTIVITY_LOG, OPENCODE_DIR, DAEMON_SOCKET, DAEMON_PID_FILE, PRESENCE_STATE } from "../shared/paths.js";
+import { CONFIG_PATH, OUTPUT_FILE, ACTIVITY_LOG, OPENCODE_DIR, DAEMON_SOCKET, DAEMON_PID_FILE, PRESENCE_STATE, IS_WINDOWS } from "../shared/paths.js";
+import { readDaemonPid } from "../shared/daemon-liveness.js";
 import { confirm } from "./prompt.js";
 
 const PLUGIN_NAME = "opencode-rich-presence";
@@ -16,28 +17,30 @@ export async function uninstall() {
     // Try to stop the daemon first. Reading the PID file and sending
     // SIGTERM is best-effort; if the daemon is not running, this is
     // a no-op.
-    if (existsSync(DAEMON_PID_FILE)) {
-        try {
-            const pid = parseInt(readFileSync(DAEMON_PID_FILE, "utf-8").trim(), 10);
-            if (pid > 0) {
-                try { process.kill(pid, "SIGTERM"); } catch {}
-                console.log(`Signaled daemon pid ${pid} to stop.`);
-            }
-        } catch {}
+    const runningPid = readDaemonPid();
+    if (runningPid !== null) {
+        try { process.kill(runningPid, "SIGTERM"); } catch {}
+        console.log(`Signaled daemon pid ${runningPid} to stop.`);
     }
 
     // Runtime files written by the plugin while OpenCode is running. Safe to delete
     // unconditionally: they are regenerated on next plugin start if reinstalled.
     console.log("Cleaning up plugin-generated runtime files:");
-    for (const f of [
+    const runtimeFiles = [
         LEGACY_LOCK_FILE,
         LEGACY_RESTART_SIGNAL,
         OUTPUT_FILE,
         ACTIVITY_LOG,
-        DAEMON_SOCKET,
         DAEMON_PID_FILE,
         PRESENCE_STATE,
-    ]) {
+    ];
+    // The IPC address is a socket file on POSIX but a named pipe on
+    // Windows, and a pipe cannot be unlinked: the kernel entry is owned
+    // by the daemon process and is gone once it exits. Trying to unlink
+    // it would print a confusing failure, so only offer it where it is a
+    // real file.
+    if (!IS_WINDOWS) runtimeFiles.push(DAEMON_SOCKET);
+    for (const f of runtimeFiles) {
         if (tryRemove(f)) removed++;
     }
 

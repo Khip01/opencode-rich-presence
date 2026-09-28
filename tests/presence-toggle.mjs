@@ -15,6 +15,21 @@ process.env.XDG_RUNTIME_DIR = SANDBOX;
 
 const { readState, writeState } = await import("../src/shared/presence-state.js");
 const { PRESENCE_STATE } = await import("../src/shared/paths.js");
+// Waiting on existsSync(DAEMON_SOCKET) is a POSIX-only assumption: on
+// Windows the daemon address is a named pipe, which is not a filesystem
+// entry, so the poll never completes and the assertion below always
+// fails even though the daemon is up. isDaemonReady() answers from the
+// PID file on every platform.
+const { isDaemonReady, unlinkSocketPath } = await import("../src/shared/daemon-liveness.js");
+
+// Poll until the spawned daemon reports ready, or time out.
+async function waitForDaemonReady(timeoutMs = 8000) {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline && !isDaemonReady()) {
+        await new Promise((r) => setTimeout(r, 50));
+    }
+    return isDaemonReady();
+}
 
 let passed = 0, failed = 0;
 function ok(cond, msg) {
@@ -196,7 +211,7 @@ clearState();
 writeState({ presenceEnabled: true, daemonStopped: false });
 
 {
-    const { DAEMON_PID_FILE, DAEMON_SOCKET } = await import("../src/shared/paths.js");
+    const { DAEMON_PID_FILE } = await import("../src/shared/paths.js");
     const daemonSrc = join(ROOT, "src", "worker", "daemon.mjs");
 
     const daemonProc = spawn(process.execPath, [daemonSrc], {
@@ -206,11 +221,8 @@ writeState({ presenceEnabled: true, daemonStopped: false });
     });
     daemonProc.unref();
 
-    const deadline = Date.now() + 8000;
-    while (Date.now() < deadline && !existsSync(DAEMON_SOCKET)) {
-        await new Promise((r) => setTimeout(r, 50));
-    }
-    ok(existsSync(DAEMON_SOCKET), "daemon started for singleton test");
+    await waitForDaemonReady();
+    ok(isDaemonReady(), "daemon started for singleton test");
     const originalPid = parseInt(readFileSync(DAEMON_PID_FILE, "utf-8").trim(), 10);
     ok(originalPid === daemonProc.pid,
         `PID file matches spawned daemon pid (${originalPid})`);
@@ -232,7 +244,7 @@ writeState({ presenceEnabled: true, daemonStopped: false });
     try { process.kill(originalPid, "SIGTERM"); } catch {}
     await new Promise((r) => setTimeout(r, 800));
     try { process.kill(originalPid, "SIGKILL"); } catch {}
-    try { unlinkSync(DAEMON_SOCKET); } catch {}
+    unlinkSocketPath();
     try { unlinkSync(DAEMON_PID_FILE); } catch {}
 }
 
@@ -243,7 +255,7 @@ clearState();
 writeState({ presenceEnabled: true, daemonStopped: false });
 
 {
-    const { DAEMON_PID_FILE, DAEMON_SOCKET } = await import("../src/shared/paths.js");
+    const { DAEMON_PID_FILE } = await import("../src/shared/paths.js");
     const daemonSrc = join(ROOT, "src", "worker", "daemon.mjs");
 
     const first = spawn(process.execPath, [daemonSrc], {
@@ -253,10 +265,7 @@ writeState({ presenceEnabled: true, daemonStopped: false });
     });
     first.unref();
 
-    const deadline = Date.now() + 8000;
-    while (Date.now() < deadline && !existsSync(DAEMON_SOCKET)) {
-        await new Promise((r) => setTimeout(r, 50));
-    }
+    await waitForDaemonReady();
     const firstPid = parseInt(readFileSync(DAEMON_PID_FILE, "utf-8").trim(), 10);
     ok(firstPid === first.pid, `first daemon pid recorded (${firstPid})`);
 
@@ -283,7 +292,7 @@ writeState({ presenceEnabled: true, daemonStopped: false });
     try { process.kill(firstPid, "SIGTERM"); } catch {}
     await new Promise((r) => setTimeout(r, 800));
     try { process.kill(firstPid, "SIGKILL"); } catch {}
-    try { unlinkSync(DAEMON_SOCKET); } catch {}
+    unlinkSocketPath();
     try { unlinkSync(DAEMON_PID_FILE); } catch {}
 }
 

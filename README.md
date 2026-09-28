@@ -7,15 +7,15 @@ OpenCode plugin that displays your AI session status in Discord.
 
 **Status: v3.3.0** (daemon-based push, multi-instance safe).
 A long-lived daemon holds the single Discord IPC connection for the
-whole machine. OpenCode plugin instances connect to it via local
-Unix socket and forward their state. Handoff between OpenCode
+whole machine. OpenCode plugin instances connect to it via the
+local IPC endpoint and forward their state. Handoff between OpenCode
 windows no longer disconnects from Discord.
 
 ## What you get today (v3)
 
 - **Daemon-based push**: `src/worker/daemon.mjs` is a long-lived
   subprocess that owns the Discord connection. All OpenCode plugin
-  instances connect to it via local Unix socket and forward their
+  instances connect to it via the local IPC endpoint and forward their
   rendered presence payload. The daemon picks the global
   most-recently-active instance and pushes to Discord in place.
 - **Display survives terminal switching**: when you switch
@@ -38,13 +38,20 @@ windows no longer disconnects from Discord.
 
 ## Requirements
 
-- Node.js 18+ (LTS recommended; CI tests on 20, 22, 24)
+- Node.js 18+ (LTS recommended; CI tests on 20, 22, 24, plus 22 on Windows)
 - OpenCode CLI
 - Discord Desktop (required for v3 Phase 2 push)
 
-Works on **Linux** and **macOS**. Windows requires named-pipe
-support which is not part of CI; the daemon falls back to a
-named-pipe on Windows but it is not actively tested.
+Works on **Linux** and **macOS**. Windows support is implemented
+through named pipes: the daemon listens on
+`\\.\pipe\opencode-rich-presence-<userhash>` instead of a `.sock`
+file, and Discord is found via `\\.\pipe\discord-ipc-N`. CI runs a
+`windows-latest` job that exercises those paths: the win-path
+harness (liveness helpers, IPC address shape), a live daemon spawn
+via `presence-toggle`, and the phase2-v2 harness. A real Discord
+Desktop handshake on Windows has still not been observed from CI,
+and phase1/phase2/cli-lifecycle stay Linux-only until they are
+ported off their hardcoded `/tmp` paths and `bash` calls.
 
 ## Installation
 

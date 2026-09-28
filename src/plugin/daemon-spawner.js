@@ -1,21 +1,25 @@
 // Daemon spawner: spawns the daemon subprocess on first firing.
 //
-// The plugin uses this when a chat.message fires and the daemon
-// socket is not present. We:
+// The plugin uses this when a chat.message fires and no daemon is
+// running. We:
 //   1. Spawn `node <pkg>/src/worker/daemon.mjs` detached
-//   2. Poll for the daemon socket file to appear (up to timeout)
-//   3. Return success if the socket is present
+//   2. Poll until a daemon reports itself alive (up to timeout)
+//   3. Return success once it does
 //
-// If the spawn fails or the socket does not appear in time, we return
-// false and the plugin falls back to local-only behavior (Phase 1
-// style log).
+// "Ready" means a live PID recorded in the PID file AND, on POSIX, a
+// bound socket. It must not be a bare existsSync on the IPC address:
+// that returns false for a Windows named pipe, so the daemon would never
+// be found there. See shared/daemon-liveness.js.
+//
+// If the spawn fails or no daemon appears in time, we return false and
+// the plugin falls back to local-only behavior (Phase 1 style log).
 
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { dirname, join, basename } from "node:path";
 import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
-import { DAEMON_SOCKET } from "../shared/paths.js";
+import { isDaemonReady } from "../shared/daemon-liveness.js";
 import { log, activity } from "../shared/logger.js";
 import { readState } from "../shared/presence-state.js";
 
@@ -53,7 +57,7 @@ export async function ensureDaemonRunning() {
         activity("daemon", "spawn suppressed: daemonStopped=true");
         return false;
     }
-    if (existsSync(DAEMON_SOCKET)) {
+    if (isDaemonReady()) {
         return true;
     }
     if (spawning) {
@@ -62,11 +66,11 @@ export async function ensureDaemonRunning() {
         while (spawning && Date.now() - start < SPAWN_TIMEOUT_MS) {
             await new Promise((r) => setTimeout(r, 50));
         }
-        return existsSync(DAEMON_SOCKET);
+        return isDaemonReady();
     }
     if (Date.now() - lastSpawnAt < MIN_SPAWN_INTERVAL_MS) {
         // Someone just tried to spawn. Give them a moment.
-        return existsSync(DAEMON_SOCKET);
+        return isDaemonReady();
     }
     spawning = true;
     lastSpawnAt = Date.now();
@@ -120,18 +124,18 @@ async function spawnDaemon() {
 
     proc.unref();
 
-    // Wait for the socket file to appear.
+    // Wait for the daemon to come up and report itself alive.
     const start = Date.now();
     while (Date.now() - start < SPAWN_TIMEOUT_MS) {
-        if (existsSync(DAEMON_SOCKET)) {
+        if (isDaemonReady()) {
             // Give the daemon a brief moment to start listening.
             await new Promise((r) => setTimeout(r, 100));
             return true;
         }
         await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
     }
-    log(`daemon socket did not appear within ${SPAWN_TIMEOUT_MS}ms`);
-    activity("daemon", `spawn timeout: socket did not appear in ${SPAWN_TIMEOUT_MS}ms`);
+    log(`daemon did not come up within ${SPAWN_TIMEOUT_MS}ms`);
+    activity("daemon", `spawn timeout: no daemon within ${SPAWN_TIMEOUT_MS}ms`);
     return false;
 }
 
@@ -160,13 +164,13 @@ export function spawnDaemonDetached() {
     }
 }
 
-// Poll for the daemon socket to appear. Used by `opencode-rpc spawn`
-// after spawnDaemonDetached() so the CLI can report success or timeout.
+// Poll for the daemon to come up. Used by `opencode-rpc spawn` after
+// spawnDaemonDetached() so the CLI can report success or timeout.
 export async function waitForDaemonSocket(timeoutMs = SPAWN_TIMEOUT_MS) {
     const start = Date.now();
     while (Date.now() - start < timeoutMs) {
-        if (existsSync(DAEMON_SOCKET)) return true;
+        if (isDaemonReady()) return true;
         await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
     }
-    return existsSync(DAEMON_SOCKET);
+    return isDaemonReady();
 }

@@ -9,20 +9,13 @@
 // it up on its next start. We never fail the CLI on a missing daemon.
 
 import net from "node:net";
-import { existsSync } from "node:fs";
 import { DAEMON_SOCKET } from "./paths.js";
-
-function socketPathForPlatform(p) {
-    if (process.platform === "win32") {
-        return `\\\\.\\pipe\\${p.split("/").pop()}`;
-    }
-    return p;
-}
+import { isDaemonAlive } from "./daemon-liveness.js";
 
 // Send a single JSON line to the daemon. Returns true if the write
 // landed, false if the daemon was not reachable. Never throws.
 export function sendControl(msg, { timeoutMs = 1000 } = {}) {
-    if (!existsSync(DAEMON_SOCKET)) return Promise.resolve(false);
+    if (!isDaemonAlive()) return Promise.resolve(false);
     return new Promise((resolve) => {
         let settled = false;
         const finish = (ok) => {
@@ -31,7 +24,13 @@ export function sendControl(msg, { timeoutMs = 1000 } = {}) {
             try { sock.destroy(); } catch {}
             resolve(ok);
         };
-        const sock = net.createConnection(socketPathForPlatform(DAEMON_SOCKET));
+        // DAEMON_SOCKET is already the full address for this platform
+        // (a `.sock` path on POSIX, a `\\.\pipe\...` name on Windows).
+        // It used to be passed through a local socketPathForPlatform()
+        // that prepended the pipe prefix here too, which produced
+        // `\\.\pipe\\.\pipe\opencode-rich-presence` once the pipe name
+        // moved into paths.js and made on/off silently miss the daemon.
+        const sock = net.createConnection(DAEMON_SOCKET);
         const timer = setTimeout(() => finish(false), timeoutMs);
         timer.unref?.();
         sock.once("connect", () => {

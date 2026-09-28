@@ -5,11 +5,11 @@
 ```
                 OpenCode instance 1 (pid A)
                        |
-                       | local Unix socket
+                       | local IPC
                        v
                 OpenCode instance 2 (pid B)  ---+--> [daemon (long-lived subprocess)]
                        |                        |    |
-                       | local Unix socket      |    | Discord IPC
+                       | local IPC              |    | Discord IPC
                        v                        |    v
                 OpenCode instance 3 (pid C) ---+   Discord Desktop
                                                  |
@@ -20,7 +20,8 @@
 
 Phase 2 of the v3 redesign. A long-lived daemon (subprocess) holds
 the single Discord IPC connection for the whole machine. All
-OpenCode plugin instances connect to it via local Unix socket, send
+OpenCode plugin instances connect to it via the local IPC endpoint
+(a Unix socket file on Linux/macOS, a named pipe on Windows), send
 their rendered session state, and the daemon pushes to Discord via
 SET_ACTIVITY on the existing connection (no reconnect, no handshake).
 
@@ -60,7 +61,7 @@ src/
     session-state.js  per-session token/cost/state tracking
     template-engine.js variables, conditionals, render, format helpers
     local-presence.js render payload + send to daemon
-    daemon-client.js  local Unix socket client to the daemon
+    daemon-client.js  local IPC client to the daemon
     daemon-spawner.js spawns the daemon on first firing
   worker/
     daemon.mjs        long-lived subprocess, holds Discord IPC connection
@@ -128,8 +129,25 @@ if last one. After EXIT_GRACE_MS (2s) daemon shuts down:
 
 ## IPC Protocol
 
-Newline-delimited JSON over the local Unix socket
-(`~/.config/opencode/.opencode-rich-presence.sock`).
+Newline-delimited JSON over the local IPC endpoint
+(`~/.config/opencode/.opencode-rich-presence.sock` on Linux/macOS,
+`\\.\pipe\opencode-rich-presence-<userhash>` on Windows). Node's `net`
+module addresses both through the same `listen()` / `createConnection()`
+API, so the protocol is identical.
+
+### Daemon liveness
+
+Whether a daemon is serving is answered from the PID file plus
+`process.kill(pid, 0)`, never from `existsSync()` on the address. On
+Windows the address is a named pipe, not a filesystem entry, so
+`existsSync` would report every running daemon as absent. A stale socket
+file is likewise not proof of a healthy daemon, so liveness requires
+both a readable PID file and a living process. `EPERM` counts as alive
+(process exists, owned by another user); only `ESRCH` means dead.
+
+`src/shared/daemon-liveness.js` is the only module that answers this
+question. Removing a stale address is `unlinkSocketPath()`, a no-op on
+Windows because the pipe entry dies with its process.
 
 Plugin -> Daemon:
 
@@ -346,8 +364,8 @@ CLI is zero-dependency (built-in `readline/promises` for confirmations).
 | Config dir | `~/.config/opencode/` | `~/.config/opencode/` | `%USERPROFILE%\.config\opencode\` |
 | Activity log | `~/.config/opencode/presence-activity.log` (append-only) | same | same |
 | Debug log | `/tmp/opencode-rich-presence-debug.log` | `/var/folders/.../T/opencode-rich-presence-debug.log` | `%TEMP%\opencode-rich-presence-debug.log` |
-| Daemon socket | Unix socket `~/.config/opencode/.opencode-rich-presence.sock` | Unix socket same | Named pipe `\\.\pipe\opencode-rich-presence` |
-| Discord IPC | Unix socket `/run/user/1000/discord-ipc-0` | Unix socket `/tmp/discord-ipc-0` | Named pipe `\\.\pipe\discord-ipc-0` |
+| Daemon IPC | Unix socket `~/.config/opencode/.opencode-rich-presence.sock` | Unix socket same | Named pipe `\\.\pipe\opencode-rich-presence-<userhash>` |
+| Discord IPC | Unix socket `/run/user/1000/discord-ipc-0` | Unix socket `/tmp/discord-ipc-0` | Named pipe `\\.\pipe\discord-ipc-N` (ids 0-9, both `\\.\pipe\` and `\\?\pipe\` forms) |
 
 The plugin code itself is fully cross-platform thanks to:
 - `os.homedir()` + `path.join()` for paths

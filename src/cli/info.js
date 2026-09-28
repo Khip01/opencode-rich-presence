@@ -3,7 +3,8 @@ import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { platform, version as nodeVersion, execPath } from "node:process";
-import { CONFIG_PATH, OUTPUT_FILE, ACTIVITY_LOG, DEBUG_LOG, OPENCODE_DIR, DAEMON_SOCKET, DAEMON_PID_FILE, PRESENCE_STATE } from "../shared/paths.js";
+import { CONFIG_PATH, OUTPUT_FILE, ACTIVITY_LOG, DEBUG_LOG, OPENCODE_DIR, DAEMON_SOCKET, PRESENCE_STATE, IS_WINDOWS } from "../shared/paths.js";
+import { isDaemonAlive, readDaemonPid } from "../shared/daemon-liveness.js";
 import { getPlatformName } from "./platform/index.js";
 import { readState } from "../shared/presence-state.js";
 
@@ -48,17 +49,11 @@ export async function info() {
     const outputStat = existsSync(OUTPUT_FILE) ? statSync(OUTPUT_FILE) : null;
     const activityStat = existsSync(ACTIVITY_LOG) ? statSync(ACTIVITY_LOG) : null;
     const debugStat = existsSync(DEBUG_LOG) ? statSync(DEBUG_LOG) : null;
-    const daemonSocketPresent = existsSync(DAEMON_SOCKET);
-    const daemonPidFilePresent = existsSync(DAEMON_PID_FILE);
-    let daemonPid = null;
-    let daemonAlive = false;
-    if (daemonPidFilePresent) {
-        try {
-            const raw = readFileSync(DAEMON_PID_FILE, "utf-8").trim();
-            daemonPid = parseInt(raw, 10);
-            try { process.kill(daemonPid, 0); daemonAlive = true; } catch { daemonAlive = false; }
-        } catch {}
-    }
+    // Liveness, not "is this path a file". On Windows the IPC address is
+    // a named pipe, so existsSync would always report absent even while
+    // a daemon is serving. isDaemonAlive() asks the PID file and the OS.
+    const daemonAlive = isDaemonAlive();
+    const daemonPid = readDaemonPid();
     const presenceState = readState();
 
     const lines = [];
@@ -76,7 +71,7 @@ export async function info() {
     lines.push(`  Config         : ${CONFIG_PATH} ${existsSync(CONFIG_PATH) ? "[exists]" : "[missing]"}`);
     lines.push(`  Default state  : ${OUTPUT_FILE} ${outputStat ? `[${formatBytes(outputStat.size)}, modified ${outputStat.mtime.toISOString()}]` : "[missing]"}`);
     lines.push(`  Activity log   : ${ACTIVITY_LOG} ${activityStat ? `[${formatBytes(activityStat.size)}, ${activityStat.size > 0 ? "tail " + ACTIVITY_TAIL_LINES + " lines below" : "empty"}]` : "[absent]"}`);
-    lines.push(`  Daemon socket  : ${DAEMON_SOCKET} ${daemonSocketPresent ? "[present]" : "[absent]"}`);
+    lines.push(`  Daemon IPC     : ${DAEMON_SOCKET} ${IS_WINDOWS ? "[named pipe]" : daemonAlive ? "[present]" : "[absent]"}`);
     lines.push(`  Daemon PID     : ${daemonPid !== null ? `${daemonPid}${daemonAlive ? " [alive]" : " [NOT alive; stale PID file]"}` : "[absent]"}`);
     lines.push(`  Presence state : ${PRESENCE_STATE} ${existsSync(PRESENCE_STATE) ? "[exists]" : "[default: enabled]"}`);
     lines.push(`  Presence       : ${presenceState.presenceEnabled ? "enabled" : "disabled (run 'opencode-rpc on')"}`);

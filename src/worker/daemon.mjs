@@ -70,6 +70,7 @@ import {
 } from "../shared/paths.js";
 import { DiscordIPC } from "./discord-ipc.mjs";
 import { readState } from "../shared/presence-state.js";
+import { isPidAlive, unlinkSocketPath } from "../shared/daemon-liveness.js";
 
 const CONNECT_TIMEOUT_MS = 30000;
 // Initial backoff after Discord IPC socket death. Grows exponentially
@@ -565,12 +566,14 @@ function handleClientMessage(msg, sock) {
 // instances.size === 0.
 
 async function startServer() {
-    if (existsSync(DAEMON_SOCKET)) {
-        // We already passed the singleton guard in main(), so no live
-        // daemon is holding this socket. It is a stale path from a
-        // previous crash. Safe to remove.
-        try { unlinkSync(DAEMON_SOCKET); } catch {}
-    }
+    // We already passed the singleton guard in main(), so no live
+    // daemon is holding this address. On POSIX that means a stale socket
+    // file from a previous crash, which is safe to remove. On Windows
+    // the address is a named pipe, not a file: the pipe namespace entry
+    // belongs to the owning process and vanishes when it exits, so there
+    // is nothing to unlink and attempting it only throws. Either way the
+    // listen-retry loop below covers a leftover TIME_WAIT socket.
+    unlinkSocketPath();
     server = net.createServer((sock) => {
         let buf = "";
         sock.setEncoding("utf-8");
@@ -684,7 +687,7 @@ async function shutdown() {
         }
         await new Promise((r) => server.close(() => r()));
     }
-    try { unlinkSync(DAEMON_SOCKET); } catch {}
+    unlinkSocketPath();
     try { unlinkSync(DAEMON_PID_FILE); } catch {}
     process.exit(0);
 }
@@ -741,9 +744,7 @@ async function main() {
             existingPid = parseInt(readFileSync(DAEMON_PID_FILE, "utf-8").trim(), 10);
         } catch {}
         if (existingPid > 0 && existingPid !== process.pid) {
-            let alive = false;
-            try { process.kill(existingPid, 0); alive = true; } catch {}
-            if (alive) {
+            if (isPidAlive(existingPid)) {
                 logToFile(`another daemon is alive (pid ${existingPid}); exiting without touching the socket`);
                 process.exit(0);
             }

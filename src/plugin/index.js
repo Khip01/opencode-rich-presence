@@ -1,8 +1,9 @@
 import { writeFile, mkdir, readFile } from "node:fs/promises";
-import { existsSync, unlinkSync, readFileSync } from "node:fs";
+import { unlinkSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, basename } from "node:path";
-import { OPENCODE_DIR, OUTPUT_FILE, DAEMON_SOCKET, DAEMON_PID_FILE } from "../shared/paths.js";
+import { OPENCODE_DIR, OUTPUT_FILE, DAEMON_PID_FILE } from "../shared/paths.js";
+import { isDaemonAlive, isPidAlive, readDaemonPid, unlinkSocketPath } from "../shared/daemon-liveness.js";
 import {
     STATE,
     REFRESH_INTERVAL,
@@ -342,7 +343,7 @@ async function ensureDaemonAndConnect() {
     // plugin ignore a daemon that is demonstrably listening, otherwise
     // `on` plus a firing looks like it did nothing while the daemon is
     // still alive and holding the Discord connection.
-    if (existsSync(DAEMON_SOCKET)) {
+    if (isDaemonAlive()) {
         const ok = await ensureConnected();
         if (ok) {
             const caps = await c.waitForHelloAck();
@@ -360,9 +361,12 @@ async function ensureDaemonAndConnect() {
             if (!respawned) return false;
             return await ensureConnected();
         }
-        // Stale socket. Remove it and fall through to spawn.
-        try { unlinkSync(DAEMON_SOCKET); } catch {}
+        // Daemon recorded but unreachable. Drop the stale bookkeeping so
+        // the spawn path below can take over. On Windows this only
+        // clears the PID file: the IPC address is a named pipe and
+        // cannot be unlinked.
         try { unlinkSync(DAEMON_PID_FILE); } catch {}
+        unlinkSocketPath();
     }
     if (daemonStopped) {
         activity("daemon", "spawn suppressed: daemonStopped=true (run 'opencode-rpc spawn')");
@@ -375,29 +379,24 @@ async function ensureDaemonAndConnect() {
 
 // Stop a daemon that predates a capability the plugin needs. Waits for
 // the old process to actually exit before returning so its shutdown
-// handler cannot unlink the socket of the daemon we spawn next.
+// handler cannot remove the IPC address of the daemon we spawn next.
 async function recycleDaemon() {
     disconnectFromDaemon();
-    let pid = null;
-    try {
-        if (existsSync(DAEMON_PID_FILE)) {
-            pid = parseInt(readFileSync(DAEMON_PID_FILE, "utf-8").trim(), 10);
-        }
-    } catch {}
-    if (pid && pid > 0) {
+    let pid = readDaemonPid();
+    if (pid !== null) {
         try { process.kill(pid, "SIGTERM"); } catch {}
         const start = Date.now();
         while (Date.now() - start < 2000) {
-            try { process.kill(pid, 0); } catch { pid = null; break; }
+            if (!isPidAlive(pid)) { pid = null; break; }
             await new Promise((r) => setTimeout(r, 50));
         }
-        if (pid) {
+        if (pid !== null) {
             try { process.kill(pid, "SIGKILL"); } catch {}
             await new Promise((r) => setTimeout(r, 150));
         }
     }
     try { unlinkSync(DAEMON_PID_FILE); } catch {}
-    try { unlinkSync(DAEMON_SOCKET); } catch {}
+    unlinkSocketPath();
 }
 
 // ─── Main Plugin ───────────────────────────────────────────────────────────

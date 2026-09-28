@@ -1,8 +1,7 @@
 import { spawnDaemonDetached, waitForDaemonSocket } from "../plugin/daemon-spawner.js";
 import { readState, writeState } from "../shared/presence-state.js";
 import { sendControl } from "../shared/presence-control.js";
-import { existsSync, readFileSync } from "node:fs";
-import { DAEMON_PID_FILE } from "../shared/paths.js";
+import { readDaemonPid, isPidAlive } from "../shared/daemon-liveness.js";
 
 export async function spawn() {
     console.log("");
@@ -19,26 +18,19 @@ export async function spawn() {
         writeState({ daemonStopped: false });
     }
 
-    // Singleton guard: only one daemon may hold the socket and the
-    // Discord IPC connection at a time. A second daemon would unlink
-    // the socket path and steal the Discord connection from the first
-    // one, so the plugin's pushes (still going through the first
-    // daemon) would stop reaching Discord until the plugin reconnects.
-    if (existsSync(DAEMON_PID_FILE)) {
-        let existingPid = 0;
-        try {
-            existingPid = parseInt(readFileSync(DAEMON_PID_FILE, "utf-8").trim(), 10);
-        } catch {}
-        if (existingPid > 0 && existingPid !== process.pid) {
-            let alive = false;
-            try { process.kill(existingPid, 0); alive = true; } catch {}
-            if (alive) {
-                console.log(`Daemon is already running (pid ${existingPid}).`);
-                console.log("Nothing to do. Use 'opencode-rpc restart' if you need");
-                console.log("to force a fresh daemon.");
-                return;
-            }
-        }
+    // Singleton guard: only one daemon may hold the IPC address and the
+    // Discord IPC connection at a time. A second daemon would remove the
+    // first one's address and steal the Discord connection from it, so
+    // the plugin's pushes (still going through the first daemon) would
+    // stop reaching Discord until the plugin reconnects. This check is
+    // PID-based rather than path-based so it also works on Windows,
+    // where the address is a named pipe rather than a file.
+    const existingPid = readDaemonPid();
+    if (existingPid !== null && existingPid !== process.pid && isPidAlive(existingPid)) {
+        console.log(`Daemon is already running (pid ${existingPid}).`);
+        console.log("Nothing to do. Use 'opencode-rpc restart' if you need");
+        console.log("to force a fresh daemon.");
+        return;
     }
 
     const pid = spawnDaemonDetached();
@@ -51,7 +43,7 @@ export async function spawn() {
     console.log(`Daemon starting (pid ${pid})...`);
     const ok = await waitForDaemonSocket();
     if (!ok) {
-        console.log("Daemon socket did not appear in time.");
+        console.log("Daemon did not come up in time.");
         console.log("Try 'opencode-rpc restart', or check the activity log.");
         return;
     }
