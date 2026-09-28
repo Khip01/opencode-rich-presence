@@ -1,5 +1,6 @@
-import { homedir, tmpdir } from "node:os";
+import { homedir, tmpdir, userInfo } from "node:os";
 import { join } from "node:path";
+import { createHash } from "node:crypto";
 
 // OpenCode standardizes ~/.config/opencode/ across all platforms (Linux, macOS, Windows).
 // See: https://opencode.ai/docs/config#global
@@ -22,14 +23,37 @@ export const PRESENCE_STATE = join(OPENCODE_DIR, ".opencode-rich-presence.state.
 // of event: state transitions, template renders, SDK events, etc.
 export const ACTIVITY_LOG = join(OPENCODE_DIR, "presence-activity.log");
 
-// Phase 2: local IPC socket the daemon listens on. OpenCode plugin
+// Phase 2: local IPC endpoint the daemon listens on. OpenCode plugin
 // instances connect here to register themselves and send state updates.
-// Linux/macOS: Unix domain socket at this path.
-// Windows: named pipe at `\\.\pipe\<basename>` (handled by daemon-client
-// by prepending the pipe prefix on win32).
-export const DAEMON_SOCKET = process.platform === "win32"
-  ? "\\\\.\\pipe\\opencode-rich-presence"
-  : join(OPENCODE_DIR, ".opencode-rich-presence.sock");
+//
+// Linux/macOS: Unix domain socket file at this path.
+// Windows: named pipe. A `.sock` file cannot work on Windows, because
+// Node cannot bind AF_UNIX there, so we use a named pipe
+// (`\\.\pipe\<name>`). Node's net module drives both through the exact
+// same `listen()` / `createConnection()` API, so the rest of the
+// codebase needs no platform branch to talk to it.
+//
+// Windows named pipes are machine-global, so a fixed name would let two
+// accounts on one PC fight over the same daemon. Mix the username into a
+// short hash: it keeps the pipe name within the character set Windows
+// accepts for pipe names and stays short.
+export const IS_WINDOWS = process.platform === "win32";
+
+const PIPE_SCOPE = (() => {
+    let raw = "default";
+    try { raw = userInfo().username || raw; } catch {}
+    return createHash("sha256").update(raw).digest("hex").slice(0, 8);
+})();
+
+// This value is the single source of truth for the daemon IPC address.
+// Do NOT prepend `\\.\pipe\` anywhere else. That used to live in
+// per-module `socketPathForPlatform()` helpers, and once the full pipe
+// name moved here those helpers double-prefixed the path
+// (`\\.\pipe\\.\pipe\opencode-rich-presence`), which broke on/off.
+export const DAEMON_SOCKET = IS_WINDOWS
+    ? `\\\\.\\pipe\\opencode-rich-presence-${PIPE_SCOPE}`
+    : join(OPENCODE_DIR, ".opencode-rich-presence.sock");
+
 // File written by the first OpenCode instance when it spawns the daemon.
 // Subsequent OpenCode instances see this file and know the daemon is
 // already running. Used as a quick check before trying to connect to

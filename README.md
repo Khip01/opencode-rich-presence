@@ -7,15 +7,15 @@ OpenCode plugin that displays your AI session status in Discord.
 
 **Status: v3.3.0** (daemon-based push, multi-instance safe).
 A long-lived daemon holds the single Discord IPC connection for the
-whole machine. OpenCode plugin instances connect to it via local
-Unix socket and forward their state. Handoff between OpenCode
+whole machine. OpenCode plugin instances connect to it via the
+local IPC endpoint and forward their state. Handoff between OpenCode
 windows no longer disconnects from Discord.
 
 ## What you get today (v3)
 
 - **Daemon-based push**: `src/worker/daemon.mjs` is a long-lived
   subprocess that owns the Discord connection. All OpenCode plugin
-  instances connect to it via local Unix socket and forward their
+  instances connect to it via the local IPC endpoint and forward their
   rendered presence payload. The daemon picks the global
   most-recently-active instance and pushes to Discord in place.
 - **Display survives terminal switching**: when you switch
@@ -42,9 +42,12 @@ windows no longer disconnects from Discord.
 - OpenCode CLI
 - Discord Desktop (required for v3 Phase 2 push)
 
-Works on **Linux** and **macOS**. Windows requires named-pipe
-support which is not part of CI; the daemon falls back to a
-named-pipe on Windows but it is not actively tested.
+Works on **Linux** and **macOS**. Windows support is implemented
+through named pipes: the daemon listens on
+`\\.\pipe\opencode-rich-presence-<userhash>` instead of a `.sock`
+file, and Discord is found via `\\.\pipe\discord-ipc-N`. Windows is
+not part of CI, so that path has not been verified on real Windows
+machines yet; Linux/macOS paths are covered by the suite above.
 
 ## Installation
 

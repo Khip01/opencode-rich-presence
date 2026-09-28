@@ -1,5 +1,6 @@
-import { existsSync, unlinkSync, readFileSync } from "node:fs";
+import { existsSync, unlinkSync } from "node:fs";
 import { ACTIVITY_LOG, DAEMON_SOCKET, DAEMON_PID_FILE } from "../shared/paths.js";
+import { readDaemonPid, unlinkSocketPath } from "../shared/daemon-liveness.js";
 
 // Phase 2 daemon restart: kill the daemon subprocess so the next
 // OpenCode firing spawns a fresh one with a clean state. We also
@@ -11,27 +12,27 @@ export async function restart() {
     // PID file and sending SIGTERM. SIGKILL after 2s grace if it
     // does not exit.
     let killedPid = null;
-    if (existsSync(DAEMON_PID_FILE)) {
+    const pid = readDaemonPid();
+    if (pid !== null) {
         try {
-            const pid = parseInt(readFileSync(DAEMON_PID_FILE, "utf-8").trim(), 10);
-            if (pid > 0) {
-                try {
-                    process.kill(pid, "SIGTERM");
-                    killedPid = pid;
-                    console.log(`Sent SIGTERM to daemon (pid ${pid})`);
-                    // Give it a moment to clean up.
-                    await new Promise((r) => setTimeout(r, 500));
-                    try { process.kill(pid, "SIGKILL"); } catch {}
-                } catch (e) {
-                    console.log(`Could not signal daemon pid ${pid}: ${e.message}`);
-                }
-            }
-        } catch {}
+            process.kill(pid, "SIGTERM");
+            killedPid = pid;
+            console.log(`Sent SIGTERM to daemon (pid ${pid})`);
+            // Give it a moment to clean up.
+            await new Promise((r) => setTimeout(r, 500));
+            try { process.kill(pid, "SIGKILL"); } catch {}
+        } catch (e) {
+            console.log(`Could not signal daemon pid ${pid}: ${e.message}`);
+        }
+    }
+    if (existsSync(DAEMON_PID_FILE)) {
         try { unlinkSync(DAEMON_PID_FILE); } catch {}
     }
 
-    if (existsSync(DAEMON_SOCKET)) {
-        try { unlinkSync(DAEMON_SOCKET); console.log(`Removed stale socket: ${DAEMON_SOCKET}`); } catch {}
+    // Only POSIX has a socket file to clear; on Windows the named pipe
+    // disappears with the process.
+    if (unlinkSocketPath()) {
+        console.log(`Removed stale socket: ${DAEMON_SOCKET}`);
     }
 
     if (existsSync(ACTIVITY_LOG)) {

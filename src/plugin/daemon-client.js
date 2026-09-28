@@ -1,7 +1,7 @@
 // Daemon client: plugin-side connection to the long-lived daemon.
 //
 // The plugin (one per OpenCode process) uses this client to:
-//   1. Connect to the daemon's local Unix socket
+//   1. Connect to the daemon's local IPC endpoint
 //   2. Send "hello" to register itself
 //   3. Send "state" updates whenever local session state changes
 //   4. Send "goodbye" when the plugin disposes
@@ -10,29 +10,23 @@
 // decide what to display. If the daemon is not running, the client
 // can return an error so the plugin can spawn a new one.
 //
-// On Linux/macOS this is a Unix domain socket.
-// On Windows this would be a named pipe (`\\.\pipe\<name>`); the
-// `connectToDaemonSocket` function applies the right prefix.
+// The address comes from DAEMON_SOCKET, which is already correct for
+// the platform: a Unix domain socket path on Linux/macOS, a
+// `\\.\pipe\...` named pipe on Windows. Node's net module handles both
+// through the same API, so no platform branch is needed here.
 
 import net from "node:net";
-import { existsSync } from "node:fs";
 import { DAEMON_SOCKET } from "../shared/paths.js";
+import { isDaemonAlive } from "../shared/daemon-liveness.js";
 import { log } from "../shared/logger.js";
 
-// Returns the socket path for the current platform. On Linux/macOS,
-// the path is already correct. On Windows, named pipes need the
-// `\\.\pipe\` prefix.
-function socketPathForPlatform(p) {
-    if (process.platform === "win32") {
-        return `\\\\.\\pipe\\${p.split("/").pop()}`;
-    }
-    return p;
-}
-
-// Quick check: is the daemon socket present? Fast (no connect attempt).
+// Quick check: is a daemon already serving? Fast (no connect attempt).
+//
+// This must not use existsSync(): on Windows the IPC address is a named
+// pipe, not a file, so existsSync always reports false and the plugin
+// would treat every running daemon as absent.
 export function isDaemonSocketPresent() {
-    if (process.platform === "win32") return true;
-    return existsSync(DAEMON_SOCKET);
+    return isDaemonAlive();
 }
 
 export class DaemonClient {
@@ -77,8 +71,8 @@ export class DaemonClient {
 
     async connect(pid) {
         if (this.connected) return true;
-        if (process.platform !== "win32" && !existsSync(DAEMON_SOCKET)) {
-            this.lastError = "daemon socket not present";
+        if (!isDaemonAlive()) {
+            this.lastError = "daemon not running";
             return false;
         }
         const socketPath = DAEMON_SOCKET;

@@ -310,8 +310,8 @@ Continue? [y/N]
 ## `opencode-rpc spawn`
 
 Starts the daemon again after a `kill`. Clears the `daemonStopped`
-flag, spawns the daemon subprocess, waits for the local socket, and
-re-enables pushing.
+flag, spawns the daemon subprocess, waits until a daemon reports
+itself alive, and re-enables pushing.
 
 ```
 $ opencode-rpc spawn
@@ -324,8 +324,8 @@ If presence is disabled (`opencode-rpc off`), `spawn` refuses and
 tells the user to run `on` first.
 
 If a daemon is already running, `spawn` refuses (the daemon is a
-singleton: a second one would unlink the running daemon's socket and
-steal its Discord IPC connection) and points at `restart`:
+singleton: a second one would take over the IPC address and steal
+the running daemon's Discord IPC connection) and points at `restart`:
 
 ```
 $ opencode-rpc spawn

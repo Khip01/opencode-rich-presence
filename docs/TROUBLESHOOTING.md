@@ -394,6 +394,25 @@ npm install -g ./opencode-rich-presence-3.3.0.tgz
 If you can't run scripts, this isn't related to the plugin. Adjust
 PowerShell policy or use `cmd.exe`.
 
+**Check 3: daemon is running but `info` says the socket is absent**
+
+On Windows the daemon IPC address is a named pipe, not a file, so a
+`[absent]` socket line can be misleading. Trust the `Daemon PID` line
+instead: `[alive]` means a daemon is serving. If the PID line is
+`[NOT alive; stale PID file]` or `[absent]`, run
+`opencode-rpc spawn`.
+
+**Check 4: presence never toggles (`on` / `off` do nothing)**
+
+Control messages reach the daemon over the same named pipe. If `on` /
+`off` report success but Discord does not react, confirm the pipe name
+matches between plugin and daemon by running `opencode-rpc info`. The
+pipe name includes a per-user scope suffix, so the daemon must be
+started under the same OS user as OpenCode. A daemon started by a
+different account has a different pipe name and will never see your
+messages. Stop the foreign daemon (`opencode-rpc kill` under that
+account) or just restart OpenCode so the right user spawns its own.
+
 ---
 
 ## Plugin loads but Discord shows stale data
