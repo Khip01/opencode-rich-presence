@@ -427,6 +427,22 @@ guarantees the test depends on.
 | 36 | Presence toggle: state marker defaults/fallback, on/off/kill/spawn, `on` clears kill lock, dispatcher, help grouping, colors piped, daemon singleton (CLI refuses over live daemon; second worker exits) (`tests/presence-toggle.mjs`) | ✓ | ✓ | inherited | inherited |
 | 37 | Windows named pipes: PID liveness helpers, stale socket/PID cross-check, IPC address shape, no double-prefix, Discord pipe candidates (`tests/win-path.mjs`) | ✓ | ✓ | inherited | inherited |
 
+### CI matrix (`.github/workflows/test.yml`)
+
+The commit-time column above runs on two OS lanes:
+
+- `ubuntu-latest` × Node 20/22/24 (`suite: full`): every harness,
+  including phase1, phase2 and cli-lifecycle.
+- `windows-latest` × Node 22 (`suite: windows`): syntax, smoke, and
+  rows 33-37 plus phase2-v2. This is the lane that actually executes
+  the `IS_WINDOWS` branches and makes the daemon bind a real
+  `\\.\pipe\...` address.
+
+phase1, phase2 and cli-lifecycle are gated to `suite: full` because
+they hardcode `/tmp` working paths and shell out to `bash`. Until
+those are ported to `tmpdir()`, `npm test` will not fully pass on a
+Windows box.
+
 ### Curl discipline (important)
 
 `npm test` runs from a developer's machine. Repeated `curl` to

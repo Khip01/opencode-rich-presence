@@ -21,12 +21,34 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Cover the full range declared in `engines.node`. LTS lines
-        # (20, 22) plus the current latest (24). Ubuntu-only because
-        # the daemon uses Unix domain sockets and Windows requires
-        # a separate named-pipe path that we do not test in CI today.
-        os: [ubuntu-latest]
-        node: [20, 22, 24]
+        # The full range declared in `engines.node` (LTS lines 20 and
+        # 22 plus the current latest 24) on Linux, where the daemon
+        # speaks Unix domain sockets.
+        #
+        # Windows runs one job on Node 22. Its purpose is to exercise
+        # the named-pipe code paths for real: isDaemonReady/IS_WINDOWS
+        # in the win-path harness only ever execute there, and the
+        # presence-toggle and phase2-v2 harnesses spawn a daemon and
+        # bind an actual `\\.\pipe\...` address. The OS axis is what we
+        # are paying for, so one Node version is enough to get it, and
+        # a single job keeps the iteration loop short when it is red.
+        #
+        # phase1, phase2 and cli-lifecycle are skipped on Windows
+        # because they hardcode /tmp paths and shell out to bash; see
+        # the gated steps below.
+        include:
+          - os: ubuntu-latest
+            node: 20
+            suite: full
+          - os: ubuntu-latest
+            node: 22
+            suite: full
+          - os: ubuntu-latest
+            node: 24
+            suite: full
+          - os: windows-latest
+            node: 22
+            suite: windows
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -49,23 +71,47 @@ jobs:
           node bin/opencode-rpc.js info
           npm pack --dry-run
 
-      # Full regression suite. The four harnesses are independent
-      # (each spins up its own daemon on its own temp socket) so we
-      # can run them sequentially. Total wall time ~3 min on
-      # ubuntu-latest; the matrix above multiplies that across
-      # Node versions.
-      - name: Phase 1 harness
-        run: npm run test:phase1
+      # Pure-logic harnesses. No daemon and no filesystem layout
+      # assumptions, so they are safe on every OS in the matrix.
+      - name: Template selection harness
+        run: npm run test:template-selection
 
-      - name: Phase 2 harness
-        run: npm run test:phase2
+      - name: Model name style harness
+        run: npm run test:model-name-style
+
+      - name: Replacements harness
+        run: npm run test:replacements
+
+      # Daemon liveness and IPC address shape. The IS_WINDOWS branches
+      # only run on the Windows job, which is the reason that job
+      # exists. Also guards against reintroducing the double
+      # `\\.\pipe\` prefix and bare existsSync(DAEMON_SOCKET).
+      - name: Win path harness
+        run: npm run test:win-path
+
+      # End-to-end CLI control against a live daemon. Proves the daemon
+      # binds its IPC address (Unix socket on Linux, named pipe on
+      # Windows) and that on/off/kill/spawn actually reach it.
+      - name: Presence toggle harness
+        run: npm run test:presence-toggle
 
       - name: Phase 2 v2 harness
         run: npm run test:phase2-v2
+
+      # Unix-only harnesses: hardcoded /tmp working paths and `bash -n`
+      # over install.sh. Gated to Linux until they are ported.
+      - name: Phase 1 harness
+        if: matrix.suite == 'full'
+        run: npm run test:phase1
+
+      - name: Phase 2 harness
+        if: matrix.suite == 'full'
+        run: npm run test:phase2
 
       # CLI lifecycle (commit-time portion only): CLI output, arg
       # validation, install.sh unit checks, end-to-end install in
       # sandbox. The "update flow" scenario is in tests/release-smoke
       # and runs only in the release workflow.
       - name: CLI lifecycle harness
+        if: matrix.suite == 'full'
         run: npm run test:cli-lifecycle

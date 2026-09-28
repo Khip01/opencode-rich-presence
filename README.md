@@ -38,16 +38,20 @@ windows no longer disconnects from Discord.
 
 ## Requirements
 
-- Node.js 18+ (LTS recommended; CI tests on 20, 22, 24)
+- Node.js 18+ (LTS recommended; CI tests on 20, 22, 24, plus 22 on Windows)
 - OpenCode CLI
 - Discord Desktop (required for v3 Phase 2 push)
 
 Works on **Linux** and **macOS**. Windows support is implemented
 through named pipes: the daemon listens on
 `\\.\pipe\opencode-rich-presence-<userhash>` instead of a `.sock`
-file, and Discord is found via `\\.\pipe\discord-ipc-N`. Windows is
-not part of CI, so that path has not been verified on real Windows
-machines yet; Linux/macOS paths are covered by the suite above.
+file, and Discord is found via `\\.\pipe\discord-ipc-N`. CI runs a
+`windows-latest` job that exercises those paths: the win-path
+harness (liveness helpers, IPC address shape), a live daemon spawn
+via `presence-toggle`, and the phase2-v2 harness. A real Discord
+Desktop handshake on Windows has still not been observed from CI,
+and phase1/phase2/cli-lifecycle stay Linux-only until they are
+ported off their hardcoded `/tmp` paths and `bash` calls.
 
 ## Installation
 
