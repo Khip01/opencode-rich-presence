@@ -38,8 +38,16 @@ const DAEMON_PATH = join(REPO_ROOT, "src", "worker", "daemon.mjs");
 // the plugin and daemon read that env var, so we use the same path here.
 const OPENCODE_DIR = process.env.OPENCODE_CONFIG_DIR;
 const ACTIVITY_LOG = join(OPENCODE_DIR, "presence-activity.log");
-const SOCKET = join(OPENCODE_DIR, ".opencode-rich-presence.sock");
 const PID_FILE = join(OPENCODE_DIR, ".opencode-rich-presence.pid");
+// The daemon IPC address is platform-specific: a `.sock` file on POSIX,
+// a named pipe on Windows. Computing it from OPENCODE_DIR hardcoded the
+// POSIX shape, so every connect and every poll below would fail on
+// Windows. Import it from paths.js instead.
+const { DAEMON_SOCKET: SOCKET } = await import("../src/shared/paths.js");
+// "Is the daemon up" cannot be answered with existsSync(SOCKET), because
+// a Windows named pipe is not a filesystem entry. See the helper's own
+// docs; it answers from the PID file on every platform.
+const { isDaemonReady, unlinkSocketPath } = await import("../src/shared/daemon-liveness.js");
 const MAX_CLIENT_LINE_BYTES = 1024 * 1024;
 
 let passed = 0;
@@ -109,7 +117,7 @@ async function clear() {
         } catch {}
     }
     await sleep(500);
-    try { unlinkSync(SOCKET); } catch {}
+    unlinkSocketPath();
     try { unlinkSync(PID_FILE); } catch {}
     // Also wipe the activity log so stale "Discord connected" entries
     // from a previous daemon do not fool waitForDaemonConnected into
@@ -134,7 +142,10 @@ async function scenario(name, fn) {
 
 function spawnDaemon() {
     return new Promise((resolve, reject) => {
-        const proc = spawn("node", [DAEMON_PATH], { stdio: ["ignore", "pipe", "pipe"] });
+        // process.execPath rather than "node": guarantees the same
+        // interpreter that runs this harness, and avoids relying on
+        // PATH/`.exe` resolution when the harness runs on Windows.
+        const proc = spawn(process.execPath, [DAEMON_PATH], { stdio: ["ignore", "pipe", "pipe"] });
         let stderr = "";
         proc.stdout?.on("data", (c) => (stderr += "[out] " + c.toString()));
         proc.stderr.on("data", (c) => (stderr += "[err] " + c.toString()));
@@ -143,10 +154,10 @@ function spawnDaemon() {
         // Poll for socket to appear (more robust than fixed 2s wait).
         const start = Date.now();
         const check = () => {
-            if (existsSync(SOCKET)) {
+            if (isDaemonReady()) {
                 resolve();
             } else if (Date.now() - start > 5000) {
-                reject(new Error(`daemon socket did not appear within 5s; stderr: ${stderr}`));
+                reject(new Error(`daemon did not become ready within 5s; stderr: ${stderr}`));
             } else {
                 setTimeout(check, 100);
             }
@@ -221,7 +232,7 @@ try {
         const daemonPid = parseInt(readFileSync(PID_FILE, "utf-8").trim(), 10);
         let alive = false;
         try { process.kill(daemonPid, 0); alive = true; } catch {}
-        assert(alive && existsSync(SOCKET), "daemon remains alive after oversized client input");
+        assert(alive && isDaemonReady(), "daemon remains alive after oversized client input");
 
         const log = readLog();
         assert(log.includes("client message too large"), "oversized message is logged");
@@ -362,13 +373,13 @@ try {
         sock2.write(JSON.stringify({ type: "goodbye", pid: 99002 }) + "\n");
         await sleep(2000);
 
-        const stillAlive = existsSync(SOCKET) && existsSync(PID_FILE);
+        const stillAlive = isDaemonReady();
         assert(stillAlive, "daemon still alive immediately after all goodbyes");
 
         // Wait MUCH longer than the old 10s grace period. Daemon
         // should STILL be alive.
         await sleep(15000);
-        const stillAliveAfterLongWait = existsSync(SOCKET);
+        const stillAliveAfterLongWait = isDaemonReady();
         assert(stillAliveAfterLongWait,
             "daemon stays alive well past the old grace period (15s wait, no exit)");
     });
@@ -422,7 +433,7 @@ try {
         // After multiple disconnect/reconnect cycles, daemon should
         // STILL be alive (no auto-exit).
         await sleep(5000);
-        const stillAlive = existsSync(SOCKET);
+        const stillAlive = isDaemonReady();
         assert(stillAlive,
             "daemon still alive after multiple disconnect/reconnect cycles");
     });
@@ -438,7 +449,7 @@ try {
         if (pid > 0) try { process.kill(pid, "SIGTERM"); } catch {}
     } catch {}
     await sleep(500);
-    try { unlinkSync(SOCKET); } catch {}
+    unlinkSocketPath();
     try { unlinkSync(PID_FILE); } catch {}
 }
 
