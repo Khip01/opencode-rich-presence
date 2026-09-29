@@ -5,7 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [3.3.1] - 2026-09-29
+
+Windows named-pipe support, contributed in
+[PR #2](https://github.com/Khip01/opencode-rich-presence/pull/2) by
+[@engix3](https://github.com/engix3), and completed here so the
+Windows path is real rather than half-implemented. `main` now runs a
+blocking `windows-latest` CI lane, which is the first time this
+project has executed any Windows code in CI.
 
 ### Added
 
@@ -29,12 +36,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   to another user) and only `ESRCH` as dead. `isDaemonAlive()` requires
   both a readable PID file and a living process, so neither a stale PID
   file nor a stale socket file is mistaken for a healthy daemon.
+  `isDaemonReady()` additionally requires a bound socket on POSIX,
+  because the daemon writes its PID file before it calls `listen()`.
   `unlinkSocketPath()` is a no-op on Windows, where the pipe namespace
   entry belongs to the process and disappears when it exits.
+- **`windows-latest` CI lane**: `.github/workflows/test.yml` moved to a
+  `matrix.include` with a `suite` dimension. Linux keeps Node 20/22/24
+  running everything; Windows runs Node 22 over the portable subset
+  (syntax, smoke, template-selection, model-name-style, replacements,
+  win-path, presence-toggle, phase2-v2). Blocking: a red Windows job
+  blocks the merge. `phase1`, `phase2` and `cli-lifecycle` stay
+  Linux-only until they are ported off their hardcoded `/tmp` paths and
+  `bash` calls.
 - **`tests/win-path.mjs`**: 41-assertion harness covering the liveness
   helpers, the IPC address shape, and static guards against
   reintroducing the bugs below. Wired as `npm run test:win-path` and
   into `npm test`.
+- **Test coverage on every PR**: template-selection, model-name-style,
+  replacements, presence-toggle and win-path previously ran only at
+  release time; they now run in the commit-time workflow too.
 
 ### Fixed
 
@@ -58,6 +78,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   tried to `unlink` a pipe path, which cannot work and printed a
   misleading failure. `restart` also printed "Removed stale socket" on
   Windows where no socket file exists.
+- **Test harnesses assumed a POSIX socket file**: `presence-toggle` and
+  `phase2-v2` polled `existsSync(DAEMON_SOCKET)` to decide the daemon
+  was up, so on Windows they reported a healthy daemon as absent.
+  `phase2-v2` also hardcoded `<dir>/.opencode-rich-presence.sock` as its
+  connect target, which would have made `connectClient` fail outright.
+  Both now import `DAEMON_SOCKET` and poll `isDaemonReady()`.
 
 ## [3.3.0] - 2026-09-15
 

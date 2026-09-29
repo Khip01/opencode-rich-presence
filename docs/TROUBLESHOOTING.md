@@ -265,7 +265,7 @@ This can happen immediately after install, or after a reboot / npm
 cache cleanup:
 
 ```
-$ npm install -g 'Khip01/opencode-rich-presence#v3.3.0'
+$ npm install -g 'Khip01/opencode-rich-presence#v3.3.1'
 added 1 package in 4s
 
 $ opencode-rpc
@@ -320,12 +320,12 @@ ls -la "$(npm root -g)/opencode-rich-presence"
     ```bash
     # Download from: https://github.com/Khip01/opencode-rich-presence/releases/latest
     # File name: opencode-rich-presence-<version>.tgz
-    npm install -g ./opencode-rich-presence-3.3.0.tgz
+    npm install -g ./opencode-rich-presence-3.3.1.tgz
     ```
 3. Verify:
    ```bash
    opencode-rpc version
-   # Expected: opencode-rich-presence v3.3.0 (stable)
+   # Expected: opencode-rich-presence v3.3.1 (stable)
    ```
 
 **Why `opencode-rpc update --ref <tag>` does not help on a fresh
@@ -386,7 +386,7 @@ from
 [GitHub Releases](https://github.com/Khip01/opencode-rich-presence/releases/latest):
 
 ```bash
-npm install -g ./opencode-rich-presence-3.3.0.tgz
+npm install -g ./opencode-rich-presence-3.3.1.tgz
 ```
 
 **Check 2: PowerShell execution policy**
