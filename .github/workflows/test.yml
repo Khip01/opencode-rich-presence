@@ -89,6 +89,12 @@ jobs:
       - name: Win path harness
         run: npm run test:win-path
 
+      # Migration + GC of the per-instance state snapshots. Pure
+      # filesystem + PID liveness, no socket or shell dependency, so it
+      # is safe on every OS in the matrix.
+      - name: Presence GC harness
+        run: npm run test:presence-gc
+
       # End-to-end CLI control against a live daemon. Proves the daemon
       # binds its IPC address (Unix socket on Linux, named pipe on
       # Windows) and that on/off/kill/spawn actually reach it.

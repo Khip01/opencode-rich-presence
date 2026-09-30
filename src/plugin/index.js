@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { join, basename } from "node:path";
 import { OPENCODE_DIR, OUTPUT_FILE, DAEMON_PID_FILE } from "../shared/paths.js";
 import { isDaemonAlive, isPidAlive, readDaemonPid, unlinkSocketPath } from "../shared/daemon-liveness.js";
+import { ensureStateDir, migrateLegacyStates, gcPresenceStates, stateFilePathFor } from "../shared/presence-gc.js";
 import {
     STATE,
     REFRESH_INTERVAL,
@@ -36,7 +37,7 @@ let displayedSessionID = null;
 const providerModels = new Map();
 let writeTimer = null;
 let config = null;
-const MY_STATE_FILE = OUTPUT_FILE.replace(/\.txt$/, `-pid${process.pid}.txt`);
+const MY_STATE_FILE = stateFilePathFor(process.pid);
 
 // Presence control flags mirrored from the on-disk state marker written
 // by `opencode-rpc on/off/kill/spawn`. Refreshed on every activity tick so
@@ -428,6 +429,15 @@ export const OpencodeRichPresence = async ({ client, directory }) => {
     for (const p of cfgPaths) { loadConfigLimits(p).catch(() => {}); }
 
     try { await mkdir(OPENCODE_DIR, { recursive: true }); } catch {}
+
+    // Per-instance state files live in a subfolder so the config dir
+    // listing stays readable. Migration + GC run once per OpenCode
+    // session at init; never let them break the session.
+    try {
+        ensureStateDir();
+        migrateLegacyStates();
+        gcPresenceStates();
+    } catch {}
 
     restoreFromServer(client, directory).catch(e => log(`Background restore error: ${e?.message || e}`));
 

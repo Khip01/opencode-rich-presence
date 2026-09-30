@@ -11,7 +11,11 @@ Run `opencode-rpc info` first. Output sections:
 - **Paths**: OpenCode dir, config, default state file, activity log,
   lock file, debug log
 - **Config**: Your `discord-config.json` values (App ID masked)
-- **Per-instance state files**: One entry per running OpenCode instance
+- **Per-instance state files**: One entry per running OpenCode instance.
+  Since v3.4 these live under `~/.config/opencode/presence-states/` and
+  are garbage-collected automatically on plugin init (dead PIDs, files
+  older than 72h, cap of the 20 newest). Legacy flat files in the config
+  root are migrated once and still listed here until cleaned up.
 - **OpenCode plugin symlink**: Whether the plugin entry is symlinked
 - **Activity log tail**: Last 30 entries of the chronological activity log
 

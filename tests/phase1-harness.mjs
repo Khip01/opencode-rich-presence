@@ -106,7 +106,7 @@ function readActivityLog() {
 }
 
 function stateFileFor(pid) {
-    return join(OPENCODE_DIR, `${STATE_FILE_PREFIX}${pid}.txt`);
+    return join(OPENCODE_DIR, "presence-states", `${STATE_FILE_PREFIX}${pid}.txt`);
 }
 
 function readStateFile(pid) {
@@ -118,9 +118,9 @@ function readStateFile(pid) {
 async function clearLogs() {
     try { unlinkSync(ACTIVITY_LOG); } catch {}
     try {
-        for (const f of readdirSync(OPENCODE_DIR)) {
+        for (const f of readdirSync(join(OPENCODE_DIR, "presence-states"))) {
             if (f.startsWith(STATE_FILE_PREFIX) && f.endsWith(".txt")) {
-                try { unlinkSync(join(OPENCODE_DIR, f)); } catch {}
+                try { unlinkSync(join(OPENCODE_DIR, "presence-states", f)); } catch {}
             }
         }
     } catch {}
@@ -431,7 +431,9 @@ process.exit(0);
     assert(log.includes(shortSid("ses_multi_eeeeeeee")), "session from instance 1 logged");
     assert(log.includes(shortSid("ses_multi_ffffffff")), "session from instance 2 logged");
 
-    const files = readdirSync(OPENCODE_DIR).filter((f) => f.startsWith(STATE_FILE_PREFIX) && f.endsWith(".txt"));
+    let files = [];
+    try { files = readdirSync(join(OPENCODE_DIR, "presence-states")); } catch {}
+    files = files.filter((f) => f.startsWith(STATE_FILE_PREFIX) && f.endsWith(".txt"));
     assert(files.length >= 2, `at least 2 per-instance state files exist (got ${files.length})`);
 });
 

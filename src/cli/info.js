@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { platform, version as nodeVersion, execPath } from "node:process";
-import { CONFIG_PATH, OUTPUT_FILE, ACTIVITY_LOG, DEBUG_LOG, OPENCODE_DIR, DAEMON_SOCKET, PRESENCE_STATE, IS_WINDOWS } from "../shared/paths.js";
+import { CONFIG_PATH, OUTPUT_FILE, ACTIVITY_LOG, DEBUG_LOG, OPENCODE_DIR, DAEMON_SOCKET, PRESENCE_STATE, IS_WINDOWS, PRESENCE_STATE_DIR } from "../shared/paths.js";
 import { isDaemonAlive, readDaemonPid } from "../shared/daemon-liveness.js";
 import { getPlatformName } from "./platform/index.js";
 import { readState } from "../shared/presence-state.js";
@@ -131,23 +131,31 @@ export async function info() {
     }
     lines.push("");
 
-    // Per-instance state files. Phase 1 writes one of these per running
-    // OpenCode instance so multi-instance runs do not race on a single
-    // file. Listed for the user's situational awareness.
+    // Per-instance state files. Since 3.4 they live under presence-states/;
+    // the flat config-root glob stays as a fallback for installs whose
+    // plugin has never run the new init (so `info` still reports them).
     try {
         const { readdirSync } = await import("node:fs");
-        if (existsSync(opencodeDir)) {
-            const perInstance = readdirSync(opencodeDir)
-                .filter((n) => n.startsWith("presence-state-pid") && n.endsWith(".txt"));
-            if (perInstance.length > 0) {
-                lines.push(`Per-instance state files (${perInstance.length})`);
-                for (const n of perInstance.sort()) {
-                    const full = join(opencodeDir, n);
-                    const st = statSync(full);
-                    lines.push(`  ${n}  [${formatBytes(st.size)}, modified ${st.mtime.toISOString()}]`);
-                }
-                lines.push("");
+        const dirs = [];
+        if (existsSync(PRESENCE_STATE_DIR)) dirs.push(PRESENCE_STATE_DIR);
+        if (existsSync(opencodeDir)) dirs.push(opencodeDir);
+        const seen = new Set();
+        const perInstance = [];
+        for (const dir of dirs) {
+            for (const n of readdirSync(dir)) {
+                if (!n.startsWith("presence-state-pid") || !n.endsWith(".txt")) continue;
+                if (seen.has(n)) continue;
+                seen.add(n);
+                perInstance.push({ name: n, full: join(dir, n) });
             }
+        }
+        if (perInstance.length > 0) {
+            lines.push(`Per-instance state files (${perInstance.length})`);
+            for (const e of perInstance.sort((a, b) => a.name.localeCompare(b.name))) {
+                const st = statSync(e.full);
+                lines.push(`  ${e.name}  [${formatBytes(st.size)}, modified ${st.mtime.toISOString()}]`);
+            }
+            lines.push("");
         }
     } catch {}
 

@@ -5,6 +5,36 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Per-instance state files moved to a subfolder**: the
+  `presence-state-pid<N>.txt` snapshots now live under
+  `~/.config/opencode/presence-states/` instead of directly in the
+  config directory, where hundreds of them buried `opencode.jsonc`,
+  `AGENTS.md` and friends in `ls` output. Existing flat files are
+  migrated once at plugin init.
+- **Automatic garbage collection**: on plugin init, snapshots whose
+  writing process is dead are removed, anything older than 72 hours is
+  removed (catches PIDs recycled onto unrelated long-lived processes),
+  and the survivors are capped at the 20 newest by mtime. Names whose
+  PID cannot be parsed are never deleted by the liveness pass. The GC
+  runs once per OpenCode session and never fails the session.
+- **`tests/presence-gc.mjs`**: 31-assertion harness covering layout,
+  migration (including collisions and idempotence), dead/live/unparsed
+  PID handling, the age fallback, the cap, and idempotent re-runs.
+  Wired as `npm run test:presence-gc`, into `npm test`, and into both
+  CI lanes.
+
+### Changed
+
+- `opencode-rpc uninstall` removes the whole `presence-states/`
+  directory recursively, keeping the legacy flat glob as a fallback
+  for installs that never ran the new plugin init.
+- `opencode-rpc info` lists per-instance snapshots from both the new
+  subfolder and any leftover flat files, deduplicated by name.
+
 ## [3.3.1] - 2026-09-29
 
 Windows named-pipe support, contributed in

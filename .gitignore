@@ -33,3 +33,9 @@ Thumbs.db
 # ~/.config/opencode, but ignore it here too in case a stray write lands in
 # the repo working directory.
 *.state.json
+
+# Per-instance presence state snapshots (presence-states/ subdir since 3.4,
+# flat presence-state-pid<N>.txt before that). Same safety-net rationale:
+# these belong in ~/.config/opencode, never in source control.
+presence-states/
+presence-state-pid*.txt

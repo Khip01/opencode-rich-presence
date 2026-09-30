@@ -1,6 +1,6 @@
 import { existsSync, unlinkSync, readFileSync, writeFileSync, renameSync, lstatSync } from "node:fs";
 import { join } from "node:path";
-import { CONFIG_PATH, OUTPUT_FILE, ACTIVITY_LOG, OPENCODE_DIR, DAEMON_SOCKET, DAEMON_PID_FILE, PRESENCE_STATE, IS_WINDOWS } from "../shared/paths.js";
+import { CONFIG_PATH, OUTPUT_FILE, ACTIVITY_LOG, OPENCODE_DIR, DAEMON_SOCKET, DAEMON_PID_FILE, PRESENCE_STATE, IS_WINDOWS, PRESENCE_STATE_DIR } from "../shared/paths.js";
 import { readDaemonPid } from "../shared/daemon-liveness.js";
 import { confirm } from "./prompt.js";
 
@@ -44,9 +44,15 @@ export async function uninstall() {
         if (tryRemove(f)) removed++;
     }
 
-    // Per-instance state files (presence-state-pid<pid>.txt).
+    // Per-instance state files. Since 3.4 they live under
+    // presence-states/; the flat glob below stays as a fallback for
+    // installs that never ran the new plugin init.
     try {
-        const { readdirSync } = await import("node:fs");
+        const { readdirSync, rmSync } = await import("node:fs");
+        if (existsSync(PRESENCE_STATE_DIR)) {
+            rmSync(PRESENCE_STATE_DIR, { recursive: true, force: true });
+            removed++;
+        }
         const dir = OPENCODE_DIR;
         if (existsSync(dir)) {
             for (const name of readdirSync(dir)) {

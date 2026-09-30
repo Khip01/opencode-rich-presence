@@ -12,6 +12,12 @@ export const OPENCODE_DIR = process.env.OPENCODE_CONFIG_DIR
 
 export const CONFIG_PATH = join(OPENCODE_DIR, "discord-config.json");
 export const OUTPUT_FILE = join(OPENCODE_DIR, "presence-state.txt");
+
+// Directory holding the per-instance state snapshots that each OpenCode
+// plugin process writes. One file per PID, cleaned up by
+// shared/presence-gc.js on plugin init (dead PIDs / age cap). Lives in a
+// subfolder so `ls ~/.config/opencode/` stays readable.
+export const PRESENCE_STATE_DIR = join(OPENCODE_DIR, "presence-states");
 // Internal control state for the on/off/kill/spawn commands. Separate from
 // discord-config.json on purpose: it is program state, not user configuration,
 // and must never be hand-edited by users. Written atomically (tmp + rename).

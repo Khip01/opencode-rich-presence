@@ -94,9 +94,9 @@ async function clearState() {
     try { unlinkSync(DAEMON_SOCKET); } catch {}
     try { unlinkSync(DAEMON_PID_FILE); } catch {}
     try {
-        for (const f of readdirSync(OPENCODE_DIR)) {
+        for (const f of readdirSync(join(OPENCODE_DIR, "presence-states"))) {
             if (f.startsWith("presence-state-pid") && f.endsWith(".txt")) {
-                try { unlinkSync(join(OPENCODE_DIR, f)); } catch {}
+                try { unlinkSync(join(OPENCODE_DIR, "presence-states", f)); } catch {}
             }
         }
     } catch {}
@@ -279,7 +279,9 @@ setTimeout(() => process.exit(0), 200).unref();
     assert(log.includes("ses_multi_ffffffff") || log.includes("ffffffff"),
         "instance 2 session in log");
 
-    const files = readdirSync(OPENCODE_DIR).filter((f) => f.startsWith("presence-state-pid") && f.endsWith(".txt"));
+    let files = [];
+    try { files = readdirSync(join(OPENCODE_DIR, "presence-states")); } catch {}
+    files = files.filter((f) => f.startsWith("presence-state-pid") && f.endsWith(".txt"));
     assert(files.length >= 2, `at least 2 per-instance state files exist (got ${files.length}: ${files.join(", ")})`);
     const subPids = new Set();
     for (const f of files) {

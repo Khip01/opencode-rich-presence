@@ -106,6 +106,13 @@ IPC socket actually dies.
     every platform, because a Windows named pipe is not a file and
     `existsSync` cannot see it. Also owns `unlinkSocketPath()`, a
     no-op on Windows.
+  - `presence-gc.js`: owns the per-instance snapshot layout under
+    `~/.config/opencode/presence-states/`. `migrateLegacyStates()`
+    moves pre-3.4 flat files once (the config-root copy always wins a
+    collision); `gcPresenceStates()` drops dead-PID files, anything
+    older than 72h, and caps survivors at the 20 newest; unparsable
+    PIDs are never killed by the liveness pass. Called once at plugin
+    init inside a try/catch.
 - `bin/opencode-rpc.js`: CLI entry point
 - `docs/`: documentation
 - `.github/workflows/`: CI
@@ -426,6 +433,7 @@ guarantees the test depends on.
 | 35 | Wildcard replacements: `*` edges, case-sensitive, multi-var, chaining, dedup (`tests/replacements.mjs`) | ✓ | ✓ | inherited | inherited |
 | 36 | Presence toggle: state marker defaults/fallback, on/off/kill/spawn, `on` clears kill lock, dispatcher, help grouping, colors piped, daemon singleton (CLI refuses over live daemon; second worker exits) (`tests/presence-toggle.mjs`) | ✓ | ✓ | inherited | inherited |
 | 37 | Windows named pipes: PID liveness helpers, stale socket/PID cross-check, IPC address shape, no double-prefix, Discord pipe candidates (`tests/win-path.mjs`) | ✓ | ✓ | inherited | inherited |
+| 38 | Presence GC: subfolder layout, legacy migration incl. collisions, dead/live/unparsable PID passes, 72h age fallback, newest-cap, idempotence (`tests/presence-gc.mjs`) | ✓ | ✓ | inherited | inherited |
 
 ### CI matrix (`.github/workflows/test.yml`)
 
@@ -434,7 +442,7 @@ The commit-time column above runs on two OS lanes:
 - `ubuntu-latest` × Node 20/22/24 (`suite: full`): every harness,
   including phase1, phase2 and cli-lifecycle.
 - `windows-latest` × Node 22 (`suite: windows`): syntax, smoke, and
-  rows 33-37 plus phase2-v2. This is the lane that actually executes
+  rows 33-38 plus phase2-v2. This is the lane that actually executes
   the `IS_WINDOWS` branches and makes the daemon bind a real
   `\\.\pipe\...` address.
 
