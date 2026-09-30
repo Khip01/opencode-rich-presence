@@ -5,7 +5,13 @@ Detailed setup for `opencode-rich-presence` v3.x.
 ## Prerequisites
 
 1. **Node.js 18+** (`node --version` to check). 20+ recommended.
-2. **OpenCode CLI** (the `opencode` command on PATH).
+2. **OpenCode CLI** (the `opencode` command on PATH, v1 or v2).
+   `opencode-rpc install` detects the major version and links the
+   matching plugin entry (`src/plugin/index.js` for v1,
+   `src/plugin/index.v2.js` for v2). Desktop-only installs without
+   the CLI on PATH are asked which entry to link. After install,
+   fully restart OpenCode Desktop (its `opencode-cli` backend is
+   long-lived and will not pick up the new entry until restarted).
 3. **Discord Desktop** (required for v3 Phase 2 push; not required
    if you only want the activity-log diagnostic surface).
 

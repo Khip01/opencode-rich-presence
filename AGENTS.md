@@ -76,7 +76,12 @@ IPC socket actually dies.
 ## Project Structure (Phase 2)
 
 - `src/plugin/`: Main plugin code
-  - `index.js`: plugin entry, event handlers, orchestration
+  - `index.js`: V1 plugin entry, event handlers, orchestration
+  - `index.v2.js`: V2 plugin entry (`Plugin.define`, id
+    `opencode-rich-presence-v2`). Same daemon/templates/config,
+    V2 event wiring (`prompt` / `context` / tool hooks + event
+    subscription). `install` links exactly one entry based on
+    `opencode --version`. Needs the `@opencode/plugin` dep.
   - `config-resolver.js`: load discord-config.json + env vars
   - `local-presence.js`: render payload + send to daemon
   - `session-state.js`: per-session token/cost/state tracking
@@ -198,10 +203,11 @@ handler entirely.
 
 The five CLI commands are:
 
-1. `opencode-rpc install`: one-time setup. Symlink the plugin
-   into `~/.config/opencode/plugins/`, write the example config.
-   v3 installs no additional npm dependency under
-   `~/.config/opencode/`.
+1. `opencode-rpc install`: one-time setup. Symlinks the
+   version-matched plugin entry into
+   `~/.config/opencode/plugins/`, writes the example config.
+   v3 installs one npm dependency (`@opencode/plugin`, used only
+   by the V2 entry).
 2. `opencode-rpc update`: upgrade an existing installation to the
    latest stable release tag.
 3. `opencode-rpc update --stable`: force install latest stable tag,

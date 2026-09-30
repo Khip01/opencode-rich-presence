@@ -136,13 +136,16 @@ Sets up the Rich Presence plugin for OpenCode.
    `"opencode-rich-presence"` entry left in `opencode.jsonc` from
    pre-v2.0.6 installs.
 3. Symlinks the plugin entry to
-   `~/.config/opencode/plugins/opencode-rich-presence.js` and
-   ensures `@xhayper/discord-rpc` is installed under
-   `~/.config/opencode/node_modules/`.
+   `~/.config/opencode/plugins/opencode-rich-presence.js`.
+   `install` probes `opencode --version` and links the matching
+   entry (`src/plugin/index.js` for v1, `src/plugin/index.v2.js`
+   for v2); when no OpenCode binary is found it asks which entry
+   to link.
 
 **v3 Phase 1:** Same as v2.x except step 3 no longer installs the
 `@xhayper/discord-rpc` npm dependency. Phase 1 has no runtime
-dependencies.
+dependencies. (V2 support adds `@opencode/plugin`, imported only
+by `src/plugin/index.v2.js`.)
 
 **Example: fresh install**
 

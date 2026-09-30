@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **OpenCode v2 support**: new plugin entry `src/plugin/index.v2.js`
+  (plugin id `opencode-rich-presence-v2`) using the v2 API
+  (`Plugin.define` with `prompt` / `context` / tool hooks plus an
+  event subscription). Daemon, templates, and `discord-config.json`
+  are shared with the v1 entry; only the event wiring differs.
+  Verified live against OpenCode v2.0.15 (CLI and Desktop backend)
+  on Windows: prompt fires, model/limits resolve via the v2
+  context, payload reaches the daemon, daemon pushes with
+  `discord=connected`.
+- **`opencode-rpc install` picks the entry**: probes
+  `opencode --version` and symlinks the matching entry (v1 or v2)
+  under the same `~/.config/opencode/plugins/opencode-rich-presence.js`
+  name, so exactly one entry loads. Asks when no OpenCode binary is
+  found (Desktop-only installs without the CLI on PATH).
+- **`@opencode/plugin` dependency** (`^2.0.15`, used only by the v2
+  entry). Smoke test allows exactly this dependency.
+
 ## [3.3.2] - 2026-09-30
 
 Housekeeping release: the per-instance presence state snapshots no

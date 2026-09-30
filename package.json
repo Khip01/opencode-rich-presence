@@ -29,6 +29,9 @@
     "node": ">=18",
     "bun": ">=1.0.0"
   },
+  "dependencies": {
+    "@opencode/plugin": "^2.0.15"
+  },
   "keywords": [
     "opencode",
     "opencode-plugin",

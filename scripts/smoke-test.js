@@ -20,6 +20,7 @@ const REQUIRED_FILES = [
     "CHANGELOG.md",
     "bin/opencode-rpc.js",
     "src/plugin/index.js",
+    "src/plugin/index.v2.js",
     "src/plugin/template-engine.js",
     "src/plugin/config-resolver.js",
     "src/plugin/local-presence.js",
@@ -91,11 +92,14 @@ if (!pkg.bin || !pkg.bin["opencode-rpc"]) {
     process.exit(1);
 }
 
-// Phase 1: no external runtime deps. The previous @xhayper/discord-rpc
-// dependency is removed; the plugin is pure local logic until Phase 2
-// adds the daemon's inline IPC client.
-if (pkg.dependencies && Object.keys(pkg.dependencies).length > 0) {
-    console.error(`package.json has unexpected dependencies: ${JSON.stringify(pkg.dependencies)}`);
+// Runtime deps: only @opencode/plugin (imported solely by the V2 entry,
+// src/plugin/index.v2.js; the V1 entry never touches it). Everything else
+// stays dependency-free so the daemon and V1 path keep zero-dep behavior.
+const ALLOWED_DEPS = ["@opencode/plugin"];
+const depKeys = pkg.dependencies ? Object.keys(pkg.dependencies) : [];
+const unexpected = depKeys.filter((d) => !ALLOWED_DEPS.includes(d));
+if (unexpected.length > 0) {
+    console.error(`package.json has unexpected dependencies: ${JSON.stringify(unexpected)}`);
     process.exit(1);
 }
 
