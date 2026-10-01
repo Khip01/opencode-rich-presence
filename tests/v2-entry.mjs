@@ -147,7 +147,7 @@ ok(await waitForCount(/forwarded set-enabled=true to daemon/, forwardedTrueBefor
 section("cleanup");
 await cleanup();
 killSandboxDaemon();
-ok(waitPidGone(10000), "sandbox daemon exited");
+ok(await waitPidGone(10000), "sandbox daemon exited");
 
 console.log("");
 console.log(`V2-ENTRY: ${failed === 0 ? "PASSED" : "FAILED"} (${passed} passed, ${failed} failed)`);

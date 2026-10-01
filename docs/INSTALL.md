@@ -127,8 +127,10 @@ The installer:
 3. Symlinks the plugin entry to
    `~/.config/opencode/plugins/opencode-rich-presence.js`. v2.x also
    installed `@xhayper/discord-rpc` under
-   `~/.config/opencode/node_modules/`; v3 Phase 1 has no runtime
-   dependencies so this step is gone.
+   `~/.config/opencode/node_modules/`; v3 no longer installs that
+   dependency. The only runtime dependency is `@opencode/plugin`,
+   imported by the v2 plugin entry. The v1 entry and the daemon
+   stay dependency-free.
 
 The symlink approach works around the fact that the package is not on
 the npm registry: OpenCode loads the plugin directly from disk instead
@@ -196,7 +198,7 @@ The uninstaller automatically removes:
 - Local plugin symlink at
   `~/.config/opencode/plugins/opencode-rich-presence.js`
 - `@xhayper/discord-rpc` from `~/.config/opencode/package.json` and
-  `node_modules` (v2.x only; v3 Phase 1 has no runtime deps)
+  `node_modules` (v2.x only; v3 does not install that dependency)
 - Any stale `"opencode-rich-presence"` entry left in
   `~/.config/opencode/opencode.jsonc` (or `.json`). Without this
   cleanup, OpenCode would attempt an npm install on every startup and

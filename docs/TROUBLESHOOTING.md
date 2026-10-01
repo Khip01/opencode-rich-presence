@@ -180,7 +180,7 @@ the major version via `opencode --version` and links the matching
 entry (`src/plugin/index.v2.js` for v2) under the same symlink
 name. If no OpenCode binary is on PATH (Desktop-only installs),
 the installer asks which entry to link. After switching entries,
-fully restart OpenCode Desktop — its `opencode-cli` backend is
+fully restart OpenCode Desktop. Its `opencode-cli` backend is
 long-lived and keeps serving the old plugin set until restarted
 (a stale backend also explains an activity log with no new
 `[load]` lines after an upgrade).

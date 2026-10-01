@@ -39,7 +39,7 @@ windows no longer disconnects from Discord.
 ## Requirements
 
 - Node.js 18+ (LTS recommended; CI tests on 20, 22, 24, plus 22 on Windows)
-- OpenCode CLI (v1 or v2 — `opencode-rpc install` detects the major
+- OpenCode CLI (v1 or v2. `opencode-rpc install` detects the major
   version and links the matching plugin entry: `src/plugin/index.js`
   for v1, `src/plugin/index.v2.js` for v2)
 - Discord Desktop (required for v3 Phase 2 push)
@@ -108,8 +108,9 @@ opencode-rpc install
 This creates `~/.config/opencode/discord-config.json` from the
 bundled example (only if missing, or after confirmation to
 overwrite) and symlinks the plugin entry to
-`~/.config/opencode/plugins/opencode-rich-presence.js`. v3 installs
-no additional npm dependencies.
+`~/.config/opencode/plugins/opencode-rich-presence.js`. The only
+runtime dependency is `@opencode/plugin`, imported by the v2 entry.
+The v1 entry and the daemon stay dependency-free.
 
 If OpenCode is already installed, `install.sh` runs this step for
 you. Skip it if you already saw the `Replaced / Linked` line.
@@ -133,7 +134,7 @@ config), see [`docs/INSTALL.md`](./docs/INSTALL.md).
 ### OpenCode v2
 
 OpenCode v2 changed the plugin API, so the v1 entry
-(`src/plugin/index.js`) does not load there — the server logs
+(`src/plugin/index.js`) does not load there. The server logs
 `Plugin must export a default definition with an id and an effect
 or setup function`. This package ships a v2 entry
 (`src/plugin/index.v2.js`, plugin id
@@ -146,8 +147,8 @@ and links the matching entry under the same
 exactly one entry loads and no startup warning appears. When no
 OpenCode binary is found (Desktop-only installs without the CLI on
 PATH), the installer asks which entry to link. The v2 entry needs
-the `@opencode/plugin` dependency, which ships with the package —
-no extra install step.
+the `@opencode/plugin` dependency, which ships with the package.
+No extra install step.
 
 Note for OpenCode Desktop users: the Desktop backend
 (`opencode-cli serve`) is long-lived. After install or upgrade,
