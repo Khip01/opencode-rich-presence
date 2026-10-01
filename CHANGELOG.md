@@ -7,7 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [3.4.0] - 2026-10-01
 
-OpenCode v2 support. The v1 entry is unchanged.
+OpenCode v2 support, contributed by
+[@bariscodefxy](https://github.com/bariscodefxy) in
+[#3](https://github.com/Khip01/opencode-rich-presence/pull/3).
+The v1 entry is unchanged.
 
 ### Added
 
