@@ -141,7 +141,9 @@ async function installLocalPlugin() {
     const pluginsDir = join(OPENCODE_DIR, "plugins");
     let entry = detectPluginEntry();
     if (!entry) {
-        const useV2 = await confirm("  OpenCode version not detected. Install V2 plugin entry? (No = V1)", { defaultYes: true });
+        // Version unknown: stay conservative and link the V1 entry.
+        // Linking the V2 entry on a v1-only machine loads nothing.
+        const useV2 = await confirm("  OpenCode version not detected. Install V2 plugin entry? (No = V1)", { defaultYes: false });
         entry = useV2
             ? join(PKG_ROOT, PLUGIN_ENTRY_V2)
             : join(PKG_ROOT, PLUGIN_ENTRY_V1);

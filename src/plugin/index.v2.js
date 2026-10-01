@@ -10,18 +10,28 @@
 // Requires the `@opencode/plugin` dependency (see package.json).
 
 import { Plugin } from "@opencode/plugin";
+import { unlinkSync } from "node:fs";
 import { loadConfig } from "./config-resolver.js";
 import { SessionState } from "./session-state.js";
 import { STATE } from "../shared/constants.js";
 import { activity, log } from "../shared/logger.js";
 import { readState } from "../shared/presence-state.js";
+import { DAEMON_PID_FILE } from "../shared/paths.js";
+import {
+    isDaemonAlive,
+    isPidAlive,
+    readDaemonPid,
+    unlinkSocketPath,
+} from "../shared/daemon-liveness.js";
 import {
     renderPresence,
     pushPresence,
     startPresence,
     stopPresence,
+    getDaemonClient,
     ensureConnected,
     sendStateToDaemon,
+    disconnectFromDaemon,
 } from "./local-presence.js";
 import { ensureDaemonRunning } from "./daemon-spawner.js";
 
@@ -31,6 +41,11 @@ const modelLimits = new Map();
 let config = null;
 let presenceEnabled = true;
 let daemonStopped = false;
+// Last presenceEnabled value forwarded to the daemon as a `set-enabled`
+// control message. The on/off CLI commands send it too, but a missed
+// delivery (daemon down, EPIPE) would leave the daemon showing a stale
+// activity, so the plugin re-forwards on change.
+let lastForwardedEnabled = null;
 
 function limitFor(mid) {
     if (!mid) return null;
@@ -84,22 +99,84 @@ function push() {
         return;
     }
     pushPresence(rendered);
+    if (presenceEnabled !== lastForwardedEnabled) {
+        forwardEnabled(presenceEnabled);
+    }
     if (rendered && presenceEnabled) sendStateToDaemon(d, rendered);
 }
 
-async function ensureDaemonAndConnect() {
+// Forward the on/off marker to the connected daemon so `off` clears the
+// Discord activity even when the CLI's one-shot control message missed,
+// and `on` resumes a live daemon instantly.
+function forwardEnabled(enabled) {
+    lastForwardedEnabled = enabled;
     try {
-        if (daemonStopped) {
-            activity("daemon", "spawn suppressed: daemonStopped=true (run 'opencode-rpc spawn')");
+        const c = getDaemonClient();
+        if (!c.isConnected()) {
+            activity("push", `set-enabled forward skipped (not connected): ${enabled}`);
             return false;
         }
-        const running = await ensureDaemonRunning();
-        if (!running) return false;
-        return await ensureConnected();
+        const ok = c.send({ type: "set-enabled", enabled });
+        activity("push", ok ? `forwarded set-enabled=${enabled} to daemon` : `set-enabled forward failed: ${c.lastError || "not connected"}`);
+        return ok;
     } catch (e) {
-        log(`ensureDaemon: ${e?.message || e}`);
+        log(`set-enabled forward: ${e?.message || e}`);
         return false;
     }
+}
+
+async function ensureDaemonAndConnect() {
+    const c = getDaemonClient();
+    // A live daemon is always reused. `opencode-rpc kill` only suppresses
+    // spawning a new one; it must not make the plugin ignore a daemon
+    // that is demonstrably listening.
+    if (isDaemonAlive()) {
+        const ok = await ensureConnected();
+        if (ok) {
+            const caps = await c.waitForHelloAck();
+            if (Array.isArray(caps) && caps.includes("set-enabled")) return true;
+            // Daemon predates a capability the plugin needs. Recycle it
+            // instead of silently dropping control messages.
+            activity("daemon", `stale daemon detected (capabilities=${JSON.stringify(caps)}); recycling`);
+            await recycleDaemon();
+            const respawned = await ensureDaemonRunning();
+            if (!respawned) return false;
+            return await ensureConnected();
+        }
+        // Daemon recorded but unreachable. Drop the stale bookkeeping so
+        // the spawn path below can take over.
+        try { unlinkSync(DAEMON_PID_FILE); } catch {}
+        unlinkSocketPath();
+    }
+    if (daemonStopped) {
+        activity("daemon", "spawn suppressed: daemonStopped=true (run 'opencode-rpc spawn')");
+        return false;
+    }
+    const spawned = await ensureDaemonRunning();
+    if (!spawned) return false;
+    return await ensureConnected();
+}
+
+// Stop a daemon that predates a capability the plugin needs. Waits for
+// the old process to actually exit before returning so its shutdown
+// handler cannot remove the IPC address of the daemon spawned next.
+async function recycleDaemon() {
+    disconnectFromDaemon();
+    let pid = readDaemonPid();
+    if (pid !== null) {
+        try { process.kill(pid, "SIGTERM"); } catch {}
+        const start = Date.now();
+        while (Date.now() - start < 2000) {
+            if (!isPidAlive(pid)) { pid = null; break; }
+            await new Promise((r) => setTimeout(r, 50));
+        }
+        if (pid !== null) {
+            try { process.kill(pid, "SIGKILL"); } catch {}
+            await new Promise((r) => setTimeout(r, 150));
+        }
+    }
+    try { unlinkSync(DAEMON_PID_FILE); } catch {}
+    unlinkSocketPath();
 }
 
 // Best-effort extraction across event shapes.
@@ -203,20 +280,10 @@ export default Plugin.define({
                     try {
                         const info = await ctx.session.get({ sessionID: sid });
                         const data = info?.data ?? info;
-                        if (data && typeof data === "object") {
-                            // Authoritative totals, but only as backfill: per-message
-                            // events own the accounting once they start arriving.
-                            if (s._messageMap.size === 0) {
-                                if (typeof data.cost === "number" && data.cost > 0) {
-                                    s._cost = data.cost;
-                                }
-                                const tok = data.tokens;
-                                if (tok && typeof tok === "object") {
-                                    const ctxT = (tok.input || 0) + (tok.cache?.read || 0);
-                                    if (ctxT > 0) s._latestContextTokens = ctxT;
-                                }
-                            }
-                        }
+                        // Cost/tokens come only from per-message events via
+                        // addOrUpdateMessage. Mixing the session-level totals
+                        // in here would double-count once message.updated
+                        // arrives for the same in-flight message.
                         const model = data?.model ?? data?.modelID;
                         if (typeof model === "string" && model) s.model = model;
                         else if (model?.id) {
@@ -248,11 +315,14 @@ export default Plugin.define({
                     const agentName = typeof agent === "string" ? agent : agent?.name ?? agent?.id ?? null;
                     if (agentName) { s.agent = agentName; s.mode = agentName; }
                     const model = event?.model;
-                    if (typeof model === "string" && model) s.model = model;
-                    else if (model && typeof model === "object") {
-                        if (model.id) {
-                            s.model = model.providerID ? `${model.providerID}/${model.id}` : model.id;
-                        }
+                    // One shape everywhere: the bare model id, like V1's
+                    // modelID. limitFor() matches the exact key or the part
+                    // after the first "/", so a provider/model value would
+                    // resolve a different limit than the bare id.
+                    if (typeof model === "string" && model) {
+                        s.model = model.includes("/") ? model.split("/").slice(1).join("/") : model;
+                    } else if (model && typeof model === "object") {
+                        if (model.id) s.model = model.id;
                         if (model.providerID) s.provider = model.providerID;
                     }
                     const lim = limitFor(s.model);
@@ -372,7 +442,9 @@ export default Plugin.define({
                 daemonStopped = st.daemonStopped;
             } catch {}
             const d = displayedID ? sessions.get(displayedID) : null;
-            if (d) {
+            // V1 skips this refresh once the session is WAITING; only
+            // poll while there is something still changing.
+            if (d && d.state !== STATE.WAITING) {
                 void refreshSessionStats(ctx, d.sessionID).then(() => {
                     updateDisplay();
                     push();

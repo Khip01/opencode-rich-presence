@@ -101,6 +101,12 @@ jobs:
       - name: Presence toggle harness
         run: npm run test:presence-toggle
 
+      # V2 plugin entry against a live daemon with a mocked V2
+      # context (no OpenCode v2 binary needed). Proves prompt push,
+      # the bare model-id shape, and set-enabled forwarding/gating.
+      - name: V2 entry harness
+        run: npm run test:v2-entry
+
       - name: Phase 2 v2 harness
         run: npm run test:phase2-v2
 

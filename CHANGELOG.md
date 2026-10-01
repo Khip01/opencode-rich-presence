@@ -25,6 +25,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   found (Desktop-only installs without the CLI on PATH).
 - **`@opencode/plugin` dependency** (`^2.0.15`, used only by the v2
   entry). Smoke test allows exactly this dependency.
+- **`tests/v2-entry.mjs`**: 14-assertion harness driving the v2 entry
+  with a mocked v2 context (no v2 binary needed) against a live
+  sandbox daemon. Covers hook registration, prompt push, the bare
+  model-id shape, `set-enabled` forwarding/gating, and daemon
+  cleanup. Wired as `npm run test:v2-entry`, into `npm test`, and
+  into both CI lanes.
+
+### Fixed
+
+- V2 entry now forwards the on/off marker to the daemon as
+  `set-enabled` (like the CLI does), so `off` clears the Discord
+  activity even when the CLI's one-shot control message missed.
+- V2 `daemonStopped` only suppresses spawning a new daemon; a live
+  daemon is reused, matching v1.
+- V2 recycles a daemon whose hello ack lacks `set-enabled`
+  (SIGTERM, wait for exit, respawn) instead of silently dropping
+  control messages.
+- V2 `context` hook stores the bare model id everywhere (one shape,
+  like v1) so context-limit resolution does not depend on hook
+  order. Session-level cost/token totals are no longer mixed into
+  the per-message accumulator.
+- V2 skips the 5s stats refresh once the session is `WAITING`.
+- `install` defaults to the V1 entry when the OpenCode version
+  cannot be detected.
 
 ## [3.3.2] - 2026-09-30
 
