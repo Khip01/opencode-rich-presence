@@ -45,6 +45,33 @@ function countMatches(re) {
     const m = logText().match(new RegExp(re.source, "g"));
     return m ? m.length : 0;
 }
+// Existence checks can match lines from an earlier section, so for
+// lines that repeat (forwards, payload sends) wait for the count to
+// grow past a baseline instead.
+async function waitForCount(re, before, timeoutMs, what) {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+        if (countMatches(re) > before) return true;
+        await new Promise((r) => setTimeout(r, 200));
+    }
+    console.log(`    [timeout waiting for ${what || re} to grow past ${before}]`);
+    return false;
+}
+function killSandboxDaemon() {
+    const pid = readDaemonPid();
+    if (pid === null || !isPidAlive(pid)) return false;
+    try { process.kill(pid, "SIGTERM"); } catch { return false; }
+    return true;
+}
+async function waitPidGone(timeoutMs) {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+        const pid = readDaemonPid();
+        if (pid === null || !isPidAlive(pid)) return true;
+        await new Promise((r) => setTimeout(r, 200));
+    }
+    return false;
+}
 
 const hooks = {};
 const toolHooks = {};
@@ -77,10 +104,15 @@ ok(typeof hooks.context === "function", "context hook registered");
 ok(typeof toolHooks["execute.before"] === "function", "tool execute.before hook registered");
 ok(await waitFor(/v2 plugin setup complete/, 10000), "setup completes in activity log");
 
+section("missed set-enabled is not committed");
+ok(await waitFor(/set-enabled forward skipped \(not connected\): true/, 10000, "setup-time skip"), "setup-time forward skipped without daemon");
+
 section("prompt pushes to the daemon");
+const forwardedTrueBefore = countMatches(/forwarded set-enabled=true to daemon/);
 hooks.prompt({ sessionID: SID });
 ok(await waitFor(/Waiting for command -> Working \(prompt\)/, 30000, "Working transition"), "session transitions to Working on prompt");
 ok(await waitFor(/sent rendered payload to daemon/, 30000, "payload send"), "rendered payload sent to daemon");
+ok(await waitForCount(/forwarded set-enabled=true to daemon/, forwardedTrueBefore, 30000, "setup-skip redelivery"), "skipped forward retried once reachable");
 
 section("model id keeps one shape");
 hooks.context({ sessionID: SID, agent: "build", model: { providerID: "openrouter", id: "gpt-6.1-sol" } });
@@ -89,27 +121,33 @@ ok(!/openrouter\/gpt-6\.1-sol/.test(logText()), "no provider/model compound id l
 
 section("set-enabled is forwarded and gates sends");
 const sentBefore = countMatches(/sent rendered payload to daemon/);
+const forwardedFalseBefore = countMatches(/forwarded set-enabled=false to daemon/);
 writeState({ presenceEnabled: false });
 hooks.prompt({ sessionID: SID });
-ok(await waitFor(/forwarded set-enabled=false to daemon/, 15000), "marker flip forwards set-enabled=false");
+ok(await waitForCount(/forwarded set-enabled=false to daemon/, forwardedFalseBefore, 15000, "disable forward"), "marker flip forwards set-enabled=false");
 await new Promise((r) => setTimeout(r, 3000));
 ok(countMatches(/sent rendered payload to daemon/) === sentBefore, "payload sends gated while disabled");
+const forwardedTrueBefore2 = countMatches(/forwarded set-enabled=true to daemon/);
 writeState({ presenceEnabled: true });
 hooks.prompt({ sessionID: SID });
-ok(await waitFor(/forwarded set-enabled=true to daemon/, 15000), "re-enable forwards set-enabled=true");
+ok(await waitForCount(/forwarded set-enabled=true to daemon/, forwardedTrueBefore2, 15000, "re-enable forward"), "re-enable forwards set-enabled=true");
 ok(await waitFor(/sent rendered payload to daemon/, 15000) && countMatches(/sent rendered payload to daemon/) > sentBefore, "payload sends resume after re-enable");
+
+section("interval tick forwards without a prompt");
+const promptsBefore = countMatches(/\[event\] prompt sid=/);
+const forwardedFalseBefore2 = countMatches(/forwarded set-enabled=false to daemon/);
+writeState({ presenceEnabled: false });
+// No prompt here: the 5s tick must redeem the flip on its own.
+ok(await waitForCount(/forwarded set-enabled=false to daemon/, forwardedFalseBefore2, 15000, "tick forward"), "tick forwards the marker flip");
+ok(countMatches(/\[event\] prompt sid=/) === promptsBefore, "no prompt needed for the tick forward");
+const forwardedTrueBefore3 = countMatches(/forwarded set-enabled=true to daemon/);
+writeState({ presenceEnabled: true });
+ok(await waitForCount(/forwarded set-enabled=true to daemon/, forwardedTrueBefore3, 15000, "tick re-enable"), "tick forwards re-enable");
 
 section("cleanup");
 await cleanup();
-const pid = readDaemonPid();
-if (pid !== null) {
-    try { process.kill(pid, "SIGTERM"); } catch {}
-    const start = Date.now();
-    while (isPidAlive(pid) && Date.now() - start < 10000) {
-        await new Promise((r) => setTimeout(r, 200));
-    }
-}
-ok(pid === null || !isPidAlive(pid), "sandbox daemon exited");
+killSandboxDaemon();
+ok(waitPidGone(10000), "sandbox daemon exited");
 
 console.log("");
 console.log(`V2-ENTRY: ${failed === 0 ? "PASSED" : "FAILED"} (${passed} passed, ${failed} failed)`);

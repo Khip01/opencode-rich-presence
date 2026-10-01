@@ -25,18 +25,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   found (Desktop-only installs without the CLI on PATH).
 - **`@opencode/plugin` dependency** (`^2.0.15`, used only by the v2
   entry). Smoke test allows exactly this dependency.
-- **`tests/v2-entry.mjs`**: 14-assertion harness driving the v2 entry
+- **`tests/v2-entry.mjs`**: 19-assertion harness driving the v2 entry
   with a mocked v2 context (no v2 binary needed) against a live
   sandbox daemon. Covers hook registration, prompt push, the bare
-  model-id shape, `set-enabled` forwarding/gating, and daemon
-  cleanup. Wired as `npm run test:v2-entry`, into `npm test`, and
-  into both CI lanes.
+  model-id shape, `set-enabled` forwarding/gating, missed-forward
+  retry, and tick-driven forwarding without a prompt. Wired as
+  `npm run test:v2-entry`, into `npm test`, and into both CI lanes.
 
 ### Fixed
 
 - V2 entry now forwards the on/off marker to the daemon as
   `set-enabled` (like the CLI does), so `off` clears the Discord
   activity even when the CLI's one-shot control message missed.
+  The value is committed only after the write lands, so a missed
+  delivery is retried by the next push or interval tick; the tick
+  also forwards marker flips on its own, without waiting for the
+  next prompt.
 - V2 `daemonStopped` only suppresses spawning a new daemon; a live
   daemon is reused, matching v1.
 - V2 recycles a daemon whose hello ack lacks `set-enabled`

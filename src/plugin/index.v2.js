@@ -99,17 +99,17 @@ function push() {
         return;
     }
     pushPresence(rendered);
-    if (presenceEnabled !== lastForwardedEnabled) {
-        forwardEnabled(presenceEnabled);
-    }
+    forwardEnabled(presenceEnabled);
     if (rendered && presenceEnabled) sendStateToDaemon(d, rendered);
 }
 
 // Forward the on/off marker to the connected daemon so `off` clears the
 // Discord activity even when the CLI's one-shot control message missed,
-// and `on` resumes a live daemon instantly.
+// and `on` resumes a live daemon instantly. Sends only on change, and
+// commits the value only after the write lands, so a missed delivery is
+// retried by the next push() or interval tick.
 function forwardEnabled(enabled) {
-    lastForwardedEnabled = enabled;
+    if (enabled === lastForwardedEnabled) return true;
     try {
         const c = getDaemonClient();
         if (!c.isConnected()) {
@@ -117,6 +117,7 @@ function forwardEnabled(enabled) {
             return false;
         }
         const ok = c.send({ type: "set-enabled", enabled });
+        if (ok) lastForwardedEnabled = enabled;
         activity("push", ok ? `forwarded set-enabled=${enabled} to daemon` : `set-enabled forward failed: ${c.lastError || "not connected"}`);
         return ok;
     } catch (e) {
@@ -441,6 +442,11 @@ export default Plugin.define({
                 presenceEnabled = st.presenceEnabled;
                 daemonStopped = st.daemonStopped;
             } catch {}
+            // Redeem a missed set-enabled without waiting for the next
+            // prompt: the tick is what picks up on/off from another
+            // terminal. Committed only on successful send, so a
+            // disconnected daemon is retried every tick.
+            forwardEnabled(presenceEnabled);
             const d = displayedID ? sessions.get(displayedID) : null;
             // V1 skips this refresh once the session is WAITING; only
             // poll while there is something still changing.
