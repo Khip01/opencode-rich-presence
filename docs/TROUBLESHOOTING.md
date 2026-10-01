@@ -165,6 +165,26 @@ plugin loaded` (new activity log line). If absent, the plugin
 symlink is missing or OpenCode did not load the plugin. See
 "Plugin does not load" below.
 
+### "Plugin must export a default definition" (V1 entry on OpenCode v2)
+
+OpenCode v2 changed the plugin API. If the server log shows:
+
+```
+failed to load plugin ... Plugin must export a default definition
+with an id and an effect or setup function
+```
+
+the v1 entry (`src/plugin/index.js`, function export) is linked
+but the backend is v2. Re-run `opencode-rpc install`: it detects
+the major version via `opencode --version` and links the matching
+entry (`src/plugin/index.v2.js` for v2) under the same symlink
+name. If no OpenCode binary is on PATH (Desktop-only installs),
+the installer asks which entry to link. After switching entries,
+fully restart OpenCode Desktop — its `opencode-cli` backend is
+long-lived and keeps serving the old plugin set until restarted
+(a stale backend also explains an activity log with no new
+`[load]` lines after an upgrade).
+
 ### "Activity log is huge / has grown forever"
 
 Rotate it via:

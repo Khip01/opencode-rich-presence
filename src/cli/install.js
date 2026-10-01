@@ -1,4 +1,5 @@
 import { existsSync, readFileSync, writeFileSync, copyFileSync, mkdirSync, lstatSync, symlinkSync, unlinkSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { dirname, join, basename } from "node:path";
 import { fileURLToPath } from "node:url";
 import { OPENCODE_DIR, CONFIG_PATH } from "../shared/paths.js";
@@ -7,7 +8,11 @@ import { confirm } from "./prompt.js";
 const PKG_ROOT = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
 const EXAMPLE_CONFIG = join(PKG_ROOT, "config", "discord-config.example.json");
 const PLUGIN_NAME = "opencode-rich-presence";
-const PLUGIN_ENTRY_RELATIVE = "src/plugin/index.js";
+// V1 (function export) and V2 (Plugin.define) entries. OpenCode v2 does
+// not run V1 implementations and vice versa, so install links exactly one
+// of them under the same link name (see detectPluginEntry).
+const PLUGIN_ENTRY_V1 = "src/plugin/index.js";
+const PLUGIN_ENTRY_V2 = "src/plugin/index.v2.js";
 
 export async function install() {
     console.log("\nopencode-rich-presence installer\n");
@@ -109,10 +114,40 @@ async function maybeMigrateRemoveFromOpencodeConfig() {
 //
 // We symlink rather than copy so the local plugin reflects updates after
 // `npm update -g opencode-rich-presence` without a separate re-install step.
+// OpenCode v2 changed the plugin API (Plugin.define with id + setup);
+// V1 function entries fail to load there and V2 entries fail on V1.
+// Probe `opencode --version` and link the matching entry. When no
+// OpenCode binary is found (e.g. Desktop-only installs without the CLI
+// on PATH), ask instead of guessing: linking the wrong entry loads
+// nothing and only logs a warning on every startup.
+function detectPluginEntry() {
+    const v1 = join(PKG_ROOT, PLUGIN_ENTRY_V1);
+    const v2 = join(PKG_ROOT, PLUGIN_ENTRY_V2);
+    let major = null;
+    try {
+        const out = execFileSync("opencode", ["--version"], { encoding: "utf-8", timeout: 10000 });
+        const m = out.match(/(\d+)\.\d+\.\d+/);
+        if (m) major = parseInt(m[1], 10);
+    } catch {}
+    if (major !== null) {
+        console.log(`  Detected OpenCode v${major} (opencode --version).`);
+        return major >= 2 ? v2 : v1;
+    }
+    return null;
+}
+
 async function installLocalPlugin() {
     console.log("");
     const pluginsDir = join(OPENCODE_DIR, "plugins");
-    const entry = join(PKG_ROOT, PLUGIN_ENTRY_RELATIVE);
+    let entry = detectPluginEntry();
+    if (!entry) {
+        // Version unknown: stay conservative and link the V1 entry.
+        // Linking the V2 entry on a v1-only machine loads nothing.
+        const useV2 = await confirm("  OpenCode version not detected. Install V2 plugin entry? (No = V1)", { defaultYes: false });
+        entry = useV2
+            ? join(PKG_ROOT, PLUGIN_ENTRY_V2)
+            : join(PKG_ROOT, PLUGIN_ENTRY_V1);
+    }
     const link = join(pluginsDir, `${PLUGIN_NAME}.js`);
 
     if (!existsSync(entry)) {
@@ -141,7 +176,8 @@ async function installLocalPlugin() {
     }
 
     symlinkSync(entry, link);
-    console.log(`  Linked ${link}`);
+    const kind = entry.endsWith("index.v2.js") ? "V2" : "V1";
+    console.log(`  Linked ${link} (${kind} entry)`);
     console.log(`    -> ${entry}`);
 }
 

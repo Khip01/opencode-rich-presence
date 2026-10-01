@@ -8,7 +8,7 @@
     "opencode-rpc": "./bin/opencode-rpc.js"
   },
   "scripts": {
-    "test": "node tests/phase1-harness.mjs && node tests/phase2-harness.mjs && node tests/phase2-v2-harness.mjs && node tests/template-selection.mjs && node tests/model-name-style.mjs && node tests/replacements.mjs && node tests/presence-toggle.mjs && node tests/win-path.mjs && node tests/presence-gc.mjs && node tests/cli-lifecycle.mjs",
+    "test": "node tests/phase1-harness.mjs && node tests/phase2-harness.mjs && node tests/phase2-v2-harness.mjs && node tests/template-selection.mjs && node tests/model-name-style.mjs && node tests/replacements.mjs && node tests/presence-toggle.mjs && node tests/v2-entry.mjs && node tests/win-path.mjs && node tests/presence-gc.mjs && node tests/cli-lifecycle.mjs",
     "test:phase1": "node tests/phase1-harness.mjs",
     "test:phase2": "node tests/phase2-harness.mjs",
     "test:phase2-v2": "node tests/phase2-v2-harness.mjs",
@@ -16,6 +16,7 @@
     "test:model-name-style": "node tests/model-name-style.mjs",
     "test:replacements": "node tests/replacements.mjs",
     "test:presence-toggle": "node tests/presence-toggle.mjs",
+    "test:v2-entry": "node tests/v2-entry.mjs",
     "test:win-path": "node tests/win-path.mjs",
     "test:presence-gc": "node tests/presence-gc.mjs",
     "test:cli-lifecycle": "node tests/cli-lifecycle.mjs",
@@ -28,6 +29,9 @@
   "engines": {
     "node": ">=18",
     "bun": ">=1.0.0"
+  },
+  "dependencies": {
+    "@opencode/plugin": "^2.0.15"
   },
   "keywords": [
     "opencode",

@@ -39,7 +39,9 @@ windows no longer disconnects from Discord.
 ## Requirements
 
 - Node.js 18+ (LTS recommended; CI tests on 20, 22, 24, plus 22 on Windows)
-- OpenCode CLI
+- OpenCode CLI (v1 or v2 — `opencode-rpc install` detects the major
+  version and links the matching plugin entry: `src/plugin/index.js`
+  for v1, `src/plugin/index.v2.js` for v2)
 - Discord Desktop (required for v3 Phase 2 push)
 
 Works on **Linux** and **macOS**. Windows support is implemented
@@ -48,9 +50,13 @@ through named pipes: the daemon listens on
 file, and Discord is found via `\\.\pipe\discord-ipc-N`. CI runs a
 `windows-latest` job that exercises those paths: the win-path
 harness (liveness helpers, IPC address shape), a live daemon spawn
-via `presence-toggle`, and the phase2-v2 harness. A real Discord
-Desktop handshake on Windows has still not been observed from CI,
-and phase1/phase2/cli-lifecycle stay Linux-only until they are
+via `presence-toggle`, and the phase2-v2 harness. Real Discord
+Desktop handshakes on Windows have been observed on user machines
+(`Discord connected` over `\\.\pipe\discord-ipc-0`); if a fresh
+spawn does not connect within a minute, restart Discord Desktop
+once (it rate-limits rapid reconnects per App ID) and fire a
+message to trigger a push. The phase1/phase2/cli-lifecycle harnesses
+stay Linux-only until they are
 ported off their hardcoded `/tmp` paths and `bash` calls.
 
 ## Installation
@@ -123,6 +129,31 @@ Discord is reporting presence.
 
 For detailed setup (creating your own Discord App, advanced
 config), see [`docs/INSTALL.md`](./docs/INSTALL.md).
+
+### OpenCode v2
+
+OpenCode v2 changed the plugin API, so the v1 entry
+(`src/plugin/index.js`) does not load there — the server logs
+`Plugin must export a default definition with an id and an effect
+or setup function`. This package ships a v2 entry
+(`src/plugin/index.v2.js`, plugin id
+`opencode-rich-presence-v2`) that reuses the same daemon,
+templates, and `discord-config.json`; only the event wiring uses
+the v2 API (`prompt` / `context` / tool hooks plus an event
+subscription). `opencode-rpc install` probes `opencode --version`
+and links the matching entry under the same
+`~/.config/opencode/plugins/opencode-rich-presence.js` name, so
+exactly one entry loads and no startup warning appears. When no
+OpenCode binary is found (Desktop-only installs without the CLI on
+PATH), the installer asks which entry to link. The v2 entry needs
+the `@opencode/plugin` dependency, which ships with the package —
+no extra install step.
+
+Note for OpenCode Desktop users: the Desktop backend
+(`opencode-cli serve`) is long-lived. After install or upgrade,
+restart the backend (quit Desktop fully, or stop its
+`opencode-cli` process and let Desktop respawn it) or the new
+entry will not load until the next reboot.
 
 ## CLI Reference
 
