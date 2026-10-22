@@ -118,6 +118,40 @@ subscription. Native V2 events such as `session.step.*`,
 normalized into the shared `SessionState`. Multiple V2 plugin locations in
 one service share one event subscription and polling loop.
 
+V1 vs V2 session storage (important for prompt counting)
+---------------------------------------------------------
+
+OpenCode V1 and V2 use separate SQLite tables for session data:
+
+  | Aspect       | V1                    | V2                      |
+  |--------------|-----------------------|-------------------------|
+  | Session      | `session` table       | `session_v2` table      |
+  | Messages     | `message` table       | `session_message` table |
+  | Message type | JSON `data.role`      | column `type`           |
+
+Database location: `~/.local/share/opencode/opencode.db`
+
+When a user migrates from V1 to V2 via `/update`, the session entry is
+created in `session_v2` but the messages remain in the V1 `message` table.
+New sessions created in V2 store messages in `session_message`. Therefore
+prompt counting must check BOTH tables:
+
+  V2 sessions: SELECT COUNT(*) FROM session_message
+               WHERE session_id = ? AND type = 'user'
+
+  V1 sessions: SELECT COUNT(*) FROM message
+               WHERE session_id = ?
+               AND json_extract(data, '$.role') = 'user'
+
+The `countAllUserMessages()` function in `index.v2.js` implements this
+dual-table query. It runs once per session on first load (since it reads
+the database), then incremental counting from events takes over.
+
+The `session.context` API is NOT suitable for prompt counting: it only
+returns the context window (~100 messages that fit in the model's
+context), not the full message history. For sessions with hundreds or
+thousands of prompts, `session.context` severely undercounts.
+
 OpenCode shutdown
     |
     v

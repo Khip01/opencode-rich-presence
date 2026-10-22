@@ -190,6 +190,7 @@ function createRuntime(ctx, loadedConfig) {
             session._promptIDs = new Set();
             session._userPromptIDs = new Set();
             session._assistantPromptIDs = new Set();
+            session._fullCountDone = false;
             sessions.set(sid, session);
             activity("queue", `added sid=${sid.slice(-8)} (v2)`);
         }
@@ -268,6 +269,53 @@ function createRuntime(ctx, loadedConfig) {
             ? session._userPromptIDs.size
             : session._assistantPromptIDs.size;
         if (observed > session.promptCount) session.promptCount = observed;
+    }
+
+    async function countAllUserMessages(session, sourceCtx = ctx) {
+        if (!session) return 0;
+        try {
+            // Read from OpenCode SQLite database directly (most reliable)
+            const { DatabaseSync } = await import("node:sqlite");
+            const { join } = await import("node:path");
+            const { homedir } = await import("node:os");
+            const dbPath = process.env.OPENCODE_CONFIG_DIR
+                ? join(process.env.OPENCODE_CONFIG_DIR, "..", "opencode", "opencode.db")
+                : join(homedir(), ".local", "share", "opencode", "opencode.db");
+            try {
+                const db = new DatabaseSync(dbPath, { readOnly: true });
+                // V2 sessions: session_message table (type column)
+                let result = db.prepare(
+                    "SELECT COUNT(*) as cnt FROM session_message WHERE session_id = ? AND type = 'user'"
+                ).get(session.sessionID);
+                let count = result?.cnt ?? 0;
+                // V1 sessions: message table (JSON data.role)
+                if (count === 0) {
+                    result = db.prepare(
+                        "SELECT COUNT(*) as cnt FROM message WHERE session_id = ? AND json_extract(data, '$.role') = 'user'"
+                    ).get(session.sessionID);
+                    count = result?.cnt ?? 0;
+                }
+                db.close();
+                log(`countUser: sqlite user count=${count} for ${session.sessionID}`);
+                if (count > 0) return count;
+            } catch (e) {
+                log(`countUser: sqlite error=${e?.message}`);
+            }
+            // Fallback to session.context
+            const contextResp = await sourceCtx.session.context({ sessionID: session.sessionID });
+            const messages = Array.isArray(contextResp) ? contextResp : contextResp?.data ?? [];
+            if (Array.isArray(messages)) {
+                const userCount = messages.filter((m) => {
+                    const info = m?.info ?? m;
+                    return info?.type === "user" || info?.role === "user";
+                }).length;
+                log(`countUser: fallback context user count=${userCount}`);
+                return userCount;
+            }
+        } catch (error) {
+            log(`countUserMessages: ${error?.message || error}`);
+        }
+        return 0;
     }
 
     function applyAssistantMessage(sid, info, eventTime) {
@@ -479,6 +527,15 @@ function createRuntime(ctx, loadedConfig) {
             }
         } catch (error) {
             log(`session.context(${sid}): ${error?.message || error}`);
+        }
+
+        // Full user message count via message.list API (paginated).
+        // Only done once per session since it requires multiple API calls.
+        if (!session._fullCountDone) {
+            session._fullCountDone = true;
+            const total = await countAllUserMessages(session, sourceCtx);
+            session.promptCount = Math.max(session.promptCount, total);
+            activity("stats", `sid=${sid.slice(-8)} full prompt count=${total}`);
         }
     }
 

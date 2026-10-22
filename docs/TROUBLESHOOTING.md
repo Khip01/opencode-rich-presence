@@ -276,6 +276,45 @@ should no longer remain at zero when OpenCode reports usage.
 
 ---
 
+### "V2 prompt count is way too low (e.g. 10 instead of 878)"
+
+**Cause:** The plugin was counting prompts from `session.context`, which
+only returns the context window (roughly the last 100 messages that fit
+in the model's context), not the full message history. Sessions with
+hundreds or thousands of prompts were severely undercounted.
+
+Additionally, OpenCode V1 and V2 store messages in different SQLite
+tables (`message` vs `session_message`). Sessions migrated from V1 via
+`/update` keep their messages in the V1 `message` table even though the
+session entry lives in `session_v2`.
+
+**Fix:** The plugin now reads the OpenCode SQLite database directly at
+`~/.local/share/opencode/opencode.db`, checking both tables:
+
+- V2 sessions: `session_message` table, `type = 'user'`
+- V1 sessions: `message` table, `json_extract(data, '$.role') = 'user'`
+
+Verify the count manually:
+
+```bash
+sqlite3 ~/.local/share/opencode/opencode.db \\
+  "SELECT COUNT(*) FROM session_message WHERE session_id='YOUR_SESSION_ID' AND type='user'"
+
+sqlite3 ~/.local/share/opencode/opencode.db \\
+  "SELECT COUNT(*) FROM message WHERE session_id='YOUR_SESSION_ID' AND json_extract(data, '\$.role')='user'"
+```
+
+Check the debug log for the count source:
+
+```bash
+grep 'countUser' /tmp/opencode-rich-presence-debug.log | tail -5
+```
+
+Look for `sqlite user count=N`. If it shows `0`, the session might use
+the other table; the plugin checks both automatically.
+
+---
+
 ## Discord doesn't show my presence
 
 See "Phase 2: I fired a message but Discord did not update" above

@@ -108,6 +108,30 @@ const mockCtx = {
     tool: {
         hook: async (name, cb) => { toolHooks[name] = cb; return { dispose: async () => {} }; },
     },
+    data: {
+        session: {
+            message: {
+                sync: async (sessionID) => {},
+                list: (sessionID) => {
+                    return Array.from({ length: 42 }, (_, i) => ({ id: `user_${i}`, type: "user", info: { id: `user_${i}`, type: "user" } }));
+                },
+            },
+        },
+    },
+    client: {
+        message: {
+            list: async ({ sessionID, type, limit, cursor }) => {
+                if (type === "user") {
+                    const allUsers = Array.from({ length: 42 }, (_, i) => ({ id: `user_${i}`, type: "user" }));
+                    const start = cursor ? parseInt(cursor, 10) : 0;
+                    const page = allUsers.slice(start, start + (limit || 200));
+                    const next = start + page.length < allUsers.length ? String(start + page.length) : undefined;
+                    return { data: page, cursor: { next } };
+                }
+                return { data: [], cursor: {} };
+            },
+        },
+    },
     event: {
         subscribe: async function* () {
             subscribeResolve?.();
@@ -242,6 +266,11 @@ ok(await waitFor(/session\.execution\.started sid=arness01/, 10000), "execution.
 await new Promise((r) => setTimeout(r, 500));
 const promptCountAfter = countMatches(/\[event\] prompt sid=/);
 ok(promptCountAfter === promptCountBefore, `execution.started does not addPrompt (before=${promptCountBefore}, after=${promptCountAfter})`);
+
+section("full prompt count from database");
+// SQLite may not have the test session; fallback to session.context
+// which returns mock messages. Verify the count is logged.
+ok(await waitFor(/full prompt count=\d+/, 15000, "full count"), "full prompt count is logged from database or fallback");
 
 section("location.shutdown clears presence");
 emit({

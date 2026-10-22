@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **V2 prompt count from database**: prompt count now reads the OpenCode
+  SQLite database directly (`~/.local/share/opencode/opencode.db`) instead
+  of relying on `session.context` which only returns the context window
+  (~100 messages). The fix handles both V1 and V2 session storage:
+  V2 sessions use the `session_message` table (column `type='user'`),
+  V1 sessions use the `message` table (JSON `data.role='user'`).
+  Sessions migrated from V1 via `/update` keep their messages in the
+  V1 `message` table even though the session entry lives in `session_v2`.
 - **V2 model limit lookup**: custom models defined in `opencode.jsonc`
   now resolve their context limits via a config file fallback when
   `ctx.model.list()` omits them, fixing the `/0` model limit display.
