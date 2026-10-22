@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **OpenCode v2 activity updates**: the V2 adapter now consumes native
+  execution, step, text, reasoning, tool, compaction, retry, idle, and
+  usage events instead of relying mainly on V1-compatible message events.
+- **V2 session selection**: the most recently active session now wins,
+  preventing an older session stuck in `Working` from blocking a newer
+  OpenCode window.
+- **V2 statistics**: V2 model references, assistant messages, token usage,
+  and cost totals are normalized into the shared session state.
+- **V2 multi-location setup**: plugin locations in one OpenCode service
+  share one event subscription and polling loop instead of duplicating
+  background work.
+- **V2 daemon reconnect**: service reloads reconnect to an existing daemon
+  without spawning one before the first prompt.
+- **V2 model limits**: provider-prefixed model catalog IDs resolve to the
+  configured context limit when native events expose a shorter model ID.
+
 ## [3.4.0] - 2026-10-01
 
 OpenCode v2 support, contributed by
@@ -30,7 +50,7 @@ The v1 entry is unchanged.
   found (Desktop-only installs without the CLI on PATH).
 - **`@opencode/plugin` dependency** (`^2.0.15`, used only by the v2
   entry). Smoke test allows exactly this dependency.
-- **`tests/v2-entry.mjs`**: 19-assertion harness driving the v2 entry
+- **`tests/v2-entry.mjs`**: 25-assertion harness driving the v2 entry
   with a mocked v2 context (no v2 binary needed) against a live
   sandbox daemon. Covers hook registration, prompt push, the bare
   model-id shape, `set-enabled` forwarding/gating, missed-forward

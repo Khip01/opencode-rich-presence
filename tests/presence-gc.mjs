@@ -61,7 +61,7 @@ ok(myPath.endsWith(`presence-state-pid${process.pid}.txt`),
 section("migration");
 
 const LEGACY_NAMES = [
-    "presence-state-pid111.txt",
+    `presence-state-pid${deadPid()}.txt`,
     "presence-state-pid222.txt",
     "presence-state-pid333.txt",
 ];
@@ -114,7 +114,7 @@ ok(existsSync(join(PRESENCE_STATE_DIR, liveName)), "live-PID file survives gc");
 ok(existsSync(join(PRESENCE_STATE_DIR, unparsedName)),
     "files without a parseable PID are not killed by the liveness pass");
 ok(!existsSync(join(PRESENCE_STATE_DIR, LEGACY_NAMES[0])),
-    "pid111 from migration is treated as a dead PID and cleaned up");
+    "dead PID from migration is treated as dead and cleaned up");
 
 // ── 4. GC: age fallback catches recycled PIDs ──────────────────────
 section("gc age fallback");

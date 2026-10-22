@@ -1,13 +1,8 @@
 // OpenCode V2 plugin entry for opencode-rich-presence.
 //
-// Reuses the daemon, Discord IPC, templates and config as-is; only the
-// OpenCode integration layer uses the V2 plugin API
-// (export default Plugin.define({ id, setup(ctx) })). Session activity
-// is rendered locally and forwarded to the daemon over the local IPC
-// endpoint, same as the V1 entry (src/plugin/index.js).
-//
-// Selected by `opencode-rpc install` when OpenCode v2 is detected.
-// Requires the `@opencode/plugin` dependency (see package.json).
+// V2 has a different plugin API and a different public event model from V1.
+// Keep this adapter separate from src/plugin/index.js, but share the session
+// state, renderer, daemon, and configuration layers.
 
 import { Plugin } from "@opencode/plugin";
 import { unlinkSync } from "node:fs";
@@ -35,117 +30,100 @@ import {
 } from "./local-presence.js";
 import { ensureDaemonRunning } from "./daemon-spawner.js";
 
-const sessions = new Map();
-let displayedID = null;
-const modelLimits = new Map();
-let config = null;
-let presenceEnabled = true;
-let daemonStopped = false;
-// Last presenceEnabled value forwarded to the daemon as a `set-enabled`
-// control message. The on/off CLI commands send it too, but a missed
-// delivery (daemon down, EPIPE) would leave the daemon showing a stale
-// activity, so the plugin re-forwards on change.
+// All V2 locations in one OpenCode service share the daemon client. Keep the
+// connection alive until the last V2 plugin setup is disposed.
+let activePresenceUsers = 0;
 let lastForwardedEnabled = null;
+let sharedRuntime = null;
+let sharedRuntimeRefs = 0;
+let sharedController = null;
+let sharedTimer = null;
 
-function limitFor(mid) {
-    if (!mid) return null;
-    if (modelLimits.has(mid)) return modelLimits.get(mid);
-    const stripped = mid.includes("/") ? mid.split("/").slice(1).join("/") : mid;
-    if (modelLimits.has(stripped)) return modelLimits.get(stripped);
-    return null;
+function acquirePresence() {
+    activePresenceUsers += 1;
+    if (activePresenceUsers === 1) startPresence();
 }
 
-function ensureSession(sid) {
-    if (!sid) return null;
-    let s = sessions.get(sid);
-    if (!s) {
-        s = new SessionState(sid);
-        sessions.set(sid, s);
-        activity("queue", `added sid=${sid.slice(-8)} (v2)`);
-    }
-    return s;
+function releasePresence() {
+    if (activePresenceUsers <= 0) return;
+    activePresenceUsers -= 1;
+    if (activePresenceUsers === 0) stopPresence();
 }
 
-function updateDisplay() {
-    for (const [sid, ss] of sessions) {
-        if (ss.isActive()) { displayedID = sid; return; }
-    }
-    let latest = 0, pick = null;
-    for (const [sid, ss] of sessions) {
-        if (ss.lastActivity > latest) { latest = ss.lastActivity; pick = sid; }
-    }
-    displayedID = pick;
+function dataOf(event) {
+    if (event?.data && typeof event.data === "object") return event.data;
+    if (event?.properties && typeof event.properties === "object") return event.properties;
+    return event || {};
 }
 
-function setState(s, next, reason) {
-    if (!s || s.state === next) return;
-    const prev = s.state;
-    s.state = next;
-    activity("state", `sid=${s.sessionID.slice(-8)} ${prev} -> ${next} (${reason})`);
+function infoOf(event) {
+    return event?.properties?.info ?? event?.data?.info ?? event?.info ?? null;
 }
 
-function push() {
-    try {
-        const st = readState();
-        presenceEnabled = st.presenceEnabled;
-        daemonStopped = st.daemonStopped;
-    } catch {}
-    const d = displayedID ? sessions.get(displayedID) ?? null : null;
-    let rendered = null;
-    try {
-        rendered = renderPresence(d, config);
-    } catch (e) {
-        log(`render failed: ${e?.message || e}`);
-        return;
-    }
-    pushPresence(rendered);
-    forwardEnabled(presenceEnabled);
-    if (rendered && presenceEnabled) sendStateToDaemon(d, rendered);
+function sidOf(event) {
+    const data = dataOf(event);
+    const info = infoOf(event);
+    return data.sessionID ?? event?.sessionID ?? info?.sessionID ?? info?.id ?? null;
 }
 
-// Forward the on/off marker to the connected daemon so `off` clears the
-// Discord activity even when the CLI's one-shot control message missed,
-// and `on` resumes a live daemon instantly. Sends only on change, and
-// commits the value only after the write lands, so a missed delivery is
-// retried by the next push() or interval tick.
-function forwardEnabled(enabled) {
-    if (enabled === lastForwardedEnabled) return true;
-    try {
-        const c = getDaemonClient();
-        if (!c.isConnected()) {
-            activity("push", `set-enabled forward skipped (not connected): ${enabled}`);
-            return false;
+function modelRefOf(value) {
+    if (!value) return { id: null, providerID: null };
+    if (typeof value === "string") {
+        const slash = value.indexOf("/");
+        if (slash > 0) {
+            const providerID = value.slice(0, slash);
+            const variant = value.indexOf("#", slash + 1);
+            return {
+                id: value.slice(slash + 1, variant === -1 ? undefined : variant),
+                providerID,
+            };
         }
-        const ok = c.send({ type: "set-enabled", enabled });
-        if (ok) lastForwardedEnabled = enabled;
-        activity("push", ok ? `forwarded set-enabled=${enabled} to daemon` : `set-enabled forward failed: ${c.lastError || "not connected"}`);
-        return ok;
-    } catch (e) {
-        log(`set-enabled forward: ${e?.message || e}`);
-        return false;
+        return { id: value, providerID: null };
     }
+    const providerID = value.providerID ?? value.provider ?? null;
+    let id = value.id ?? value.modelID ?? null;
+    if (typeof id === "string") {
+        const slash = id.indexOf("/");
+        if (slash > 0) id = id.slice(slash + 1);
+        const variant = id.indexOf("#");
+        if (variant !== -1) id = id.slice(0, variant);
+    }
+    return { id, providerID };
 }
 
-async function ensureDaemonAndConnect() {
+function isAssistantMessage(info) {
+    return info?.role === "assistant" || info?.type === "assistant";
+}
+
+function isUserMessage(info) {
+    return info?.role === "user" || info?.type === "user";
+}
+
+function modelIDVariants(value) {
+    if (typeof value !== "string" || !value) return [];
+    const base = value.split("#", 1)[0];
+    const parts = base.split("/");
+    const variants = [];
+    for (let i = 0; i < parts.length; i += 1) {
+        const candidate = parts.slice(i).join("/");
+        if (candidate && !variants.includes(candidate)) variants.push(candidate);
+    }
+    return variants;
+}
+
+async function ensureDaemonAndConnect(daemonStopped) {
     const c = getDaemonClient();
-    // A live daemon is always reused. `opencode-rpc kill` only suppresses
-    // spawning a new one; it must not make the plugin ignore a daemon
-    // that is demonstrably listening.
     if (isDaemonAlive()) {
         const ok = await ensureConnected();
         if (ok) {
             const caps = await c.waitForHelloAck();
             if (Array.isArray(caps) && caps.includes("set-enabled")) return true;
-            // Daemon predates a capability the plugin needs. Recycle it
-            // instead of silently dropping control messages.
             activity("daemon", `stale daemon detected (capabilities=${JSON.stringify(caps)}); recycling`);
             await recycleDaemon();
             const respawned = await ensureDaemonRunning();
             if (!respawned) return false;
             return await ensureConnected();
         }
-        // Daemon recorded but unreachable. Drop the stale bookkeeping so
-        // the spawn path below can take over.
         try { unlinkSync(DAEMON_PID_FILE); } catch {}
         unlinkSocketPath();
     }
@@ -158,9 +136,14 @@ async function ensureDaemonAndConnect() {
     return await ensureConnected();
 }
 
-// Stop a daemon that predates a capability the plugin needs. Waits for
-// the old process to actually exit before returning so its shutdown
-// handler cannot remove the IPC address of the daemon spawned next.
+async function connectExistingDaemon() {
+    if (!isDaemonAlive()) return false;
+    // A V2 service restart should reconnect to an already-running daemon,
+    // but must not change the established first-prompt spawn behavior when
+    // no daemon exists yet.
+    return await ensureDaemonAndConnect(true);
+}
+
 async function recycleDaemon() {
     disconnectFromDaemon();
     let pid = readDaemonPid();
@@ -169,303 +152,713 @@ async function recycleDaemon() {
         const start = Date.now();
         while (Date.now() - start < 2000) {
             if (!isPidAlive(pid)) { pid = null; break; }
-            await new Promise((r) => setTimeout(r, 50));
+            await new Promise((resolve) => setTimeout(resolve, 50));
         }
         if (pid !== null) {
             try { process.kill(pid, "SIGKILL"); } catch {}
-            await new Promise((r) => setTimeout(r, 150));
+            await new Promise((resolve) => setTimeout(resolve, 150));
         }
     }
     try { unlinkSync(DAEMON_PID_FILE); } catch {}
     unlinkSocketPath();
 }
 
-// Best-effort extraction across event shapes.
-function infoOf(event) {
-    return event?.properties?.info ?? event?.data?.info ?? event?.info ?? null;
-}
-function sidOf(event, info) {
-    return (
-        event?.properties?.sessionID ??
-        event?.data?.sessionID ??
-        event?.sessionID ??
-        info?.sessionID ??
-        null
-    );
-}
+function createRuntime(ctx, loadedConfig) {
+    const sessions = new Map();
+    const modelLimits = new Map();
+    let displayedID = null;
+    let config = loadedConfig;
+    let presenceEnabled = true;
+    let daemonStopped = false;
 
-function applyAssistantMessage(sid, info) {
-    if (!info || !sid) return;
-    const s = ensureSession(sid);
-    const modelID = info.modelID ?? info.model?.id ?? null;
-    const providerID = info.providerID ?? info.model?.providerID ?? null;
-    try {
-        s.addOrUpdateMessage(
-            info.id, info.cost, info.tokens,
-            modelID, providerID,
-            info.time?.completed, info.time?.created,
+    function limitFor(modelID) {
+        if (!modelID) return null;
+        for (const candidate of modelIDVariants(modelID)) {
+            if (modelLimits.has(candidate)) return modelLimits.get(candidate);
+        }
+        return null;
+    }
+
+    function ensureSession(sid) {
+        if (!sid) return null;
+        let session = sessions.get(sid);
+        if (!session) {
+            session = new SessionState(sid);
+            session._promptIDs = new Set();
+            session._userPromptIDs = new Set();
+            session._assistantPromptIDs = new Set();
+            sessions.set(sid, session);
+            activity("queue", `added sid=${sid.slice(-8)} (v2)`);
+        }
+        return session;
+    }
+
+    function touch(session, timestamp = Date.now()) {
+        if (!session) return;
+        const value = Number(timestamp);
+        session.lastActivity = Math.max(session.lastActivity || 0, Number.isFinite(value) ? value : Date.now());
+    }
+
+    function setState(session, next, reason) {
+        if (!session || session.state === next) return false;
+        const previous = session.state;
+        session.state = next;
+        activity("state", `sid=${session.sessionID.slice(-8)} ${previous} -> ${next} (${reason})`);
+        return true;
+    }
+
+    function applyModel(session, ref) {
+        const model = modelRefOf(ref);
+        if (model.id) session.model = model.id;
+        if (model.providerID) session.provider = model.providerID;
+        const limit = limitFor(session.model) ?? limitFor(model.id);
+        if (limit) session.modelLimit = limit;
+    }
+
+    function applyModelLimit(session, ref) {
+        if (!session) return;
+        const model = modelRefOf(ref);
+        const candidates = [
+            model.id,
+            ref?.id,
+            ref?.modelID,
+            typeof ref === "string" ? ref : null,
+            session.model,
+        ];
+        for (const candidate of candidates) {
+            const limit = limitFor(candidate);
+            if (limit) {
+                session.modelLimit = limit;
+                return;
+            }
+        }
+    }
+
+    function applyAgent(session, agent) {
+        const name = typeof agent === "string" ? agent : agent?.id ?? agent?.name ?? null;
+        if (name) {
+            session.agent = name;
+            session.mode = name;
+        }
+    }
+
+    function applyUsage(session, cost, tokens) {
+        if (!session) return;
+        if (typeof cost !== "number" && !tokens) return;
+        session.setUsageTotals(typeof cost === "number" ? cost : session.cost, tokens || {});
+    }
+
+    function addPrompt(session, messageID) {
+        if (!session) return;
+        const key = messageID ? String(messageID) : `anonymous:${session.promptCount}:${Date.now()}`;
+        if (session._promptIDs.has(key)) return;
+        session._promptIDs.add(key);
+        session.promptCount += 1;
+    }
+
+    function reconcilePromptCount(session) {
+        if (!session) return;
+        // V2 context normally omits user records. Assistant messages are the
+        // same prompt proxy used by the V1 restore path, so use them only
+        // when no user prompt records are available.
+        const observed = session._userPromptIDs.size > 0
+            ? session._userPromptIDs.size
+            : session._assistantPromptIDs.size;
+        if (observed > session.promptCount) session.promptCount = observed;
+    }
+
+    function applyAssistantMessage(sid, info, eventTime) {
+        if (!sid || !isAssistantMessage(info)) return null;
+        const session = ensureSession(sid);
+        const model = modelRefOf(info.model ?? info.modelID);
+        const messageID = info.id;
+        const time = info.time || {};
+        if (messageID) session._assistantPromptIDs.add(String(messageID));
+        try {
+            session.addOrUpdateMessage(
+                messageID,
+                info.cost,
+                info.tokens,
+                model.id,
+                model.providerID,
+                time.completed,
+                time.created,
+            );
+        } catch (error) {
+            log(`stats update failed: ${error?.message || error}`);
+        }
+        applyModel(session, info.model ?? info.modelID);
+        applyAgent(session, info.agent ?? info.agentID);
+        if (info.mode) session.mode = info.mode;
+        reconcilePromptCount(session);
+        touch(session, time.completed || time.created || eventTime);
+        return session;
+    }
+
+    function syncSessionInfo(info, fallbackSID, eventTime) {
+        if (!info && !fallbackSID) return null;
+        const sid = info?.id ?? info?.sessionID ?? fallbackSID;
+        const session = ensureSession(sid);
+        if (!session) return null;
+        if (info?.time?.created) session.startedAt = info.time.created;
+        touch(session, info?.time?.updated || eventTime);
+        applyModel(session, info?.model ?? info?.modelID);
+        applyAgent(session, info?.agent ?? info?.agentID);
+        applyUsage(session, info?.cost, info?.tokens);
+        return session;
+    }
+
+    function updateDisplay() {
+        const active = [...sessions.entries()]
+            .filter(([, session]) => session.isActive())
+            .sort((a, b) => (b[1].lastActivity || 0) - (a[1].lastActivity || 0));
+        if (active.length) {
+            displayedID = active[0][0];
+            return;
+        }
+        const latest = [...sessions.entries()]
+            .sort((a, b) => (b[1].lastActivity || 0) - (a[1].lastActivity || 0));
+        displayedID = latest[0]?.[0] ?? null;
+    }
+
+    function logDisplayChange(previous, reason) {
+        if (previous === displayedID) return;
+        activity(
+            "display",
+            `sid=${previous?.slice(-8) || "(none)"} -> ${displayedID?.slice(-8) || "(none)"} (${reason})`,
         );
-    } catch (e) {
-        log(`stats update failed: ${e?.message || e}`);
     }
-    if (modelID) s.model = modelID;
-    if (providerID) s.provider = providerID;
-    if (info.mode) s.mode = info.mode;
-    const lim = limitFor(s.model);
-    if (lim) s.modelLimit = lim;
-    s.lastActivity = Date.now();
-}
 
-async function refreshModelLimits(ctx) {
-    try {
-        const list = await ctx.model.list();
-        const arr = Array.isArray(list) ? list : (list?.data ?? []);
-        if (!Array.isArray(arr)) return;
-        for (const m of arr) {
-            const ctxLimit = m?.limit?.context;
-            if (typeof ctxLimit !== "number" || ctxLimit <= 0) continue;
-            const id = m?.id;
-            const pid = m?.providerID;
-            if (id) modelLimits.set(id, ctxLimit);
-            if (pid && id) modelLimits.set(`${pid}/${id}`, ctxLimit);
+    function forwardEnabled(enabled) {
+        if (enabled === lastForwardedEnabled) return true;
+        try {
+            const client = getDaemonClient();
+            if (!client.isConnected()) {
+                activity("push", `set-enabled forward skipped (not connected): ${enabled}`);
+                return false;
+            }
+            const ok = client.send({ type: "set-enabled", enabled });
+            if (ok) lastForwardedEnabled = enabled;
+            activity(
+                "push",
+                ok
+                    ? `forwarded set-enabled=${enabled} to daemon`
+                    : `set-enabled forward failed: ${client.lastError || "not connected"}`,
+            );
+            return ok;
+        } catch (error) {
+            log(`set-enabled forward: ${error?.message || error}`);
+            return false;
         }
-        activity("models", `loaded ${modelLimits.size} model limits (v2)`);
-    } catch (e) {
-        log(`model limits: ${e?.message || e}`);
     }
-}
 
-async function refreshSessionStats(ctx, sid) {
-    try {
-        const resp = await ctx.session.context({ sessionID: sid });
-        const msgs = Array.isArray(resp) ? resp : (resp?.data ?? resp?.messages ?? null);
-        if (!Array.isArray(msgs)) return;
-        for (const m of msgs) {
-            const info = m?.info ?? m;
-            if (!info || info.role !== "assistant") continue;
-            applyAssistantMessage(sid, info);
+    function push() {
+        try {
+            const state = readState();
+            presenceEnabled = state.presenceEnabled;
+            daemonStopped = state.daemonStopped;
+        } catch {}
+        const session = displayedID ? sessions.get(displayedID) ?? null : null;
+        let rendered = null;
+        try {
+            rendered = renderPresence(session, config);
+        } catch (error) {
+            log(`render failed: ${error?.message || error}`);
+            return;
         }
-    } catch {}
+        pushPresence(rendered);
+        forwardEnabled(presenceEnabled);
+        if (rendered && presenceEnabled) sendStateToDaemon(session, rendered);
+    }
+
+    function commit(reason, shouldPush = true) {
+        const previous = displayedID;
+        updateDisplay();
+        logDisplayChange(previous, reason);
+        if (shouldPush) push();
+    }
+
+    async function refreshModelLimits(sourceCtx = ctx) {
+        try {
+            const list = await sourceCtx.model.list();
+            const models = Array.isArray(list) ? list : list?.data ?? [];
+            if (!Array.isArray(models)) return;
+            for (const model of models) {
+                const limit = model?.limit?.context;
+                if (typeof limit !== "number" || limit <= 0) continue;
+                const rawID = model.modelID ?? model.id;
+                const provider = model.providerID;
+                if (rawID) {
+                    for (const candidate of modelIDVariants(rawID)) modelLimits.set(candidate, limit);
+                }
+                if (provider && rawID) {
+                    for (const candidate of modelIDVariants(rawID)) {
+                        modelLimits.set(`${provider}/${candidate}`, limit);
+                    }
+                }
+            }
+            activity("models", `loaded ${modelLimits.size} model limits (v2)`);
+        } catch (error) {
+            log(`model limits: ${error?.message || error}`);
+        }
+    }
+
+    async function refreshSessionStats(sid, sourceCtx = ctx) {
+        const session = ensureSession(sid);
+        if (!session) return;
+        try {
+            const response = await sourceCtx.session.get({ sessionID: sid });
+            const info = response?.data ?? response;
+            syncSessionInfo(info, sid);
+        } catch (error) {
+            log(`session.get(${sid}): ${error?.message || error}`);
+        }
+
+        try {
+            const response = await sourceCtx.session.context({ sessionID: sid });
+            const messages = Array.isArray(response) ? response : response?.data ?? response?.messages ?? [];
+            if (!Array.isArray(messages)) return;
+            let latest = null;
+            for (const item of messages) {
+                const info = item?.info ?? item;
+                if (!info) continue;
+                if (isUserMessage(info)) {
+                    if (info.id) session._userPromptIDs.add(String(info.id));
+                    addPrompt(session, info.id);
+                    latest = info;
+                    continue;
+                }
+                if (isAssistantMessage(info)) {
+                    applyAssistantMessage(sid, info);
+                    latest = info;
+                }
+            }
+            if (isUserMessage(latest)) {
+                setState(session, STATE.WORKING, "poll: latest is user message");
+            } else if (isAssistantMessage(latest)) {
+                if (latest.time?.completed) setState(session, STATE.WAITING, "poll: assistant message completed");
+                else setState(session, STATE.TYPING, "poll: assistant message in progress");
+            }
+        } catch (error) {
+            log(`session.context(${sid}): ${error?.message || error}`);
+        }
+    }
+
+    async function restoreSessions(sourceCtx = ctx) {
+        try {
+            const response = await sourceCtx.session.list({ directory: sourceCtx.location?.directory, limit: 50, order: "desc" });
+            const list = Array.isArray(response) ? response : response?.data ?? [];
+            if (!Array.isArray(list)) return;
+            for (const info of list) syncSessionInfo(info, info?.id);
+            updateDisplay();
+            const latest = displayedID;
+            if (latest) await refreshSessionStats(latest, sourceCtx);
+            commit("v2 restore");
+            activity("restore", `completed: ${sessions.size} sessions restored (v2)`);
+        } catch (error) {
+            log(`restore v2: ${error?.message || error}`);
+        }
+    }
+
+    function applyStepUsage(session, data, eventTime, syntheticPrefix = "step") {
+        if (!session || !data) return;
+        const id = data.assistantMessageID ? `${syntheticPrefix}:${data.assistantMessageID}` : `${syntheticPrefix}:${eventTime}`;
+        try {
+            session.addOrUpdateMessage(id, data.cost, data.tokens, session.model, session.provider, eventTime, data.started || eventTime);
+        } catch (error) {
+            log(`step stats failed: ${error?.message || error}`);
+        }
+        if (data.cost !== undefined || data.tokens) {
+            activity(
+                "stats",
+                `sid=${session.sessionID.slice(-8)} cost=$${session.cost.toFixed(4)} ctx=${session.contextTokens} (${session.contextPercent.toFixed(1)}%)`,
+            );
+        }
+    }
+
+    async function handleEvent(event) {
+        const type = event?.type;
+        if (!type) return;
+        const data = dataOf(event);
+        const sid = sidOf(event);
+        const eventTime = event?.created || Date.now();
+
+        if (type === "session.created") {
+            const session = syncSessionInfo(data, sid, eventTime);
+            if (session) activity("event", `session.created sid=${session.sessionID.slice(-8)}`);
+            commit(type);
+            return;
+        }
+
+        if (type === "session.updated") {
+            const session = syncSessionInfo(infoOf(event), sid, eventTime);
+            if (session) activity("event", `session.updated sid=${session.sessionID.slice(-8)}`);
+            commit(type);
+            return;
+        }
+
+        if (type === "session.deleted") {
+            if (!sid) return;
+            sessions.delete(sid);
+            activity("event", `session.deleted sid=${sid.slice(-8)}`);
+            commit(type);
+            return;
+        }
+
+        if (type === "session.agent.selected") {
+            const session = ensureSession(sid);
+            if (!session) return;
+            applyAgent(session, data.agent);
+            touch(session, eventTime);
+            commit(type);
+            return;
+        }
+
+        if (type === "session.model.selected") {
+            const session = ensureSession(sid);
+            if (!session) return;
+            applyModel(session, data.model);
+            touch(session, eventTime);
+            commit(type);
+            return;
+        }
+
+        if (type === "session.execution.started") {
+            const session = ensureSession(sid);
+            if (!session) return;
+            addPrompt(session, `execution:${event?.id || eventTime}`);
+            touch(session, eventTime);
+            setState(session, STATE.WORKING, type);
+            activity("event", `${type} sid=${sid.slice(-8)}`);
+            commit(type);
+            void refreshSessionStats(sid).then(() => commit(`${type} stats`));
+            return;
+        }
+
+        if (type === "session.execution.succeeded" || type === "session.execution.failed" || type === "session.execution.interrupted") {
+            const session = ensureSession(sid);
+            if (!session) return;
+            touch(session, eventTime);
+            if (session.state !== STATE.ASKING) setState(session, STATE.WAITING, type);
+            activity("event", `${type} sid=${sid.slice(-8)}`);
+            commit(type);
+            void refreshSessionStats(sid).then(() => commit(`${type} stats`));
+            return;
+        }
+
+        if (type === "session.step.started") {
+            const session = ensureSession(sid);
+            if (!session) return;
+            applyModel(session, data.model);
+            applyModelLimit(session, data.model);
+            applyAgent(session, data.agent);
+            touch(session, data.started || eventTime);
+            if (session.state !== STATE.ASKING) setState(session, STATE.THINKING, type);
+            activity("event", `${type} sid=${sid.slice(-8)} model=${session.model}`);
+            commit(type);
+            return;
+        }
+
+        if (type === "session.step.streamed") {
+            const session = ensureSession(sid);
+            if (!session) return;
+            touch(session, eventTime);
+            if (session.state !== STATE.ASKING) setState(session, STATE.TYPING, type);
+            commit(type);
+            return;
+        }
+
+        if (type === "session.step.ended" || type === "session.step.failed") {
+            const session = ensureSession(sid);
+            if (!session) return;
+            touch(session, eventTime);
+            applyStepUsage(session, data, eventTime);
+            if (session.state !== STATE.ASKING) setState(session, STATE.WORKING, type);
+            activity("event", `${type} sid=${sid.slice(-8)} finish=${data.finish || data.rawFinish || "error"}`);
+            commit(type);
+            return;
+        }
+
+        if (type === "session.text.started" || type === "session.text.ended") {
+            const session = ensureSession(sid);
+            if (!session) return;
+            touch(session, eventTime);
+            if (session.state !== STATE.ASKING) setState(session, STATE.TYPING, type);
+            commit(type);
+            return;
+        }
+
+        if (type === "session.text.delta") {
+            const session = ensureSession(sid);
+            if (!session) return;
+            touch(session, eventTime);
+            if (session.state !== STATE.ASKING) setState(session, STATE.TYPING, type);
+            return;
+        }
+
+        if (type === "session.reasoning.started" || type === "session.reasoning.ended" || type === "session.reasoning.delta") {
+            const session = ensureSession(sid);
+            if (!session) return;
+            touch(session, eventTime);
+            if (session.state !== STATE.ASKING) setState(session, STATE.THINKING, type);
+            if (type !== "session.reasoning.delta") commit(type);
+            return;
+        }
+
+        if (type.startsWith("session.tool.")) {
+            const session = ensureSession(sid);
+            if (!session) return;
+            touch(session, eventTime);
+            if (session.state !== STATE.ASKING) setState(session, STATE.WORKING, type);
+            if (!type.endsWith(".progress") && !type.endsWith(".input.delta")) commit(type);
+            return;
+        }
+
+        if (type === "session.retry.scheduled") {
+            const session = ensureSession(sid);
+            if (!session) return;
+            touch(session, eventTime);
+            if (session.state !== STATE.ASKING) setState(session, STATE.WORKING, type);
+            activity("event", `${type} sid=${sid.slice(-8)} attempt=${data.attempt ?? "?"}`);
+            commit(type);
+            return;
+        }
+
+        if (type === "session.compaction.started") {
+            const session = ensureSession(sid);
+            if (!session) return;
+            session.mode = "compaction";
+            touch(session, eventTime);
+            if (session.state !== STATE.ASKING) setState(session, STATE.WORKING, type);
+            commit(type);
+            return;
+        }
+
+        if (type === "session.compaction.ended" || type === "session.compaction.failed") {
+            const session = ensureSession(sid);
+            if (!session) return;
+            touch(session, eventTime);
+            applyStepUsage(session, data, eventTime, "compaction");
+            if (type.endsWith("failed") && session.state !== STATE.ASKING) setState(session, STATE.WAITING, type);
+            activity("event", `${type} sid=${sid.slice(-8)}`);
+            commit(type);
+            return;
+        }
+
+        if (type === "session.usage.updated") {
+            const session = ensureSession(sid);
+            if (!session) return;
+            applyUsage(session, data.cost, data.tokens);
+            touch(session, eventTime);
+            activity("stats", `sid=${sid.slice(-8)} usage cost=$${session.cost.toFixed(4)} ctx=${session.contextTokens} (${session.contextPercent.toFixed(1)}%)`);
+            commit(type);
+            return;
+        }
+
+        if (type === "session.status" || type === "session.idle") {
+            const session = ensureSession(sid);
+            if (!session) return;
+            const status = data.status?.type ?? (type === "session.idle" ? "idle" : null);
+            touch(session, eventTime);
+            activity("event", `${type} sid=${sid.slice(-8)} status=${status || "(none)"}`);
+            if (status === "idle" && session.state !== STATE.ASKING) setState(session, STATE.WAITING, type);
+            else if ((status === "busy" || status === "retry") && session.state !== STATE.ASKING) setState(session, STATE.WORKING, type);
+            commit(type);
+            return;
+        }
+
+        // Compatibility events still appear on some V2 builds and are cheap
+        // to support. Normalize their V1 payloads through the same path.
+        if (type === "message.updated") {
+            const info = infoOf(event);
+            const session = applyAssistantMessage(sid, info, eventTime);
+            if (!session) return;
+            if (info.time?.completed) setState(session, STATE.WAITING, type);
+            activity("event", `${type} sid=${sid.slice(-8)} completed=${!!info.time?.completed}`);
+            commit(type);
+            return;
+        }
+
+        if (type === "message.part.updated") {
+            const part = event?.properties?.part ?? event?.data?.part;
+            const session = ensureSession(part?.sessionID ?? sid);
+            if (!session) return;
+            touch(session, eventTime);
+            if (part?.type === "reasoning") setState(session, STATE.THINKING, type);
+            else if (part?.type === "text") setState(session, STATE.TYPING, type);
+            else if (part?.type === "tool") setState(session, STATE.WORKING, type);
+            commit(type);
+            return;
+        }
+
+        if (type === "permission.asked" || type === "permission.replied") {
+            const session = ensureSession(sid);
+            if (!session) return;
+            touch(session, eventTime);
+            if (type === "permission.asked") setState(session, STATE.ASKING, type);
+            else setState(session, STATE.WORKING, type);
+            commit(type);
+        }
+    }
+
+    return {
+        get config() { return config; },
+        get presenceEnabled() { return presenceEnabled; },
+        get daemonStopped() { return daemonStopped; },
+        ensureSession,
+        addPrompt,
+        applyModel,
+        applyAgent,
+        setState,
+        touch,
+        updateDisplay,
+        push,
+        commit,
+        refreshModelLimits,
+        refreshSessionStats,
+        restoreSessions,
+        handleEvent,
+        getDisplayedSession() {
+            return displayedID ? sessions.get(displayedID) ?? null : null;
+        },
+        setConfig(value) { config = value; },
+        readControlState() {
+            try {
+                const state = readState();
+                presenceEnabled = state.presenceEnabled;
+                daemonStopped = state.daemonStopped;
+            } catch {}
+        },
+        async ensureDaemon() {
+            return ensureDaemonAndConnect(daemonStopped);
+        },
+        async connectExistingDaemon() {
+            return connectExistingDaemon();
+        },
+    };
 }
 
 export default Plugin.define({
     id: "opencode-rich-presence-v2",
     async setup(ctx) {
+        const isFirstRuntime = !sharedRuntime;
+        if (isFirstRuntime) {
+            const config = await loadConfig();
+            sharedRuntime = createRuntime(ctx, config);
+            sharedRuntimeRefs = 0;
+        }
+        const runtime = sharedRuntime;
+        sharedRuntimeRefs += 1;
+        runtime.readControlState();
+        acquirePresence();
+
         activity("load", `v2 plugin loaded dir=${ctx.location?.directory || "(none)"}`);
-        config = await loadConfig();
-        try {
-            const st = readState();
-            presenceEnabled = st.presenceEnabled;
-            daemonStopped = st.daemonStopped;
-        } catch {}
-        activity("config", `appId=${config.appId} key=${config.largeImageKey} currency=${config.currency}`);
-        activity("state", `presenceEnabled=${presenceEnabled} daemonStopped=${daemonStopped}`);
+        activity("config", `appId=${runtime.config?.appId || "?"} key=${runtime.config?.largeImageKey || "?"} currency=${runtime.config?.currency || "?"}`);
+        activity("state", `presenceEnabled=${runtime.presenceEnabled} daemonStopped=${runtime.daemonStopped}`);
 
-        await refreshModelLimits(ctx);
-        startPresence();
-        push();
+        if (isFirstRuntime) {
+            await runtime.refreshModelLimits(ctx);
+            runtime.push();
+            void runtime.connectExistingDaemon().then(() => runtime.push());
+            void runtime.restoreSessions(ctx);
+        }
 
-        // Prompt admission == V1 chat.message: user sent something.
-        await ctx.session.hook("prompt", (event) => {
+        const promptHook = await ctx.session.hook("prompt", (event) => {
             try {
-                const sid = event?.sessionID ?? null;
+                const sid = event?.sessionID;
                 if (!sid) return;
-                const s = ensureSession(sid);
-                s.lastActivity = Date.now();
-                s.promptCount++;
-                setState(s, STATE.WORKING, "prompt");
+                const session = runtime.ensureSession(sid);
+                runtime.addPrompt(session, event?.messageID);
+                runtime.touch(session);
+                runtime.setState(session, STATE.WORKING, "prompt");
                 activity("event", `prompt sid=${sid.slice(-8)}`);
-                updateDisplay();
-                void ensureDaemonAndConnect().then(() => push());
-                void (async () => {
-                    try {
-                        const info = await ctx.session.get({ sessionID: sid });
-                        const data = info?.data ?? info;
-                        // Cost/tokens come only from per-message events via
-                        // addOrUpdateMessage. Mixing the session-level totals
-                        // in here would double-count once message.updated
-                        // arrives for the same in-flight message.
-                        const model = data?.model ?? data?.modelID;
-                        if (typeof model === "string" && model) s.model = model;
-                        else if (model?.id) {
-                            s.model = model.id;
-                            if (model.providerID) s.provider = model.providerID;
-                        }
-                        const agent = data?.agent ?? data?.agentID;
-                        if (typeof agent === "string" && agent) { s.agent = agent; s.mode = agent; }
-                        const lim = limitFor(s.model);
-                        if (lim) s.modelLimit = lim;
-                    } catch {}
-                    push();
-                })();
-            } catch (e) {
-                log(`prompt hook: ${e?.message || e}`);
+                runtime.updateDisplay();
+                void runtime.ensureDaemon().then(() => runtime.push());
+                void runtime.refreshSessionStats(sid).then(() => runtime.commit("prompt stats"));
+            } catch (error) {
+                log(`prompt hook: ${error?.message || error}`);
             }
         });
 
-        // Model-call context == agent loop is running: capture agent/model
-        // (session.get does not expose them in V2).
-        try {
-            await ctx.session.hook("context", (event) => {
-                try {
-                    const sid = event?.sessionID ?? null;
-                    if (!sid) return;
-                    const s = sessions.get(sid);
-                    if (!s) return;
-                    const agent = event?.agent;
-                    const agentName = typeof agent === "string" ? agent : agent?.name ?? agent?.id ?? null;
-                    if (agentName) { s.agent = agentName; s.mode = agentName; }
-                    const model = event?.model;
-                    // One shape everywhere: the bare model id, like V1's
-                    // modelID. limitFor() matches the exact key or the part
-                    // after the first "/", so a provider/model value would
-                    // resolve a different limit than the bare id.
-                    if (typeof model === "string" && model) {
-                        s.model = model.includes("/") ? model.split("/").slice(1).join("/") : model;
-                    } else if (model && typeof model === "object") {
-                        if (model.id) s.model = model.id;
-                        if (model.providerID) s.provider = model.providerID;
-                    }
-                    const lim = limitFor(s.model);
-                    if (lim) s.modelLimit = lim;
-                    s.lastActivity = Date.now();
-                    if (s.state === STATE.WAITING) setState(s, STATE.WORKING, "context");
-                    updateDisplay();
-                    push();
-                } catch {}
-            });
-        } catch (e) {
-            log(`context hook register: ${e?.message || e}`);
-        }
-
-        // Tool execution == agent is working.
-        try {
-            await ctx.tool.hook("execute.before", (event) => {
-                try {
-                    const sid = event?.sessionID ?? displayedID;
-                    if (!sid) return;
-                    const s = sessions.get(sid);
-                    if (!s) return;
-                    s.lastActivity = Date.now();
-                    if (s.state !== STATE.ASKING) setState(s, STATE.WORKING, "tool.execute.before");
-                    updateDisplay();
-                    push();
-                } catch {}
-            });
-        } catch (e) {
-            log(`tool hook register: ${e?.message || e}`);
-        }
-
-        const controller = new AbortController();
-        void (async () => {
+        const contextHook = await ctx.session.hook("context", (event) => {
             try {
-                for await (const event of ctx.event.subscribe({ signal: controller.signal })) {
-                    try {
-                        const type = event?.type;
-                        if (!type) continue;
-                        const info = infoOf(event);
-                        const sid = sidOf(event, info);
+                const sid = event?.sessionID;
+                if (!sid) return;
+                const session = runtime.ensureSession(sid);
+                runtime.applyAgent(session, event?.agent);
+                runtime.applyModel(session, event?.model);
+                runtime.touch(session);
+                if (session.state === STATE.WAITING) runtime.setState(session, STATE.WORKING, "context");
+                runtime.commit("context");
+                void runtime.refreshSessionStats(sid).then(() => runtime.commit("context stats", false));
+            } catch (error) {
+                log(`context hook: ${error?.message || error}`);
+            }
+        });
 
-                        if (type === "session.created" || type === "session.updated") {
-                            if (!info?.id && !sid) continue;
-                            const s = ensureSession(info?.id ?? sid);
-                            if (info?.time?.created) s.startedAt = info.time.created;
-                            s.lastActivity = Date.now();
-                            activity("event", `${type} sid=${(info?.id ?? sid).slice(-8)}`);
-                            updateDisplay();
-                            push();
-                        } else if (type === "session.deleted") {
-                            const id = info?.id ?? sid;
-                            if (!id) continue;
-                            sessions.delete(id);
-                            activity("event", `session.deleted sid=${id.slice(-8)}`);
-                            updateDisplay();
-                            push();
-                        } else if (type === "session.idle" || type === "session.error") {
-                            if (!sid) continue;
-                            const s = sessions.get(sid);
-                            if (!s) continue;
-                            s.lastActivity = Date.now();
-                            if (s.state !== STATE.ASKING) setState(s, STATE.WAITING, type);
-                            updateDisplay();
-                            push();
-                        } else if (type === "session.status") {
-                            if (!sid) continue;
-                            const s = sessions.get(sid);
-                            if (!s) continue;
-                            const status = event?.properties?.status?.type ?? event?.data?.status?.type ?? null;
-                            s.lastActivity = Date.now();
-                            if (status === "idle" && s.state !== STATE.ASKING) setState(s, STATE.WAITING, "session.status idle");
-                            else if (status === "busy" && s.state === STATE.WAITING) setState(s, STATE.WORKING, "session.status busy");
-                            updateDisplay();
-                            push();
-                        } else if (type === "message.updated") {
-                            if (!info || info.role !== "assistant" || !sid) continue;
-                            const completed = !!info.time?.completed;
-                            applyAssistantMessage(sid, info);
-                            activity("event", `message.updated sid=${sid.slice(-8)} completed=${completed}`);
-                            if (completed) {
-                                const s = sessions.get(sid);
-                                if (s) setState(s, STATE.WAITING, "message.updated completed");
-                            }
-                            updateDisplay();
-                            push();
-                        } else if (type === "permission.asked") {
-                            if (!sid) continue;
-                            const s = sessions.get(sid);
-                            if (!s) continue;
-                            s.lastActivity = Date.now();
-                            setState(s, STATE.ASKING, "permission.asked");
-                            updateDisplay();
-                            push();
-                        } else if (type === "permission.replied") {
-                            if (!sid) continue;
-                            const s = sessions.get(sid);
-                            if (!s) continue;
-                            s.lastActivity = Date.now();
-                            setState(s, STATE.WORKING, "permission.replied");
-                            updateDisplay();
-                            push();
+        const toolHook = await ctx.tool.hook("execute.before", (event) => {
+            try {
+                const sid = event?.sessionID;
+                if (!sid) return;
+                const session = runtime.ensureSession(sid);
+                runtime.touch(session);
+                if (session.state !== STATE.ASKING) runtime.setState(session, STATE.WORKING, "tool.execute.before");
+                runtime.commit("tool.execute.before");
+            } catch (error) {
+                log(`tool hook: ${error?.message || error}`);
+            }
+        });
+
+        if (isFirstRuntime) {
+            sharedController = new AbortController();
+            void (async () => {
+                try {
+                    for await (const event of ctx.event.subscribe({ signal: sharedController.signal })) {
+                        try {
+                            await runtime.handleEvent(event);
+                        } catch (error) {
+                            log(`event loop item: ${error?.message || error}`);
                         }
-                    } catch (e) {
-                        log(`event loop item: ${e?.message || e}`);
                     }
+                } catch (error) {
+                    if (error?.name !== "AbortError") log(`event loop: ${error?.message || error}`);
                 }
-            } catch (e) {
-                if (e?.name !== "AbortError") log(`event loop: ${e?.message || e}`);
-            }
-        })();
+            })();
 
-        const timer = setInterval(() => {
-            try {
-                const st = readState();
-                presenceEnabled = st.presenceEnabled;
-                daemonStopped = st.daemonStopped;
-            } catch {}
-            // Redeem a missed set-enabled without waiting for the next
-            // prompt: the tick is what picks up on/off from another
-            // terminal. Committed only on successful send, so a
-            // disconnected daemon is retried every tick.
-            forwardEnabled(presenceEnabled);
-            const d = displayedID ? sessions.get(displayedID) : null;
-            // V1 skips this refresh once the session is WAITING; only
-            // poll while there is something still changing.
-            if (d && d.state !== STATE.WAITING) {
-                void refreshSessionStats(ctx, d.sessionID).then(() => {
-                    updateDisplay();
-                    push();
-                });
-            }
-        }, 5000);
-        timer.unref?.();
+            sharedTimer = setInterval(() => {
+                runtime.readControlState();
+                runtime.push();
+                const session = runtime.getDisplayedSession();
+                // The public V2 event stream is authoritative, but this fallback
+                // repairs a missed event and reconciles a service reconnect.
+                if (session && session.state !== STATE.WAITING) {
+                    void runtime.refreshSessionStats(session.sessionID, ctx).then(() => runtime.commit("periodic stats", false));
+                }
+            }, 5000);
+            sharedTimer.unref?.();
+        }
 
         activity("load", "v2 plugin setup complete");
 
-        return () => {
-            try { controller.abort(); } catch {}
-            try { clearInterval(timer); } catch {}
-            try { stopPresence(); } catch {}
+        let cleaned = false;
+        return async () => {
+            if (cleaned) return;
+            cleaned = true;
+            try { await promptHook?.dispose?.(); } catch {}
+            try { await contextHook?.dispose?.(); } catch {}
+            try { await toolHook?.dispose?.(); } catch {}
             activity("load", "v2 plugin unloaded");
+            releasePresence();
+            sharedRuntimeRefs -= 1;
+            if (sharedRuntimeRefs <= 0) {
+                try { sharedController?.abort(); } catch {}
+                try { if (sharedTimer) clearInterval(sharedTimer); } catch {}
+                sharedController = null;
+                sharedTimer = null;
+                sharedRuntime = null;
+                sharedRuntimeRefs = 0;
+                lastForwardedEnabled = null;
+            }
         };
     },
 });

@@ -19,16 +19,41 @@ export class SessionState {
         this._latestMessageID = null;
         this._latestMessageTime = 0;
         this._latestContextTokens = 0;
+        this._usageTotals = null;
     }
 
-    get cost() { return this._cost; }
+    get cost() { return this._usageTotals?.cost ?? this._cost; }
     get totalTokens() {
-        const t = this._tokens;
+        const t = this._usageTotals?.tokens ?? this._tokens;
         return t.input + t.output + t.reasoning + t.cache.read + t.cache.write;
     }
-    get contextTokens() { return this._latestContextTokens; }
+    get contextTokens() {
+        if (this._usageTotals?.tokens) {
+            const t = this._usageTotals.tokens;
+            return t.input + t.cache.read;
+        }
+        return this._latestContextTokens;
+    }
     get contextPercent() {
         return this.modelLimit && this.modelLimit > 0 ? (this.contextTokens / this.modelLimit) * 100 : 0;
+    }
+
+    setUsageTotals(cost, tokens) {
+        const t = tokens || {};
+        const normalized = {
+            input: Number.isFinite(t.input) ? t.input : 0,
+            output: Number.isFinite(t.output) ? t.output : 0,
+            reasoning: Number.isFinite(t.reasoning) ? t.reasoning : 0,
+            cache: {
+                read: Number.isFinite(t.cache?.read) ? t.cache.read : 0,
+                write: Number.isFinite(t.cache?.write) ? t.cache.write : 0,
+            },
+        };
+        this._usageTotals = {
+            cost: Number.isFinite(cost) ? cost : 0,
+            tokens: normalized,
+        };
+        this._latestContextTokens = normalized.input + normalized.cache.read;
     }
 
     isActive() { return this.state !== STATE.WAITING; }

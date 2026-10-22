@@ -56,7 +56,8 @@ src/
                       DEFAULT_PRESENCE_TEMPLATES
     logger.js         debug log + activity log helpers
   plugin/
-    index.js          plugin entry, event handlers, orchestration
+    index.js          V1 plugin entry, event handlers, orchestration
+    index.v2.js       V2 adapter and native event normalization
     config-resolver.js  load discord-config.json + env vars
     session-state.js  per-session token/cost/state tracking
     template-engine.js variables, conditionals, render, format helpers
@@ -78,7 +79,7 @@ src/
 ## Plugin Lifecycle
 
 ```
-OpenCode startup
+OpenCode v1 startup
     |
     v
 OpencodeRichPresence({ client, directory }) called
@@ -109,6 +110,14 @@ OpencodeRichPresence({ client, directory }) called
          pushes its rendered payload to Discord via SET_ACTIVITY
                 |
                 v
+OpenCode v2 uses the same renderer and daemon, but `index.v2.js`
+registers the V2 `prompt`, `context`, and tool hooks plus one public event
+subscription. Native V2 events such as `session.step.*`,
+`session.execution.*`, `session.usage.updated`, `session.text.*`,
+`session.reasoning.*`, `session.tool.*`, and `session.compaction.*` are
+normalized into the shared `SessionState`. Multiple V2 plugin locations in
+one service share one event subscription and polling loop.
+
 OpenCode shutdown
     |
     v

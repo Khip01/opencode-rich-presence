@@ -78,13 +78,16 @@ IPC socket actually dies.
 - `src/plugin/`: Main plugin code
   - `index.js`: V1 plugin entry, event handlers, orchestration
   - `index.v2.js`: V2 plugin entry (`Plugin.define`, id
-    `opencode-rich-presence-v2`). Same daemon/templates/config,
-    V2 event wiring (`prompt` / `context` / tool hooks + event
-    subscription). `install` links exactly one entry based on
-    `opencode --version`. Needs the `@opencode/plugin` dep.
+    `opencode-rich-presence-v2`). Same daemon/templates/config, but
+    normalizes native V2 execution, step, usage, text, reasoning, tool,
+    compaction, retry, idle, and permission events. Multiple V2 plugin
+    locations share one event subscription and polling loop. `install`
+    links exactly one entry based on `opencode --version`. Needs the
+    `@opencode/plugin` dep.
   - `config-resolver.js`: load discord-config.json + env vars
   - `local-presence.js`: render payload + send to daemon
-  - `session-state.js`: per-session token/cost/state tracking
+  - `session-state.js`: per-session token/cost/state tracking, including
+    native V2 aggregate usage totals
   - `template-engine.js`: variables, conditionals, render helpers
   - `daemon-client.js`: local IPC client to the daemon
   - `daemon-spawner.js`: spawns the daemon on first firing;

@@ -1,6 +1,6 @@
 import "./test-env.mjs";
 import assert from "node:assert/strict";
-import { readFileSync, rmSync } from "node:fs";
+import { readFileSync, rmSync, writeFileSync } from "node:fs";
 
 // V2 entry harness: drives src/plugin/index.v2.js with a mocked V2
 // plugin context (no OpenCode v2 binary needed). Covers the review
@@ -8,6 +8,7 @@ import { readFileSync, rmSync } from "node:fs";
 //   - setup registers prompt/context/tool hooks and completes
 //   - prompt transitions a session to Working and pushes to the daemon
 //   - the context hook stores the bare model id (one shape, like V1)
+//   - native V2 events update state, model, usage, and completion
 //   - flipping the presence marker forwards set-enabled to the daemon
 //     and gates payload sends until re-enabled
 //
@@ -16,12 +17,21 @@ import { readFileSync, rmSync } from "node:fs";
 // SIGTERMs it during cleanup. No Discord is needed: pushes are
 // asserted via the activity log with discord=disconnected.
 
-const { ACTIVITY_LOG } = await import("../src/shared/paths.js");
+const { ACTIVITY_LOG, CONFIG_PATH } = await import("../src/shared/paths.js");
 const { writeState } = await import("../src/shared/presence-state.js");
 const { readDaemonPid, isPidAlive } = await import("../src/shared/daemon-liveness.js");
 const def = (await import("../src/plugin/index.v2.js")).default;
 
 const SID = "ses_v2harness01";
+
+writeFileSync(CONFIG_PATH, JSON.stringify({
+    presence: {
+        byState: {
+            Working: { state: "{contextLimitCompact} token · {prompts} prompts" },
+            Typing: { state: "{contextLimitCompact} token · {prompts} prompts" },
+        },
+    },
+}), "utf-8");
 
 let passed = 0, failed = 0;
 function ok(cond, msg) {
@@ -75,26 +85,48 @@ async function waitPidGone(timeoutMs) {
 
 const hooks = {};
 const toolHooks = {};
+let subscribeEvents = [];
+let subscribeResolve = null;
+const subscribeReady = new Promise((resolve) => { subscribeResolve = resolve; });
 const mockCtx = {
     location: { directory: "/tmp/orp-v2-harness-proj" },
     options: {},
     model: {
         list: async () => [
             { id: "gpt-6.1-sol", providerID: "openrouter", limit: { context: 1000000 } },
+            { id: "xkiro/openai/gpt-6-luna", providerID: "xkiro", limit: { context: 393216 } },
         ],
     },
     session: {
         hook: async (name, cb) => { hooks[name] = cb; return { dispose: async () => {} }; },
         get: async ({ sessionID }) => ({ id: sessionID }),
-        context: async () => [],
+        context: async () => [
+            { id: "msg_v2_restore_1", type: "assistant", time: { created: Date.now() } },
+            { id: "msg_v2_restore_2", type: "assistant", time: { created: Date.now() + 1 } },
+        ],
     },
     tool: {
         hook: async (name, cb) => { toolHooks[name] = cb; return { dispose: async () => {} }; },
     },
     event: {
-        subscribe: () => (async function* () {})(),
+        subscribe: async function* () {
+            subscribeResolve?.();
+            while (true) {
+                if (subscribeEvents.length === 0) {
+                    await new Promise((resolve) => { subscribeResolve = resolve; });
+                    continue;
+                }
+                yield subscribeEvents.shift();
+            }
+        },
     },
 };
+
+function emit(event) {
+    subscribeEvents.push(event);
+    subscribeResolve?.();
+    subscribeResolve = null;
+}
 
 section("setup registers v2 hooks");
 ok(def && typeof def === "object" && def.id === "opencode-rich-presence-v2", "default export carries the v2 plugin id");
@@ -116,8 +148,48 @@ ok(await waitForCount(/forwarded set-enabled=true to daemon/, forwardedTrueBefor
 
 section("model id keeps one shape");
 hooks.context({ sessionID: SID, agent: "build", model: { providerID: "openrouter", id: "gpt-6.1-sol" } });
-ok(await waitFor(/gpt-6\.1-sol · Working/, 10000, "bare model render"), "context hook renders the bare model id");
+ok(await waitFor(/gpt-6\.1-sol · (Working|Typing)/, 10000, "bare model render"), "context hook renders the bare model id");
 ok(!/openrouter\/gpt-6\.1-sol/.test(logText()), "no provider/model compound id leaks into the render");
+hooks.context({ sessionID: SID, agent: "build", model: { providerID: "xkiro", id: "gpt-6-luna" } });
+ok(await waitFor(/393\.2K token/, 10000, "prefixed model limit render"), "provider-prefixed model id resolves its context limit");
+ok(await waitFor(/2 prompts/, 10000, "assistant prompt fallback"), "assistant history repairs the V2 prompt count");
+
+section("native V2 events update session state and usage");
+await subscribeReady;
+emit({
+    type: "session.step.started",
+    location: { directory: mockCtx.location.directory },
+    created: Date.now(),
+    data: {
+        sessionID: SID,
+        assistantMessageID: "msg_v2_step_1",
+        agent: "build",
+        model: { providerID: "openrouter", id: "gpt-6.1-sol" },
+        started: Date.now(),
+    },
+});
+ok(await waitFor(/session\.step\.started sid=arness01/, 10000), "native step event is consumed");
+emit({
+    type: "session.step.ended",
+    location: { directory: mockCtx.location.directory },
+    created: Date.now(),
+    data: {
+        sessionID: SID,
+        assistantMessageID: "msg_v2_step_1",
+        finish: "stop",
+        cost: 0.0123,
+        tokens: { input: 1200, output: 80, reasoning: 20, cache: { read: 300, write: 0 } },
+    },
+});
+ok(await waitFor(/session\.step\.ended sid=arness01/, 10000), "native step completion is consumed");
+ok(await waitFor(/sid=arness01 cost=\$0\.0123 ctx=1500/, 10000), "native V2 usage updates token and cost state");
+emit({
+    type: "session.execution.succeeded",
+    location: { directory: mockCtx.location.directory },
+    created: Date.now(),
+    data: { sessionID: SID },
+});
+ok(await waitFor(/Working -> Waiting for command \(session\.execution\.succeeded\)/, 10000), "native execution success clears Working state");
 
 section("set-enabled is forwarded and gates sends");
 const sentBefore = countMatches(/sent rendered payload to daemon/);

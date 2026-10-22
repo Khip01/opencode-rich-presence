@@ -242,6 +242,38 @@ mv ~/.config/opencode/presence-activity.log ~/.config/opencode/presence-activity
 
 The next OpenCode launch starts a fresh log.
 
+### "V2 presence stays on Working / 0 tokens / old prompt count"
+
+**Cause:** An older V2 adapter listened mainly for V1-compatible
+`message.updated` events. OpenCode v2 exposes authoritative activity through
+native events such as `session.step.*`, `session.execution.*`, and
+`session.usage.updated`. If those events are not handled, Discord keeps
+showing the last payload even though its timer continues to run.
+
+**Fix:** Upgrade the plugin and reload the OpenCode service:
+
+```bash
+opencode-rpc update --stable
+opencode-rpc install
+opencode service restart
+```
+
+Check the activity log while sending one prompt:
+
+```bash
+grep -E '\[event\]|\[stats\]|\[state\]|\[daemon\] push' \\
+  ~/.config/opencode/presence-activity.log | tail -80
+```
+
+For a healthy V2 flow, look for `session.step.started`,
+`session.step.ended` or `session.step.failed`, `session.usage.updated`,
+and `session.execution.succeeded` or `session.execution.failed`. The final
+state should transition to `Waiting for command`, and token/cost values
+should no longer remain at zero when OpenCode reports usage.
+
+`opencode-rpc restart` only restarts the Rich Presence daemon. Use
+`opencode service restart` to reload the OpenCode plugin.
+
 ---
 
 ## Discord doesn't show my presence
@@ -536,13 +568,18 @@ the `state` transitions are missing or off (e.g. `chat.message`
 arrives but no `WORKING -> TYPING` ever appears).
 
 **Root cause:** A new SDK event type or session state has been
-introduced that the event handler in `src/plugin/index.js` does
-not yet cover. Compare the `event` lines to the handler list:
+introduced that the event handler does not yet cover. V1 handlers live in
+`src/plugin/index.js`; V2 native handlers live in `src/plugin/index.v2.js`.
+For V1, compare the `event` lines to the handler list:
 `session.created`, `session.updated`, `session.deleted`,
 `session.status`, `session.idle`, `message.updated`,
 `message.part.updated`, `permission.asked`, `permission.replied`,
 `chat.message`. Any unhandled event types will not produce state
 transitions.
+
+For V2, also expect `session.execution.*`, `session.step.*`,
+`session.usage.updated`, `session.text.*`, `session.reasoning.*`,
+`session.tool.*`, and `session.compaction.*`.
 
 **How to verify:**
 
@@ -553,7 +590,8 @@ grep "\[event\]" ~/.config/opencode/presence-activity.log | awk -F'[][]' '{print
 This lists every event type seen in the log. Compare to the handler
 list above.
 
-**Fix:** Add a handler for the missing event type in `index.js`.
+**Fix:** Add a handler for the missing event type in the matching entry.
+Keep V1 changes in `index.js` and V2 changes in `index.v2.js`.
 The pattern is: log it, update session state if applicable,
 `transitionTo` on state change, log the display decision.
 
