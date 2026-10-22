@@ -28,10 +28,6 @@ export class SessionState {
         return t.input + t.output + t.reasoning + t.cache.read + t.cache.write;
     }
     get contextTokens() {
-        if (this._usageTotals?.tokens) {
-            const t = this._usageTotals.tokens;
-            return t.input + t.cache.read;
-        }
         return this._latestContextTokens;
     }
     get contextPercent() {
@@ -53,7 +49,6 @@ export class SessionState {
             cost: Number.isFinite(cost) ? cost : 0,
             tokens: normalized,
         };
-        this._latestContextTokens = normalized.input + normalized.cache.read;
     }
 
     isActive() { return this.state !== STATE.WAITING; }

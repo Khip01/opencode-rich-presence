@@ -6,12 +6,13 @@
 
 import { Plugin } from "@opencode/plugin";
 import { unlinkSync } from "node:fs";
+import { stat } from "node:fs/promises";
 import { loadConfig } from "./config-resolver.js";
 import { SessionState } from "./session-state.js";
 import { STATE } from "../shared/constants.js";
 import { activity, log } from "../shared/logger.js";
 import { readState } from "../shared/presence-state.js";
-import { DAEMON_PID_FILE } from "../shared/paths.js";
+import { DAEMON_PID_FILE, CONFIG_PATH } from "../shared/paths.js";
 import {
     isDaemonAlive,
     isPidAlive,
@@ -38,6 +39,7 @@ let sharedRuntime = null;
 let sharedRuntimeRefs = 0;
 let sharedController = null;
 let sharedTimer = null;
+let lastConfigMtime = 0;
 
 function acquirePresence() {
     activePresenceUsers += 1;
@@ -505,6 +507,13 @@ function createRuntime(ctx, loadedConfig) {
             return;
         }
 
+        if (type === "location.shutdown") {
+            activity("event", "location.shutdown, clearing presence");
+            sessions.clear();
+            stopPresence();
+            return;
+        }
+
         if (type === "session.agent.selected") {
             const session = ensureSession(sid);
             if (!session) return;
@@ -526,7 +535,6 @@ function createRuntime(ctx, loadedConfig) {
         if (type === "session.execution.started") {
             const session = ensureSession(sid);
             if (!session) return;
-            addPrompt(session, `execution:${event?.id || eventTime}`);
             touch(session, eventTime);
             setState(session, STATE.WORKING, type);
             activity("event", `${type} sid=${sid.slice(-8)}`);
@@ -827,6 +835,18 @@ export default Plugin.define({
 
             sharedTimer = setInterval(() => {
                 runtime.readControlState();
+                void (async () => {
+                    try {
+                        const st = await stat(CONFIG_PATH);
+                        if (st.mtimeMs !== lastConfigMtime) {
+                            lastConfigMtime = st.mtimeMs;
+                            const newConfig = await loadConfig();
+                            Object.assign(runtime.config, newConfig);
+                            activity("config", "reloaded discord-config.json");
+                            runtime.push();
+                        }
+                    } catch {}
+                })();
                 runtime.push();
                 const session = runtime.getDisplayedSession();
                 // The public V2 event stream is authoritative, but this fallback

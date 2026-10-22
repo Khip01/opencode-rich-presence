@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **V2 context tokens**: `contextTokens` now reports the active context
+  size from the latest message instead of cumulative session totals,
+  fixing inflated values like 63.7M when the real context is 237K.
+- **V2 prompt count**: `session.execution.started` no longer double-counts
+  prompts already tracked by the `prompt` hook, fixing inflated counts
+  like 3 when only 2 prompts were sent.
+- **V2 config hot-reload**: `discord-config.json` changes are detected
+  via mtime polling and applied without requiring `opencode service
+  restart`.
+- **V2 `/exit` presence cleanup**: `location.shutdown` events now clear
+  sessions and disconnect from the daemon, preventing stale Discord
+  presence after `/exit`.
+
 - **OpenCode v2 activity updates**: the V2 adapter now consumes native
   execution, step, text, reasoning, tool, compaction, retry, idle, and
   usage events instead of relying mainly on V1-compatible message events.

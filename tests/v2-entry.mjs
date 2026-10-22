@@ -216,6 +216,42 @@ const forwardedTrueBefore3 = countMatches(/forwarded set-enabled=true to daemon/
 writeState({ presenceEnabled: true });
 ok(await waitForCount(/forwarded set-enabled=true to daemon/, forwardedTrueBefore3, 15000, "tick re-enable"), "tick forwards re-enable");
 
+section("context tokens use per-message data not aggregate totals");
+emit({
+    type: "session.usage.updated",
+    location: { directory: mockCtx.location.directory },
+    created: Date.now(),
+    data: {
+        sessionID: SID,
+        cost: 1.07,
+        tokens: { input: 63000000, output: 500000, reasoning: 200000, cache: { read: 0, write: 0 } },
+    },
+});
+await new Promise((r) => setTimeout(r, 500));
+ok(!/63[,.]?7?M? token|63700000/.test(logText()), "aggregate usage totals do not leak into context display");
+
+section("execution.started does not double-count prompts");
+const promptCountBefore = countMatches(/\[event\] prompt sid=/);
+emit({
+    type: "session.execution.started",
+    location: { directory: mockCtx.location.directory },
+    created: Date.now(),
+    data: { sessionID: SID, id: "exec_test_1" },
+});
+ok(await waitFor(/session\.execution\.started sid=arness01/, 10000), "execution.started event consumed");
+await new Promise((r) => setTimeout(r, 500));
+const promptCountAfter = countMatches(/\[event\] prompt sid=/);
+ok(promptCountAfter === promptCountBefore, `execution.started does not addPrompt (before=${promptCountBefore}, after=${promptCountAfter})`);
+
+section("location.shutdown clears presence");
+emit({
+    type: "location.shutdown",
+    location: { directory: mockCtx.location.directory },
+    created: Date.now(),
+    data: {},
+});
+ok(await waitFor(/location\.shutdown, clearing presence/, 10000), "location.shutdown handled and logged");
+
 section("cleanup");
 await cleanup();
 killSandboxDaemon();
