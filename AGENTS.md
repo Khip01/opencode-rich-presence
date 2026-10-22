@@ -9,13 +9,13 @@ need to navigate this codebase safely.
 
 - **Plugin name**: `opencode-rich-presence`
 - **CLI command**: `opencode-rpc`
-- **Latest version**: v3.4.0 (the v3 daemon-based push
+- **Latest version**: v3.4.1 (the v3 daemon-based push
   architecture). v3 adds the daemon architecture that holds a
   single Discord connection for the whole machine; OpenCode
   plugin instances connect to it via the local IPC endpoint and
   forward their rendered presence payload.
-- **Latest stable release on `main`**: v3.4.0 (tag
-  `v3.4.0`). `redesign/v3-daemon` has been merged into
+- **Latest stable release on `main`**: v3.4.1 (tag
+  `v3.4.1`). `redesign/v3-daemon` has been merged into
   `main`. v3 uses the daemon architecture that holds a single
   Discord connection for the whole machine.
 - **Legacy stable (v2.x)**: v2.1.1 (tag `v2.1.1`). Still tagged
@@ -314,6 +314,54 @@ comments:
 ```
 
 This handles URLs like `"https://opencode.ai/config.json"` correctly.
+
+### V1 vs V2 Session Storage (critical for prompt counting)
+
+OpenCode V1 and V2 use SEPARATE SQLite tables for session data in
+`~/.local/share/opencode/opencode.db`:
+
+| Aspect       | V1                    | V2                      |
+|--------------|-----------------------|-------------------------|
+| Session      | `session` table       | `session_v2` table      |
+| Messages     | `message` table       | `session_message` table |
+| Message type | JSON `data.role`      | column `type`           |
+
+When a user migrates from V1 to V2 via `/update`, the session entry is
+created in `session_v2` but the messages REMAIN in the V1 `message`
+table. New sessions created in V2 store messages in `session_message`.
+Therefore prompt counting MUST check BOTH tables:
+
+```sql
+-- V2 sessions
+SELECT COUNT(*) FROM session_message
+WHERE session_id = ? AND type = 'user';
+
+-- V1 sessions
+SELECT COUNT(*) FROM message
+WHERE session_id = ?
+AND json_extract(data, '$.role') = 'user';
+```
+
+The `countAllUserMessages()` function in `index.v2.js` implements this
+dual-table query using `node:sqlite` (Node 22.5+). It runs once per
+session on first load, then incremental counting from events takes over.
+
+**The `session.context` API is NOT suitable for prompt counting**: it
+only returns the context window (~100 messages that fit in the model's
+context), not the full message history. For sessions with hundreds or
+thousands of prompts, `session.context` severely undercounts (e.g. 10
+instead of 878).
+
+**The `ctx.message.list` / `ctx.client.message.list` APIs are NOT
+available in the plugin context.** The plugin context (`ctx`) has:
+`app, location, options, agent, aisdk, command, credential, event,
+experimental, generate, model, provider, integration, mcp, permission,
+plugin, reference, rpc, skill, storage, tool, vcs, websearch, worktree,
+session, shell`. The `session` object has: `hook, list, create, get,
+remove, switchAgent, switchModel, prompt, generate, command, compact,
+synthetic, interrupt, update, move, wait, context`. There is NO
+`message.list` or `messages` method. The HTTP API at
+`/api/session/:id/message` requires authentication (401 without token).
 
 ### Per-Instance State File
 
@@ -710,6 +758,20 @@ nothing displayed).
 Regression coverage: `tests/template-selection.mjs` (13 assertions)
 guards this exact behavior. Do not remove or weaken that file's
 assertions about WAITING rendering dynamic cost.
+
+### Prompt count from session.context severely undercounts
+
+Fixed in the V2 prompt count overhaul. `session.context` returns only
+the context window (~100 messages), not the full message history. For
+a session with 878 user prompts, `session.context` returned only 9.
+
+**Rule:** never use `session.context` for counting prompts or messages.
+Use the SQLite database directly (see "V1 vs V2 Session Storage" above).
+The `countAllUserMessages()` function is the reference implementation.
+
+Also note: `session.execution.started` must NOT call `addPrompt()` since
+the `prompt` hook already counts the same prompt. Double-counting
+produces inflated counts like 3 when only 2 prompts were sent.
 
 ## Documentation Maintenance
 
