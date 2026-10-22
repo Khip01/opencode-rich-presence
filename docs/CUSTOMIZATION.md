@@ -56,7 +56,7 @@
 | `{contextPercent}` | `23.7` | Context percentage (1 decimal) |
 | `{cost}` | `$0.0042` | Session cost (raw) |
 | `{costCompact}` | `$1.5K` | Cost (compact) |
-| `{prompts}` | `12` | User prompt count |
+| `{prompts}` | `12` | User prompt count (from SQLite database, not context window) |
 | `{promptsCompact}` | `1.5K` | Prompt count (compact) |
 
 ### Model Name Variants

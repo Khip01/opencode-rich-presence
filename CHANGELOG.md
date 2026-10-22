@@ -17,6 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   V1 sessions use the `message` table (JSON `data.role='user'`).
   Sessions migrated from V1 via `/update` keep their messages in the
   V1 `message` table even though the session entry lives in `session_v2`.
+  Each table query has its own try/catch so V1-only and V2-only users
+  are handled safely.
 - **V2 model limit lookup**: custom models defined in `opencode.jsonc`
   now resolve their context limits via a config file fallback when
   `ctx.model.list()` omits them, fixing the `/0` model limit display.

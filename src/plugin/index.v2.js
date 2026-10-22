@@ -283,25 +283,45 @@ function createRuntime(ctx, loadedConfig) {
                 : join(homedir(), ".local", "share", "opencode", "opencode.db");
             try {
                 const db = new DatabaseSync(dbPath, { readOnly: true });
-                // V2 sessions: session_message table (type column)
-                let result = db.prepare(
-                    "SELECT COUNT(*) as cnt FROM session_message WHERE session_id = ? AND type = 'user'"
-                ).get(session.sessionID);
-                let count = result?.cnt ?? 0;
-                // V1 sessions: message table (JSON data.role)
-                if (count === 0) {
-                    result = db.prepare(
+                let count = 0;
+                // Skenario 1 & 2: V2 sessions (session_message table)
+                // Handles: V2-only users AND V1->V2 migrated users
+                try {
+                    const result = db.prepare(
+                        "SELECT COUNT(*) as cnt FROM session_message WHERE session_id = ? AND type = 'user'"
+                    ).get(session.sessionID);
+                    count = result?.cnt ?? 0;
+                    if (count > 0) {
+                        log(`countUser: v2 table count=${count} for ${session.sessionID}`);
+                        db.close();
+                        return count;
+                    }
+                } catch (e) {
+                    // session_message table doesn't exist (V1-only user) - try V1 table
+                    log(`countUser: v2 table not available: ${e?.message}`);
+                }
+                // Skenario 1 & 2: V1 sessions (message table)
+                // Handles: V1-only users AND V1->V2 migrated users
+                try {
+                    const result = db.prepare(
                         "SELECT COUNT(*) as cnt FROM message WHERE session_id = ? AND json_extract(data, '$.role') = 'user'"
                     ).get(session.sessionID);
                     count = result?.cnt ?? 0;
+                    if (count > 0) {
+                        log(`countUser: v1 table count=${count} for ${session.sessionID}`);
+                        db.close();
+                        return count;
+                    }
+                } catch (e) {
+                    // message table doesn't exist (V2-only user) - fall through
+                    log(`countUser: v1 table not available: ${e?.message}`);
                 }
                 db.close();
                 log(`countUser: sqlite user count=${count} for ${session.sessionID}`);
-                if (count > 0) return count;
             } catch (e) {
                 log(`countUser: sqlite error=${e?.message}`);
             }
-            // Fallback to session.context
+            // Fallback to session.context (least reliable, only context window)
             const contextResp = await sourceCtx.session.context({ sessionID: session.sessionID });
             const messages = Array.isArray(contextResp) ? contextResp : contextResp?.data ?? [];
             if (Array.isArray(messages)) {
