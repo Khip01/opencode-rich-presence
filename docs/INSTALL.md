@@ -153,19 +153,20 @@ You should see `OpenCode plugin symlink` with `Linked: yes` and a
 `Target:` pointing to the package entry file in your npm prefix. The
 last 30 lines of the activity log appear at the bottom of the output.
 
-After installing or upgrading the package, restart the OpenCode
-service so it reloads the plugin module:
+After installing or upgrading the package, restart OpenCode so it
+reloads the plugin module. For OpenCode v2 CLI, restart its background
+service and verify the plugin:
 
 ```bash
 opencode service restart
 opencode api get /api/plugin
 ```
 
-For OpenCode v2, the local plugin should report
-`opencode-rich-presence-v2` with `state.status` `active`. For Desktop,
-quit the application fully and let its long-lived `opencode-cli`
-backend restart. `opencode-rpc restart` only restarts the Rich Presence
-daemon and does not reload OpenCode plugins.
+The local v2 plugin should report `opencode-rich-presence-v2` with
+`state.status` `active`. For OpenCode v2 Desktop, quit the application
+fully and let its long-lived `opencode-cli` backend restart. For
+OpenCode v1, restart OpenCode normally. `opencode-rpc restart` only
+restarts the Rich Presence daemon and does not reload OpenCode plugins.
 
 Start OpenCode and check Discord. Your AI session should appear as
 a rich presence within a few seconds. For a closer look at what the
@@ -198,7 +199,7 @@ switching back from `--dev` mode. `--ref <REF>` is the recommended way
 to install a pre-release branch (e.g. `--ref feature/some-branch`).
 All four flags are mutually exclusive. Restart OpenCode afterwards.
 For OpenCode v2 CLI, use `opencode service restart` after the package
-upgrade so the long-lived service reloads the plugin.
+upgrade so the service reloads the plugin.
 
 ## Uninstalling
 
@@ -226,45 +227,11 @@ with a timestamp-suffixed backup if you agree.
 To complete uninstall, also remove the package itself with
 `npm uninstall -g opencode-rich-presence`.
 
-## Migration from v1.0.0
+## Legacy migrations
 
-v1.0.0 used bash scripts (`install`, `uninstall`, `restart-discord.sh`)
-and was Linux-only.
-
-1. Back up `~/.config/opencode/discord-config.json`.
-2. Install the latest v3.x release via the steps above.
-3. Run `opencode-rpc install` to set up the new config file.
-4. Restore your settings into the new config (App ID, presence
-   templates).
-5. Remove the old v1.0.0 leftovers from `~/.config/opencode/`:
-   ```bash
-   rm -rf ~/.config/opencode/plugins/opencode-dc-too-rich-presence.js
-   rm -f ~/.config/opencode/discord-worker.mjs
-   rm -f ~/.config/opencode/restart-discord.sh
-   rm -f ~/.config/opencode/package.json ~/.config/opencode/package-lock.json
-   rm -f ~/.config/opencode/CUSTOMIZATION.md ~/.config/opencode/README.md ~/.config/opencode/SETUP.md
-   ```
-6. Restart OpenCode.
-
-The plugin name changed from `opencode-dc-too-rich-presence` to
-`opencode-rich-presence`.
-
-## Migration from v2.x
-
-v2.x is end-of-life. The upgrade path is the same as a fresh
-install:
-
-1. Uninstall the v2.x package: `npm uninstall -g opencode-rich-presence`
-2. Remove any leftover state:
-   ```bash
-   rm -f ~/.config/opencode/.opencode-rich-presence.lock
-   rm -f ~/.config/opencode/discord-worker.mjs
-   rm -f ~/.config/opencode/package.json ~/.config/opencode/package-lock.json
-   ```
-3. Install v3.x via Step 1 above (curl installer recommended).
-4. Run `opencode-rpc install` and answer `Y` to remove any stale
-   `opencode-rich-presence` entry from `opencode.jsonc` / `opencode.json`.
-5. Restart OpenCode.
+Migration instructions for the old v1.x and v2.x releases are kept in
+[`LEGACY-MIGRATIONS.md`](./LEGACY-MIGRATIONS.md). New installations do
+not need this page.
 
 ## Troubleshooting
 

@@ -119,7 +119,8 @@ IPC socket actually dies.
     PIDs are never killed by the liveness pass. Called once at plugin
     init inside a try/catch.
 - `bin/opencode-rpc.js`: CLI entry point
-- `docs/`: documentation
+- `docs/`: documentation, including `LEGACY-MIGRATIONS.md` for archived
+  v1.x and v2.x upgrade instructions
 - `.github/workflows/`: CI
 - `scripts/`: `smoke-test.js`, `syntax-check.js`, `check-pkg.js`
 
