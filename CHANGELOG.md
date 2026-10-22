@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **V2 model limit lookup**: custom models defined in `opencode.jsonc`
+  now resolve their context limits via a config file fallback when
+  `ctx.model.list()` omits them, fixing the `/0` model limit display.
 - **V2 context tokens**: `contextTokens` now reports the active context
   size from the latest message instead of cumulative session totals,
   fixing inflated values like 63.7M when the real context is 237K.

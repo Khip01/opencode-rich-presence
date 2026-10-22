@@ -12,7 +12,8 @@ import { SessionState } from "./session-state.js";
 import { STATE } from "../shared/constants.js";
 import { activity, log } from "../shared/logger.js";
 import { readState } from "../shared/presence-state.js";
-import { DAEMON_PID_FILE, CONFIG_PATH } from "../shared/paths.js";
+import { DAEMON_PID_FILE, CONFIG_PATH, OPENCODE_DIR } from "../shared/paths.js";
+import { join } from "node:path";
 import {
     isDaemonAlive,
     isPidAlive,
@@ -403,6 +404,41 @@ function createRuntime(ctx, loadedConfig) {
         } catch (error) {
             log(`model limits: ${error?.message || error}`);
         }
+        // Fallback: read custom model limits from opencode.jsonc directly.
+        // ctx.model.list() may not include custom models defined in the config,
+        // so we parse the config file as a second source of truth.
+        try {
+            const { readFile } = await import("node:fs/promises");
+            const candidates = [
+                join(OPENCODE_DIR, "opencode.jsonc"),
+                join(OPENCODE_DIR, "opencode.json"),
+            ];
+            for (const cfgPath of candidates) {
+                try {
+                    let raw = await readFile(cfgPath, "utf-8");
+                    // Strip // and /* */ comments for JSONC files
+                    raw = raw.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+                    const cfg = JSON.parse(raw);
+                    const providers = cfg.providers || {};
+                    for (const [pid, prov] of Object.entries(providers)) {
+                        const models = prov.models || {};
+                        for (const [mid, mdef] of Object.entries(models)) {
+                            const limit = mdef?.limit?.context;
+                            if (typeof limit !== "number" || limit <= 0) continue;
+                            for (const candidate of modelIDVariants(mid)) {
+                                if (!modelLimits.has(candidate)) modelLimits.set(candidate, limit);
+                            }
+                            for (const candidate of modelIDVariants(mid)) {
+                                const pk = `${pid}/${candidate}`;
+                                if (!modelLimits.has(pk)) modelLimits.set(pk, limit);
+                            }
+                        }
+                    }
+                    activity("models", `config fallback loaded, total ${modelLimits.size} model limits`);
+                    break;
+                } catch {}
+            }
+        } catch {}
     }
 
     async function refreshSessionStats(sid, sourceCtx = ctx) {
