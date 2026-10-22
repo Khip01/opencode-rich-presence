@@ -153,6 +153,20 @@ You should see `OpenCode plugin symlink` with `Linked: yes` and a
 `Target:` pointing to the package entry file in your npm prefix. The
 last 30 lines of the activity log appear at the bottom of the output.
 
+After installing or upgrading the package, restart the OpenCode
+service so it reloads the plugin module:
+
+```bash
+opencode service restart
+opencode api get /api/plugin
+```
+
+For OpenCode v2, the local plugin should report
+`opencode-rich-presence-v2` with `state.status` `active`. For Desktop,
+quit the application fully and let its long-lived `opencode-cli`
+backend restart. `opencode-rpc restart` only restarts the Rich Presence
+daemon and does not reload OpenCode plugins.
+
 Start OpenCode and check Discord. Your AI session should appear as
 a rich presence within a few seconds. For a closer look at what the
 plugin is doing (handy if Discord does not update):
@@ -183,6 +197,8 @@ version comparison and always installs the latest tag, useful for
 switching back from `--dev` mode. `--ref <REF>` is the recommended way
 to install a pre-release branch (e.g. `--ref feature/some-branch`).
 All four flags are mutually exclusive. Restart OpenCode afterwards.
+For OpenCode v2 CLI, use `opencode service restart` after the package
+upgrade so the long-lived service reloads the plugin.
 
 ## Uninstalling
 

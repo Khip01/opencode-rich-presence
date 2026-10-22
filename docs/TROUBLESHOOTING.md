@@ -185,6 +185,47 @@ long-lived and keeps serving the old plugin set until restarted
 (a stale backend also explains an activity log with no new
 `[load]` lines after an upgrade).
 
+### "Plugin failed to load" after upgrading to the V2 entry
+
+**Cause:** `opencode-rpc install` updates the plugin symlink, but it
+does not restart the long-lived OpenCode background service. The
+service can retain a failed module resolution from before the package
+upgrade, such as:
+
+```
+Cannot find module .../opencode-rich-presence/src/plugin/index.v2.js
+```
+
+**Fix:** Confirm the installed version and symlink first:
+
+```bash
+opencode --version
+opencode-rpc version
+readlink -f ~/.config/opencode/plugins/opencode-rich-presence.js
+```
+
+The target must end in `src/plugin/index.v2.js`. Then restart the
+OpenCode service and verify the plugin state:
+
+```bash
+opencode service restart
+opencode api get /api/plugin
+```
+
+The local plugin should report `id` `opencode-rich-presence-v2` and
+`state.status` `active`.
+
+`opencode-rpc restart` is not a substitute here. It restarts only the
+Rich Presence daemon; it does not reload OpenCode plugins. For Desktop,
+quit the application fully and let its `opencode-cli` backend restart.
+
+For detailed load errors, inspect:
+
+```bash
+grep -n -A2 -B2 'opencode-rich-presence.js' \\
+  ~/.local/share/opencode/log/opencode.log | tail -40
+```
+
 ### "Activity log is huge / has grown forever"
 
 Rotate it via:
@@ -263,21 +304,35 @@ running v2.x. Check `opencode-rpc version`.)
 
 ## Update fails
 
-**Cause:** GitHub API rate limit or network issue.
+**Cause:** GitHub API rate limit or network issue. A rate-limit
+failure usually appears as:
+
+```
+GitHub API returned 403: rate limit exceeded
+```
+
+The curl installer also needs the GitHub API when no `ORP_VERSION` is
+provided, so it can fail with the same 403.
 
 **Fix:**
 
-1. Wait a few minutes and retry.
-2. Manual fallback: download the tarball directly.
+1. Wait and retry, or pin a known release:
    ```bash
-   # Get the URL from: https://github.com/Khip01/opencode-rich-presence/releases/latest
-   curl -fL -o opencode-rich-presence.tgz <tarball-url>
-   npm install -g ./opencode-rich-presence.tgz
+   ORP_VERSION=v3.4.0 bash install.sh
    ```
-   If you already have `opencode-rpc` on PATH, prefer
-   `opencode-rpc update --stable` once the network is back. The
-   manual tarball install only matters for the initial install on a
-   fresh machine.
+2. Manual fallback: download the release tarball directly from
+   [GitHub Releases](https://github.com/Khip01/opencode-rich-presence/releases/latest),
+   then install it:
+   ```bash
+   npm install -g ./opencode-rich-presence-v3.4.0.tgz
+   opencode-rpc install
+   opencode service restart
+   ```
+
+If you already have `opencode-rpc` on PATH, prefer
+`opencode-rpc update --stable` once the network is back. After any
+package upgrade on OpenCode v2, restart the OpenCode service as shown
+above.
 
 ---
 

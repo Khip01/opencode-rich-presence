@@ -117,12 +117,16 @@ you. Skip it if you already saw the `Replaced / Linked` line.
 
 ### 3. Restart OpenCode and verify
 
-The plugin loads automatically via the symlink. After OpenCode
-restart:
+The plugin loads automatically via the symlink. After installation or
+upgrade, restart OpenCode. For the OpenCode v2 CLI, restart its
+long-lived background service so it reloads the plugin:
 
 ```bash
+opencode service restart
 opencode-rpc info
 ```
+
+For OpenCode v2 Desktop, quit Desktop fully and let its backend restart.
 
 `info` shows the last 30 entries of the activity log so you can
 verify the plugin captured events, the daemon is connected, and
@@ -150,11 +154,21 @@ PATH), the installer asks which entry to link. The v2 entry needs
 the `@opencode/plugin` dependency, which ships with the package.
 No extra install step.
 
-Note for OpenCode Desktop users: the Desktop backend
-(`opencode-cli serve`) is long-lived. After install or upgrade,
-restart the backend (quit Desktop fully, or stop its
-`opencode-cli` process and let Desktop respawn it) or the new
-entry will not load until the next reboot.
+Note for OpenCode v2 users: the background service is long-lived.
+After installing or upgrading the package, `opencode-rpc install` only
+updates the symlink. It does not reload the OpenCode plugin. Restart the
+CLI service with `opencode service restart`, then verify the plugin:
+
+```bash
+opencode api get /api/plugin
+```
+
+The local plugin should report `id` `opencode-rich-presence-v2` and
+`state.status` `active`. For OpenCode Desktop, quit Desktop fully and
+let its `opencode-cli` backend restart.
+
+`opencode-rpc restart` only restarts the Rich Presence daemon. It does
+not restart the OpenCode service.
 
 ## CLI Reference
 
