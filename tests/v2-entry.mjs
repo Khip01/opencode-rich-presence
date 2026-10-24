@@ -23,6 +23,10 @@ const { readDaemonPid, isPidAlive } = await import("../src/shared/daemon-livenes
 const def = (await import("../src/plugin/index.v2.js")).default;
 
 const SID = "ses_v2harness01";
+let contextMessages = [
+    { id: "msg_v2_restore_1", type: "assistant", time: { created: Date.now() } },
+    { id: "msg_v2_restore_2", type: "assistant", time: { created: Date.now() + 1 } },
+];
 
 writeFileSync(CONFIG_PATH, JSON.stringify({
     presence: {
@@ -100,10 +104,7 @@ const mockCtx = {
     session: {
         hook: async (name, cb) => { hooks[name] = cb; return { dispose: async () => {} }; },
         get: async ({ sessionID }) => ({ id: sessionID }),
-        context: async () => [
-            { id: "msg_v2_restore_1", type: "assistant", time: { created: Date.now() } },
-            { id: "msg_v2_restore_2", type: "assistant", time: { created: Date.now() + 1 } },
-        ],
+        context: async () => contextMessages,
     },
     tool: {
         hook: async (name, cb) => { toolHooks[name] = cb; return { dispose: async () => {} }; },
@@ -178,8 +179,28 @@ hooks.context({ sessionID: SID, agent: "build", model: { providerID: "xkiro", id
 ok(await waitFor(/393\.2K token/, 10000, "prefixed model limit render"), "provider-prefixed model id resolves its context limit");
 ok(await waitFor(/2 prompts/, 10000, "assistant prompt fallback"), "assistant history repairs the V2 prompt count");
 
+section("stale context cannot mark a new execution completed");
+contextMessages = [{
+    id: "msg_v2_stale_completed",
+    type: "assistant",
+    time: { created: Date.now() - 5000, completed: Date.now() - 4000 },
+}];
+const staleCompletionBefore = countMatches(/poll: assistant message completed/);
+hooks.prompt({ sessionID: SID, messageID: "prompt_stale_context_guard" });
+ok(await waitFor(/poll state ignored sid=arness01 execution active, latest=assistant/, 10000), "stale completed assistant history is ignored during a new prompt");
+await new Promise((r) => setTimeout(r, 500));
+ok(
+    countMatches(/poll: assistant message completed/) === staleCompletionBefore,
+    "stale context does not create a false completed transition",
+);
+contextMessages = [
+    { id: "msg_v2_restore_1", type: "assistant", time: { created: Date.now() } },
+    { id: "msg_v2_restore_2", type: "assistant", time: { created: Date.now() + 1 } },
+];
+
 section("native V2 events update session state and usage");
 await subscribeReady;
+const stoppedStepWorkingBefore = countMatches(/\[state\].*-> Working \(session\.step\.ended\)/);
 emit({
     type: "session.step.started",
     location: { directory: mockCtx.location.directory },
@@ -207,13 +228,17 @@ emit({
 });
 ok(await waitFor(/session\.step\.ended sid=arness01/, 10000), "native step completion is consumed");
 ok(await waitFor(/sid=arness01 cost=\$0\.0123 ctx=1500/, 10000), "native V2 usage updates token and cost state");
+ok(
+    countMatches(/\[state\].*-> Working \(session\.step\.ended\)/) === stoppedStepWorkingBefore,
+    "a stopped model step does not masquerade as a Working tool step",
+);
 emit({
     type: "session.execution.succeeded",
     location: { directory: mockCtx.location.directory },
     created: Date.now(),
     data: { sessionID: SID },
 });
-ok(await waitFor(/Working -> Waiting for command \(session\.execution\.succeeded\)/, 10000), "native execution success clears Working state");
+ok(await waitFor(/-> Waiting for command \(session\.execution\.succeeded\)/, 10000), "native execution success clears the active state");
 
 section("set-enabled is forwarded and gates sends");
 const sentBefore = countMatches(/sent rendered payload to daemon/);

@@ -118,6 +118,32 @@ subscription. Native V2 events such as `session.step.*`,
 normalized into the shared `SessionState`. Multiple V2 plugin locations in
 one service share one event subscription and polling loop.
 
+### V2 execution-state arbitration
+
+The V2 adapter has two data paths: native events and a periodic context
+refresh. Native events are authoritative for execution state. When a prompt
+is pending or an execution is active, the refresh may update usage, cost,
+prompt counts, and message statistics, but it cannot select `Waiting for
+command`, `Typing`, or another state from history.
+
+This guard is necessary because `session.context()` can briefly return the
+previous assistant message, including its completed timestamp, while the new
+execution is starting. Without the guard, a new prompt could render as
+`Completed!` until `session.step.started` arrived.
+
+The normal V2 state sequence is:
+
+1. `prompt` or `session.execution.started` selects `Working`.
+2. `session.step.started` and `session.reasoning.*` select `Thinking`.
+3. `session.text.*` selects `Typing`; tool events select `Working`.
+4. A normal stopped model step keeps the current `Thinking` or `Typing`
+   state. A tool-call step selects `Working`.
+5. `session.execution.succeeded`, `failed`, or `interrupted` selects
+   `Waiting for command`.
+
+This arbitration is implemented only in `src/plugin/index.v2.js`. The V1
+entry in `src/plugin/index.js` is unchanged.
+
 V1 vs V2 session storage (important for prompt counting)
 ---------------------------------------------------------
 

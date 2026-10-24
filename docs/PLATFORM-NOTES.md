@@ -2,6 +2,13 @@
 
 Per-OS behavior and quirks.
 
+## OpenCode v2 state handling
+
+The v2 execution-state arbitration is platform-neutral. Linux, macOS, and
+Windows use the same native event ordering and the same protection against a
+stale `session.context()` assistant message replacing `Thinking` or `Typing`
+with `Completed!`. Only the daemon transport differs by platform.
+
 ## Linux
 
 ### Installation paths

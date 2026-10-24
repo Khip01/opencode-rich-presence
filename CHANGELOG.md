@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.4.2] - 2026-10-24
+
+### Fixed
+
+- **V2 execution-state arbitration**: `session.context()` polling can return
+  the previously completed assistant message while a new execution is
+  starting. The V2 adapter now treats native execution and reasoning events
+  as authoritative while an execution is pending or active, so stale history
+  cannot replace `Thinking` or `Typing` with `Completed!`.
+- **V2 Thinking state**: a normal `session.step.ended` with `finish=stop` no
+  longer masquerades as a `Working` tool step. Tool-call steps still use
+  `Working`, and the terminal execution event selects `Waiting for command`.
+- **V2 state regression coverage**: the harness now verifies stale assistant
+  history protection and confirms that stopped model steps do not produce a
+  false `Working` transition.
+
 ## [3.4.1] - 2026-10-22
 
 ### Fixed

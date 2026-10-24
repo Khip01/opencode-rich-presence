@@ -40,7 +40,7 @@ set up the plugin symlink and config. Pin to a specific version:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Khip01/opencode-rich-presence/main/install.sh \
-  | ORP_VERSION=v3.4.1 bash
+  | ORP_VERSION=v3.4.2 bash
 ```
 
 If you do not have `curl`, replace it with `wget -qO- <url>` or
@@ -59,7 +59,7 @@ use the manual tarball install in path B.
    The tarball name is `opencode-rich-presence-<version>.tgz`.
 2. Install it:
    ```bash
-   npm install -g ./opencode-rich-presence-3.4.1.tgz
+   npm install -g ./opencode-rich-presence-3.4.2.tgz
    ```
 3. Continue with Step 2 below (`opencode-rpc install`).
 
@@ -70,7 +70,7 @@ upgrade without manually downloading a tarball:
 
 ```bash
 opencode-rpc update                    # latest stable release tag
-opencode-rpc update --ref v3.4.1 # pin to a specific tag
+opencode-rpc update --ref v3.4.2 # pin to a specific tag
 opencode-rpc update --dev main         # latest commit on main (developer)
 opencode-rpc update --ref <branch>     # a feature branch you want to test
 opencode-rpc update --repo fork/repo    # install from a fork instead
@@ -83,6 +83,10 @@ URL.
 
 `--ref` accepts any git ref: branch name, tag, or commit SHA. Use
 this for pre-release branches.
+
+After upgrading an OpenCode v2 installation, restart the OpenCode service.
+The v3.4.2 V2 adapter protects native `Thinking` and `Typing` states from
+being overwritten by a stale assistant message returned by context polling.
 
 ### D. From local source (for development of the plugin itself)
 
@@ -246,4 +250,3 @@ If something looks wrong after install:
    attempt.
 3. For the full diagnostic checklist and known root causes, see
    [`TROUBLESHOOTING.md`](./TROUBLESHOOTING.md).
-

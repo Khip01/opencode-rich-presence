@@ -195,6 +195,12 @@ displays as "Completed!".
 }
 ```
 
+For OpenCode v2, these state names are selected from native execution events.
+`Thinking` represents model reasoning, `Typing` represents response text
+streaming, and `Working` represents tool execution or other active work. A
+normal stopped model step does not force `Working`; the final
+`session.execution.succeeded` event selects `Waiting for command`.
+
 ### Idle Template
 
 Used only when there is NO session at all (queue empty, nothing

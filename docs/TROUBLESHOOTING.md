@@ -276,6 +276,42 @@ should no longer remain at zero when OpenCode reports usage.
 
 ---
 
+### "V2 presence shows Completed while the agent is thinking"
+
+**Cause:** Before v3.4.2, the V2 statistics refresh could read the previous
+completed assistant message from `session.context()` immediately after a new
+prompt started. That stale record could overwrite the native execution state
+and render `Completed!` before `session.step.started` or
+`session.reasoning.*` arrived. A normal stopped step could also be briefly
+classified as `Working` even though the execution had not finished.
+
+**Fix:** Upgrade to v3.4.2 or newer and restart the OpenCode v2 service:
+
+```bash
+opencode-rpc update --stable
+opencode-rpc install
+opencode service restart
+```
+
+The fixed adapter uses native V2 events as the state authority while an
+execution is pending or active. Context polling continues to repair usage,
+cost, and prompt statistics, but it cannot replace `Thinking` or `Typing`
+with a stale completed message. Tool-call steps remain `Working`, while
+`session.execution.succeeded` selects `Waiting for command`.
+
+To verify the behavior, inspect the activity log while sending a prompt:
+
+```bash
+grep -E 'session\.step\.started|session\.reasoning|poll state ignored|session\.execution|\[state\]' \
+  ~/.config/opencode/presence-activity.log | tail -80
+```
+
+During an active execution, stale history should be reported as
+`poll state ignored`, and the final state should be selected by the terminal
+execution event.
+
+---
+
 ### "V2 prompt count is way too low (e.g. 10 instead of 878)"
 
 **Cause:** The plugin was counting prompts from `session.context`, which
@@ -389,13 +425,13 @@ provided, so it can fail with the same 403.
 
 1. Wait and retry, or pin a known release:
    ```bash
-   ORP_VERSION=v3.4.0 bash install.sh
+   ORP_VERSION=v3.4.2 bash install.sh
    ```
 2. Manual fallback: download the release tarball directly from
    [GitHub Releases](https://github.com/Khip01/opencode-rich-presence/releases/latest),
    then install it:
    ```bash
-   npm install -g ./opencode-rich-presence-v3.4.0.tgz
+   npm install -g ./opencode-rich-presence-v3.4.2.tgz
    opencode-rpc install
    opencode service restart
    ```
@@ -415,7 +451,7 @@ This can happen immediately after install, or after a reboot / npm
 cache cleanup:
 
 ```
-$ npm install -g 'Khip01/opencode-rich-presence#v3.4.0'
+$ npm install -g 'Khip01/opencode-rich-presence#v3.4.2'
 added 1 package in 4s
 
 $ opencode-rpc
@@ -470,12 +506,12 @@ ls -la "$(npm root -g)/opencode-rich-presence"
     ```bash
     # Download from: https://github.com/Khip01/opencode-rich-presence/releases/latest
     # File name: opencode-rich-presence-<version>.tgz
-    npm install -g ./opencode-rich-presence-3.4.0.tgz
+    npm install -g ./opencode-rich-presence-3.4.2.tgz
     ```
 3. Verify:
    ```bash
    opencode-rpc version
-   # Expected: opencode-rich-presence v3.4.0 (stable)
+   # Expected: opencode-rich-presence v3.4.2 (stable)
    ```
 
 **Why `opencode-rpc update --ref <tag>` does not help on a fresh
@@ -536,7 +572,7 @@ from
 [GitHub Releases](https://github.com/Khip01/opencode-rich-presence/releases/latest):
 
 ```bash
-npm install -g ./opencode-rich-presence-3.4.0.tgz
+npm install -g ./opencode-rich-presence-3.4.2.tgz
 ```
 
 **Check 2: PowerShell execution policy**

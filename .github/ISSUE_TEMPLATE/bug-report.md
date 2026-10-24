@@ -64,3 +64,8 @@ If applicable, add screenshots of:
 ## Additional context
 
 Anything else relevant (custom config, other plugins, etc.).
+
+For OpenCode v2 state issues, include whether the incorrect presence appeared
+during reasoning, text streaming, a tool call, or after the final response.
+If possible, include the relevant `session.step.*`, `session.reasoning.*`,
+`session.execution.*`, and `poll state ignored` lines from the activity log.

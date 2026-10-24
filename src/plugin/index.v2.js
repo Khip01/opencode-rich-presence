@@ -191,6 +191,15 @@ function createRuntime(ctx, loadedConfig) {
             session._userPromptIDs = new Set();
             session._assistantPromptIDs = new Set();
             session._fullCountDone = false;
+            // Polling session.context() can return the assistant message from
+            // the previous prompt while a new execution is starting. Keep a
+            // small execution guard so that stale history cannot overwrite
+            // the native V2 event state with Waiting for command.
+            session._executionGeneration = 0;
+            session._executionPending = false;
+            session._executionActive = false;
+            session._promptAt = 0;
+            session._executionStartedAt = 0;
             sessions.set(sid, session);
             activity("queue", `added sid=${sid.slice(-8)} (v2)`);
         }
@@ -209,6 +218,45 @@ function createRuntime(ctx, loadedConfig) {
         session.state = next;
         activity("state", `sid=${session.sessionID.slice(-8)} ${previous} -> ${next} (${reason})`);
         return true;
+    }
+
+    function eventTimestamp(value, fallback = Date.now()) {
+        const timestamp = Number(value);
+        return Number.isFinite(timestamp) && timestamp > 0 ? timestamp : fallback;
+    }
+
+    function markPromptPending(session, timestamp = Date.now()) {
+        if (!session) return;
+        session._executionGeneration += 1;
+        session._executionPending = true;
+        session._executionActive = false;
+        session._promptAt = eventTimestamp(timestamp);
+        session._executionStartedAt = 0;
+    }
+
+    function markExecutionStarted(session, timestamp = Date.now()) {
+        if (!session) return;
+        session._executionGeneration += 1;
+        session._executionPending = false;
+        session._executionActive = true;
+        session._executionStartedAt = eventTimestamp(timestamp);
+        if (!session._promptAt) session._promptAt = session._executionStartedAt;
+    }
+
+    function markExecutionFinished(session, timestamp = Date.now()) {
+        if (!session) return;
+        // Incrementing the generation invalidates refreshSessionStats() calls
+        // that were started before the terminal event and finish afterward.
+        session._executionGeneration += 1;
+        session._executionPending = false;
+        session._executionActive = false;
+        session._promptAt = 0;
+        session._executionStartedAt = 0;
+        session._executionFinishedAt = eventTimestamp(timestamp);
+    }
+
+    function executionGuarded(session) {
+        return !!(session?._executionPending || session?._executionActive);
     }
 
     function applyModel(session, ref) {
@@ -509,9 +557,11 @@ function createRuntime(ctx, loadedConfig) {
         } catch {}
     }
 
-    async function refreshSessionStats(sid, sourceCtx = ctx) {
+    async function refreshSessionStats(sid, sourceCtx = ctx, options = {}) {
         const session = ensureSession(sid);
         if (!session) return;
+        const updateState = options.updateState !== false;
+        const refreshGeneration = session._executionGeneration;
         try {
             const response = await sourceCtx.session.get({ sessionID: sid });
             const info = response?.data ?? response;
@@ -539,11 +589,24 @@ function createRuntime(ctx, loadedConfig) {
                     latest = info;
                 }
             }
-            if (isUserMessage(latest)) {
-                setState(session, STATE.WORKING, "poll: latest is user message");
-            } else if (isAssistantMessage(latest)) {
-                if (latest.time?.completed) setState(session, STATE.WAITING, "poll: assistant message completed");
-                else setState(session, STATE.TYPING, "poll: assistant message in progress");
+            // The context endpoint is a history/statistics fallback, not an
+            // authoritative execution-state source. During a new execution
+            // it can still expose the previously completed assistant message.
+            // Never let that stale record turn an active execution into the
+            // completed/Waiting state or replace native Thinking/Typing.
+            const generationStillCurrent = session._executionGeneration === refreshGeneration;
+            if (updateState && generationStillCurrent && !executionGuarded(session)) {
+                if (isUserMessage(latest)) {
+                    setState(session, STATE.WORKING, "poll: latest is user message");
+                } else if (isAssistantMessage(latest)) {
+                    if (latest.time?.completed) setState(session, STATE.WAITING, "poll: assistant message completed");
+                    else setState(session, STATE.TYPING, "poll: assistant message in progress");
+                }
+            } else if (updateState && latest && executionGuarded(session)) {
+                activity(
+                    "event",
+                    `poll state ignored sid=${sid.slice(-8)} execution active, latest=${isAssistantMessage(latest) ? "assistant" : isUserMessage(latest) ? "user" : "unknown"}`,
+                );
             }
         } catch (error) {
             log(`session.context(${sid}): ${error?.message || error}`);
@@ -648,11 +711,15 @@ function createRuntime(ctx, loadedConfig) {
         if (type === "session.execution.started") {
             const session = ensureSession(sid);
             if (!session) return;
+            markExecutionStarted(session, eventTime);
             touch(session, eventTime);
             setState(session, STATE.WORKING, type);
             activity("event", `${type} sid=${sid.slice(-8)}`);
             commit(type);
-            void refreshSessionStats(sid).then(() => commit(`${type} stats`));
+            // The execution event is authoritative for the state transition.
+            // This refresh is for usage and prompt statistics only, so a
+            // stale/in-progress context response cannot overwrite Working.
+            void refreshSessionStats(sid, ctx, { updateState: false }).then(() => commit(`${type} stats`));
             return;
         }
 
@@ -660,16 +727,20 @@ function createRuntime(ctx, loadedConfig) {
             const session = ensureSession(sid);
             if (!session) return;
             touch(session, eventTime);
+            markExecutionFinished(session, eventTime);
             if (session.state !== STATE.ASKING) setState(session, STATE.WAITING, type);
             activity("event", `${type} sid=${sid.slice(-8)}`);
             commit(type);
-            void refreshSessionStats(sid).then(() => commit(`${type} stats`));
+            // Preserve the terminal state selected above. The context API can
+            // still return an older assistant record while it catches up.
+            void refreshSessionStats(sid, ctx, { updateState: false }).then(() => commit(`${type} stats`));
             return;
         }
 
         if (type === "session.step.started") {
             const session = ensureSession(sid);
             if (!session) return;
+            if (!session._executionActive) markExecutionStarted(session, data.started || eventTime);
             applyModel(session, data.model);
             applyModelLimit(session, data.model);
             applyAgent(session, data.agent);
@@ -694,7 +765,18 @@ function createRuntime(ctx, loadedConfig) {
             if (!session) return;
             touch(session, eventTime);
             applyStepUsage(session, data, eventTime);
-            if (session.state !== STATE.ASKING) setState(session, STATE.WORKING, type);
+            const finish = String(data.finish || data.rawFinish || "").toLowerCase();
+            // A stopped step is not necessarily a tool step. For a normal
+            // model response, step.ended arrives just before
+            // execution.succeeded. Do not briefly label that terminal step as
+            // Working, because it makes a completed answer look like a tool
+            // execution and can win the Discord throttle window. Keep the
+            // current Thinking/Typing state until execution.succeeded makes
+            // the final Waiting transition. Tool-call steps remain Working.
+            const isToolStep = finish === "tool-calls" || finish === "tool_calls" || finish === "tool-call";
+            if (session.state !== STATE.ASKING && (isToolStep || type === "session.step.failed")) {
+                setState(session, STATE.WORKING, type);
+            }
             activity("event", `${type} sid=${sid.slice(-8)} finish=${data.finish || data.rawFinish || "error"}`);
             commit(type);
             return;
@@ -782,7 +864,10 @@ function createRuntime(ctx, loadedConfig) {
             const status = data.status?.type ?? (type === "session.idle" ? "idle" : null);
             touch(session, eventTime);
             activity("event", `${type} sid=${sid.slice(-8)} status=${status || "(none)"}`);
-            if (status === "idle" && session.state !== STATE.ASKING) setState(session, STATE.WAITING, type);
+            // An idle status can race with the native execution events while
+            // OpenCode is still starting the next step. The execution guard
+            // prevents a stale idle notification from hiding Thinking.
+            if (status === "idle" && !executionGuarded(session) && session.state !== STATE.ASKING) setState(session, STATE.WAITING, type);
             else if ((status === "busy" || status === "retry") && session.state !== STATE.ASKING) setState(session, STATE.WORKING, type);
             commit(type);
             return;
@@ -794,7 +879,18 @@ function createRuntime(ctx, loadedConfig) {
             const info = infoOf(event);
             const session = applyAssistantMessage(sid, info, eventTime);
             if (!session) return;
-            if (info.time?.completed) setState(session, STATE.WAITING, type);
+            if (info.time?.completed) {
+                const completedAt = eventTimestamp(info.time.completed, eventTime);
+                const belongsToCurrentExecution = !session._executionPending
+                    && (!session._executionActive
+                        || !session._executionStartedAt
+                        || completedAt >= session._executionStartedAt);
+                if (belongsToCurrentExecution) {
+                    setState(session, STATE.WAITING, type);
+                } else {
+                    activity("event", `message completion ignored sid=${sid.slice(-8)} stale assistant message`);
+                }
+            }
             activity("event", `${type} sid=${sid.slice(-8)} completed=${!!info.time?.completed}`);
             commit(type);
             return;
@@ -828,6 +924,7 @@ function createRuntime(ctx, loadedConfig) {
         get daemonStopped() { return daemonStopped; },
         ensureSession,
         addPrompt,
+        markPromptPending,
         applyModel,
         applyAgent,
         setState,
@@ -890,6 +987,7 @@ export default Plugin.define({
                 if (!sid) return;
                 const session = runtime.ensureSession(sid);
                 runtime.addPrompt(session, event?.messageID);
+                runtime.markPromptPending?.(session);
                 runtime.touch(session);
                 runtime.setState(session, STATE.WORKING, "prompt");
                 activity("event", `prompt sid=${sid.slice(-8)}`);

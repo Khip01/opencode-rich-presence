@@ -9,13 +9,13 @@ need to navigate this codebase safely.
 
 - **Plugin name**: `opencode-rich-presence`
 - **CLI command**: `opencode-rpc`
-- **Latest version**: v3.4.1 (the v3 daemon-based push
+- **Latest version**: v3.4.2 (the v3 daemon-based push
   architecture). v3 adds the daemon architecture that holds a
   single Discord connection for the whole machine; OpenCode
   plugin instances connect to it via the local IPC endpoint and
   forward their rendered presence payload.
-- **Latest stable release on `main`**: v3.4.1 (tag
-  `v3.4.1`). `redesign/v3-daemon` has been merged into
+- **Latest stable release on `main`**: v3.4.2 (tag
+  `v3.4.2`). `redesign/v3-daemon` has been merged into
   `main`. v3 uses the daemon architecture that holds a single
   Discord connection for the whole machine.
 - **Legacy stable (v2.x)**: v2.1.1 (tag `v2.1.1`). Still tagged
@@ -38,7 +38,7 @@ need to navigate this codebase safely.
   `NPM_TOKEN` secret enables auto-publish to npmjs.com on
   tagged releases.
 - **Repository**: github.com/Khip01/opencode-rich-presence
-- **Default branch**: `main` (currently v3.4.1)
+- **Default branch**: `main` (currently v3.4.2)
 - **Active dev branch**: `main` (v3 redesign merged from
   `redesign/v3-daemon`)
 - **Plugin author Discord App ID** (default fallback in
@@ -175,9 +175,9 @@ around the npm v11 bug.
 | Audience | Command |
 |----------|---------|
 | End user (fresh install, stable) | `curl -fsSL https://raw.githubusercontent.com/Khip01/opencode-rich-presence/main/install.sh \| bash` |
-| End user (pin to a specific version) | `curl ... \| ORP_VERSION=v3.4.1 bash` |
+| End user (pin to a specific version) | `curl ... \| ORP_VERSION=v3.4.2 bash` |
 | End user (auto-resolve latest stable, requires existing install) | `opencode-rpc update` |
-| User (upgrade, v3 release) | `opencode-rpc update --ref v3.4.1 && opencode-rpc install` |
+| User (upgrade, v3 release) | `opencode-rpc update --ref v3.4.2 && opencode-rpc install` |
 | Developer (v3 main branch, requires existing install) | `opencode-rpc update --dev main && opencode-rpc install` |
 | Developer (track a branch, requires existing install) | `opencode-rpc update --dev <branch> && opencode-rpc install` |
 | Developer (specific commit SHA, requires existing install) | `opencode-rpc update --ref <sha> && opencode-rpc install` |
@@ -218,7 +218,7 @@ The CLI commands are:
    for switching back from --dev mode.
 4. `opencode-rpc update --dev [BRANCH]`: developer-only upgrade.
      Installs the latest commit on BRANCH (defaults to `main`,
-     which is currently v3.4.1).
+     which is currently v3.4.2).
 5. `opencode-rpc update --ref REF`: install a specific git ref
    (tag, branch, or commit SHA). Works for any ref including short
    SHAs (`--ref 471ce94`) and full SHAs.
@@ -772,6 +772,30 @@ The `countAllUserMessages()` function is the reference implementation.
 Also note: `session.execution.started` must NOT call `addPrompt()` since
 the `prompt` hook already counts the same prompt. Double-counting
 produces inflated counts like 3 when only 2 prompts were sent.
+
+### V2 execution state must prefer native events over context polling
+
+`session.context()` is a statistics/history fallback, not an authoritative
+execution-state source. Immediately after a new prompt starts, it can return
+the previous assistant message with a completed timestamp. If that result is
+allowed to drive the state machine, a real `Thinking` execution is rendered
+as `Completed!` until `session.step.started` arrives.
+
+The V2 runtime therefore marks prompts and executions as pending/active. While
+that guard is set, context polling may update cost, tokens, and prompt data,
+but it must not select `Waiting for command`, `Typing`, or another state from
+the historical message list. Native execution, reasoning, text, and tool
+events are authoritative.
+
+`session.step.ended` with `finish=stop` also does not automatically mean
+`Working`: it is commonly the final model step before
+`session.execution.succeeded`. Keep the current `Thinking`/`Typing` state
+until the terminal execution event. Use `Working` for tool-call steps and
+other active tool execution.
+
+Regression coverage lives in `tests/v2-entry.mjs`. It checks stale completed
+assistant history, the ignored-poll log marker, and the stopped-step
+transition.
 
 ## Documentation Maintenance
 
