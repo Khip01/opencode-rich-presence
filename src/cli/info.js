@@ -105,27 +105,45 @@ export async function info() {
         lines.push("");
     }
 
+    // V2 installs a plugin directory (server + TUI parts as symlinks);
+    // V1 and legacy V2 installs use a single-file symlink. Report the
+    // form that exists, directory first.
+    const pluginDir = join(opencodeDir, "plugins", PLUGIN_NAME);
     const pluginLink = join(opencodeDir, "plugins", `${PLUGIN_NAME}.js`);
-    let linkStat = null;
-    try { linkStat = lstatSync(pluginLink); } catch {}
+    const dirIndex = join(pluginDir, "index.js");
+    let probe = null;
+    let displayPath = pluginLink;
+    try {
+        if (lstatSync(dirIndex).isSymbolicLink()) {
+            probe = dirIndex;
+            displayPath = pluginDir;
+        }
+    } catch {}
+    if (!probe) {
+        try {
+            if (lstatSync(pluginLink).isSymbolicLink()) probe = pluginLink;
+        } catch {}
+    }
 
     lines.push("OpenCode plugin symlink");
-    lines.push(`  Path           : ${pluginLink}`);
-    if (linkStat) {
-        const isLink = linkStat.isSymbolicLink();
-        if (isLink) {
-            let target = "";
-            try { target = readlinkSync(pluginLink); } catch {}
-            if (target) {
-                lines.push(`  Linked         : yes`);
-                lines.push(`  Target         : ${target}`);
-            } else {
-                lines.push(`  Linked         : yes (target unreadable)`);
-            }
+    lines.push(`  Path           : ${displayPath}`);
+    if (probe) {
+        let target = "";
+        try { target = readlinkSync(probe); } catch {}
+        if (target) {
+            lines.push(`  Linked         : yes`);
+            lines.push(`  Target         : ${target}`);
         } else {
-            lines.push(`  Linked         : NO (regular file at that path, not a symlink)`);
-            lines.push(`                  Run \`opencode-rpc install\` to recreate as symlink.`);
+            lines.push(`  Linked         : yes (target unreadable)`);
         }
+        if (probe === dirIndex) {
+            let tuiOk = false;
+            try { tuiOk = lstatSync(join(pluginDir, "tui.js")).isSymbolicLink(); } catch {}
+            lines.push(`  TUI part       : ${tuiOk ? "linked" : "MISSING (presence auto-clear inactive)"}`);
+        }
+    } else if (existsSync(pluginDir) || existsSync(pluginLink)) {
+        lines.push(`  Linked         : NO (regular file at that path, not a symlink)`);
+        lines.push(`                  Run \`opencode-rpc install\` to recreate as symlink.`);
     } else {
         lines.push(`  Linked         : NO. Run \`opencode-rpc install\` to create.`);
     }

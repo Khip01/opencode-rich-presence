@@ -201,11 +201,14 @@ Cannot find module .../opencode-rich-presence/src/plugin/index.v2.js
 ```bash
 opencode --version
 opencode-rpc version
-readlink -f ~/.config/opencode/plugins/opencode-rich-presence.js
+readlink -f ~/.config/opencode/plugins/opencode-rich-presence/index.js
 ```
 
-The target must end in `src/plugin/index.v2.js`. Then restart the
-OpenCode service and verify the plugin state:
+The target must end in `src/plugin/index.v2.js` (V1 and legacy V2
+installs use a single-file symlink at
+`~/.config/opencode/plugins/opencode-rich-presence.js` instead). The
+sibling `tui.js` link must exist too (it hosts the client heartbeat).
+Then restart the OpenCode service and verify the plugin state:
 
 ```bash
 opencode service restart
@@ -222,7 +225,7 @@ quit the application fully and let its `opencode-cli` backend restart.
 For detailed load errors, inspect:
 
 ```bash
-grep -n -A2 -B2 'opencode-rich-presence.js' \\
+grep -n -A2 -B2 'opencode-rich-presence' \\
   ~/.local/share/opencode/log/opencode.log | tail -40
 ```
 
@@ -359,6 +362,53 @@ and the state should settle on `Waiting for command`.
 
 To shorten the watchdog for testing, set `ORP_STUCK_GUARD_MS` (milliseconds)
 before starting OpenCode.
+
+---
+
+### "Presence stays visible after closing OpenCode"
+
+**Cause:** OpenCode's background service keeps running (and keeps this
+plugin loaded) after the last client window closes, and it emits no
+client disconnect event. Older releases had no way to notice that the
+user left, so the presence lingered on Discord until the service
+restarted.
+
+**How it works now:** the TUI plugin part touches
+`~/.config/opencode/.opencode-rich-presence.heartbeat` every 10 seconds
+while any window is open. When every window has been closed for
+`ORP_CLIENT_TIMEOUT_MS` (default 30000 ms) and nothing is running
+anymore, the presence clears automatically. It comes back the moment a
+window opens or new activity starts, and it never times out while a
+window is open.
+
+**If the presence still lingers:**
+
+1. Check that the TUI part is linked:
+
+   ```bash
+   opencode-rpc info | grep -A4 "OpenCode plugin symlink"
+   # Expected: TUI part       : linked
+   ```
+
+   A missing `tui.js` link (or an install made before the plugin
+   directory form existed) disables the client
+   check and keeps the legacy always-on behavior. Run
+   `opencode-rpc install` to migrate to the plugin directory form.
+
+2. Check the heartbeat is being touched while a window is open:
+
+   ```bash
+   ls -la ~/.config/opencode/.opencode-rich-presence.heartbeat
+   ```
+
+   The mtime must be within the last ~20 seconds while a window is open.
+
+3. Work that still runs on the server (a headless `opencode run`, or a
+   turn that finishes after you quit) intentionally keeps the presence
+   alive until it finishes.
+
+To shorten the detection window (e.g. for testing), set
+`ORP_CLIENT_TIMEOUT_MS` (milliseconds) before starting OpenCode.
 
 ---
 
@@ -771,13 +821,13 @@ The pattern is: log it, update session state if applicable,
 
 ```bash
 ls -la ~/.config/opencode/presence-activity.log
-ls -la ~/.config/opencode/plugins/opencode-rich-presence.js
+ls -la ~/.config/opencode/plugins/opencode-rich-presence/
 tail -20 /tmp/opencode-rich-presence-debug.log
 ```
 
-**Fix:** If the symlink is missing, run `opencode-rpc install`. If
-the file is unwritable, fix permissions. If the debug log shows no
-plugin load, the plugin is not loaded.
+**Fix:** If the plugin directory (or its `index.js` link) is missing, run
+`opencode-rpc install`. If the file is unwritable, fix permissions. If the
+debug log shows no plugin load, the plugin is not loaded.
 
 ### Plugin acquires lock but Discord never shows presence (v2.0.x legacy)
 
@@ -795,8 +845,10 @@ but no log entries appear.
 **Root cause 1:** OpenCode tries to install npm plugins from the npm
 registry at startup via Bun. The `opencode-rich-presence` package is
 NOT published there (we distribute via GitHub Releases tarball or
-git URL), so the install attempt 404s. The fix is the symlink at
-`~/.config/opencode/plugins/opencode-rich-presence.js`.
+git URL), so the install attempt 404s. The fix is the plugin entry at
+`~/.config/opencode/plugins/opencode-rich-presence/` (V2: a directory
+with `index.js`/`tui.js` symlinks; V1: a single-file symlink at
+`~/.config/opencode/plugins/opencode-rich-presence.js`).
 
 **How to verify:**
 
@@ -805,8 +857,9 @@ npm view opencode-rich-presence version 2>&1 | head -3
 # Expected: npm error 404 'opencode-rich-presence@*' could not be found
 ls -la ~/.cache/opencode/packages/opencode-rich-presence@latest/
 # Expected: empty directory
-ls -la ~/.config/opencode/plugins/opencode-rich-presence.js
-# Expected: -> /.../opencode-rich-presence/src/plugin/index.js
+ls -la ~/.config/opencode/plugins/opencode-rich-presence/
+# Expected: index.js -> /.../opencode-rich-presence/src/plugin/index.v2.js
+#           tui.js   -> /.../opencode-rich-presence/src/plugin/index.tui.js
 ```
 
 **Fix:** Run `opencode-rpc install` to recreate the symlink if
@@ -989,10 +1042,12 @@ When something looks wrong, walk through this in order:
 
 2. **Plugin loaded by OpenCode?**
    ```bash
-   ls -la ~/.config/opencode/plugins/opencode-rich-presence.js
+   ls -la ~/.config/opencode/plugins/opencode-rich-presence/
    tail -20 /tmp/opencode-rich-presence-debug.log
    ```
-   Symlink should exist. Debug log should show plugin load.
+   The plugin directory should exist with `index.js` and `tui.js`
+   symlinks (V1/legacy: `plugins/opencode-rich-presence.js`). Debug log
+   should show plugin load.
 
 3. **Activity log growing?**
    ```bash

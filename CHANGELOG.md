@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Presence auto-clear when OpenCode is closed**: a new TUI plugin part
+  (`src/plugin/index.tui.js`) touches a heartbeat file every 10 seconds
+  from inside each OpenCode client window. The server part reads that
+  file's mtime and clears the Discord presence once every window has been
+  closed for `ORP_CLIENT_TIMEOUT_MS` (default 30 seconds). Presence keeps
+  showing without any idle limit while a window is open, keeps showing
+  server-side work (for example a headless `opencode run`) until it
+  finishes, and resumes the moment a client or new activity appears.
+  Clients without TUI parts leave no heartbeat file and keep the legacy
+  always-on behavior.
+
+### Changed
+
+- **`opencode-rpc install` (V2) installs a plugin directory**
+  (`~/.config/opencode/plugins/opencode-rich-presence/`) with `index.js`
+  (server part) and `tui.js` (TUI part) symlinks plus a small manifest,
+  instead of a single-file symlink; OpenCode resolves both plugin parts
+  through the manifest exports. Legacy single-file links are migrated in
+  place. V1 installs keep the single-file symlink unchanged.
+
 ## [3.5.0] - 2026-10-27
 
 ### Fixed

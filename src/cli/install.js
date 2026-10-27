@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync, copyFileSync, mkdirSync, lstatSync, symlinkSync, unlinkSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, copyFileSync, mkdirSync, lstatSync, symlinkSync, unlinkSync, rmSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { dirname, join, basename } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -13,6 +13,9 @@ const PLUGIN_NAME = "opencode-rich-presence";
 // of them under the same link name (see detectPluginEntry).
 const PLUGIN_ENTRY_V1 = "src/plugin/index.js";
 const PLUGIN_ENTRY_V2 = "src/plugin/index.v2.js";
+// TUI plugin part (client heartbeat for presence auto-clear). Only the V2
+// plugin format has parts; V1 loads a single file and never sees this one.
+const PLUGIN_TUI_ENTRY = "src/plugin/index.tui.js";
 
 export async function install() {
     console.log("\nopencode-rich-presence installer\n");
@@ -155,6 +158,12 @@ async function installLocalPlugin() {
         return;
     }
 
+    if (entry.endsWith("index.v2.js")) {
+        await installV2PluginDir(pluginsDir, entry, link);
+        return;
+    }
+
+    // V1: single-file symlink (the V1 plugin format has no parts).
     // Check if already linked correctly.
     if (existsSync(link)) {
         try {
@@ -176,9 +185,85 @@ async function installLocalPlugin() {
     }
 
     symlinkSync(entry, link);
-    const kind = entry.endsWith("index.v2.js") ? "V2" : "V1";
-    console.log(`  Linked ${link} (${kind} entry)`);
+    console.log(`  Linked ${link} (V1 entry)`);
     console.log(`    -> ${entry}`);
+}
+
+// V2 installs a plugin directory instead of a single file. OpenCode
+// discovers plugin package directories under ~/.config/opencode/plugins/
+// and loads each part through the package exports: `.` is the server part,
+// `./tui` the TUI part (the client heartbeat; see docs/ARCHITECTURE.md).
+// The directory holds only symlinks into the npm install plus a tiny
+// package.json, so `npm update -g` is picked up without re-linking.
+async function installV2PluginDir(pluginsDir, entry, legacyLink) {
+    const pluginDir = join(pluginsDir, PLUGIN_NAME);
+    const indexLink = join(pluginDir, "index.js");
+    const tuiEntry = join(PKG_ROOT, PLUGIN_TUI_ENTRY);
+    const tuiLink = join(pluginDir, "tui.js");
+
+    if (!existsSync(tuiEntry)) {
+        console.log(`  TUI part not found at ${tuiEntry}. Skipping local install.`);
+        return;
+    }
+
+    // Legacy single-file symlink from V2 installs before the directory
+    // form. Remove it first: keeping both would load the server part twice.
+    if (existsSync(legacyLink)) {
+        let isSymlink = false;
+        try { isSymlink = lstatSync(legacyLink).isSymbolicLink(); } catch {}
+        if (isSymlink) {
+            unlinkSync(legacyLink);
+            console.log(`  Migrated legacy symlink ${legacyLink} to the directory form`);
+        } else {
+            console.log(`  Skipped ${legacyLink}: not a symlink (remove manually if unwanted)`);
+        }
+    }
+
+    // Check if already linked correctly.
+    let linked = false;
+    try {
+        linked = readlinkTarget(indexLink) === entry
+            && readlinkTarget(tuiLink) === tuiEntry
+            && existsSync(join(pluginDir, "package.json"));
+    } catch {}
+    if (linked) {
+        console.log(`  Plugin already linked at ${pluginDir}`);
+        return;
+    }
+
+    if (existsSync(pluginDir)) {
+        // Existing directory is wrong or foreign: replace it (after asking).
+        const ok = await confirm(`  Replace existing ${pluginDir}?`, { defaultYes: true });
+        if (!ok) {
+            console.log(`  Skipped. Remove ${pluginDir} manually to retry.`);
+            return;
+        }
+        rmSync(pluginDir, { recursive: true, force: true });
+    } else {
+        if (!existsSync(pluginsDir)) mkdirSync(pluginsDir, { recursive: true });
+    }
+
+    mkdirSync(pluginDir, { recursive: true });
+    writeFileSync(join(pluginDir, "package.json"), pluginPackageJson(), "utf-8");
+    symlinkSync(entry, indexLink);
+    symlinkSync(tuiEntry, tuiLink);
+    console.log(`  Linked ${pluginDir} (V2 server + TUI parts)`);
+    console.log(`    -> ${entry}`);
+    console.log(`    -> ${tuiEntry}`);
+}
+
+// Minimal manifest for the V2 plugin directory. name + exports make
+// OpenCode resolve the parts explicitly: `.` (server) and `./tui`.
+function pluginPackageJson() {
+    return `${JSON.stringify({
+        name: PLUGIN_NAME,
+        private: true,
+        version: "0.0.0",
+        exports: {
+            ".": "./index.js",
+            "./tui": "./tui.js",
+        },
+    }, null, 2)}\n`;
 }
 
 function readlinkTarget(p) {
@@ -200,9 +285,9 @@ function printNextSteps() {
         console.log("");
     }
 
-    console.log(`${hasAppId ? "1" : "2"}. Restart OpenCode. The plugin loads from a symlink at:`);
-    console.log(`   ~/.config/opencode/plugins/opencode-rich-presence.js`);
-    console.log(`   pointing to the installed package entry file in your npm prefix.`);
+    console.log(`${hasAppId ? "1" : "2"}. Restart OpenCode. The plugin loads from symlinks under:`);
+    console.log(`   ~/.config/opencode/plugins/`);
+    console.log(`   pointing to the installed package entry files in your npm prefix.`);
     console.log("");
     console.log("Run `opencode-rpc info` anytime to check status.");
 }

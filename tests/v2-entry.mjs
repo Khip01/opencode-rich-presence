@@ -1,6 +1,6 @@
 import "./test-env.mjs";
 import assert from "node:assert/strict";
-import { readFileSync, rmSync, writeFileSync } from "node:fs";
+import { readFileSync, rmSync, writeFileSync, utimesSync } from "node:fs";
 
 // V2 entry harness: drives src/plugin/index.v2.js with a mocked V2
 // plugin context (no OpenCode v2 binary needed). Covers the review
@@ -17,7 +17,7 @@ import { readFileSync, rmSync, writeFileSync } from "node:fs";
 // SIGTERMs it during cleanup. No Discord is needed: pushes are
 // asserted via the activity log with discord=disconnected.
 
-const { ACTIVITY_LOG, CONFIG_PATH } = await import("../src/shared/paths.js");
+const { ACTIVITY_LOG, CONFIG_PATH, CLIENT_HEARTBEAT } = await import("../src/shared/paths.js");
 const { writeState } = await import("../src/shared/presence-state.js");
 const { readDaemonPid, isPidAlive } = await import("../src/shared/daemon-liveness.js");
 const def = (await import("../src/plugin/index.v2.js")).default;
@@ -386,6 +386,62 @@ emit({
     data: { sessionID: SID, id: "exec_resub_1" },
 });
 ok(await waitForCount(/session\.execution\.started sid=arness01/, resubEventBefore, 15000, "post-resubscribe event"), "native events flow again after resubscribe");
+
+// Finish the resubscribed execution so the session is idle for the
+// client-presence tests below.
+emit({
+    type: "session.execution.succeeded",
+    location: { directory: mockCtx.location.directory },
+    created: Date.now(),
+    data: { sessionID: SID },
+});
+await new Promise((r) => setTimeout(r, 300));
+
+section("client heartbeat keeps idle presence alive");
+// Fresh heartbeat = a client window is attached, so the idle presence
+// must not auto-clear no matter how long the user reads.
+writeFileSync(CLIENT_HEARTBEAT, "");
+{
+    const fresh = new Date();
+    utimesSync(CLIENT_HEARTBEAT, fresh, fresh);
+}
+await new Promise((r) => setTimeout(r, 7000));
+ok(countMatches(/auto-clear \(no client/) === 0, "fresh heartbeat: presence stays");
+
+section("stale heartbeat auto-clears the presence");
+// Age the heartbeat beyond the client timeout: every window is closed and
+// nothing runs anymore, so the presence must clear and stop pushing.
+{
+    const old = new Date(Date.now() - 120000);
+    utimesSync(CLIENT_HEARTBEAT, old, old);
+}
+ok(await waitFor(/auto-clear \(no client window attached and nothing running\)/, 15000), "stale heartbeat triggers auto-clear");
+{
+    const pushedBefore = countMatches(/sent rendered payload to daemon/);
+    await new Promise((r) => setTimeout(r, 7000));
+    ok(countMatches(/sent rendered payload to daemon/) === pushedBefore, "pushes stop while auto-cleared");
+}
+
+section("a client returning resumes the presence");
+{
+    const fresh = new Date();
+    utimesSync(CLIENT_HEARTBEAT, fresh, fresh);
+}
+ok(await waitFor(/auto-clear: resumed/, 15000), "fresh heartbeat resumes the presence");
+{
+    const pushedBefore = countMatches(/sent rendered payload to daemon/);
+    ok(await waitForCount(/sent rendered payload to daemon/, pushedBefore, 15000, "post-resume push"), "pushes flow again after resume");
+}
+
+section("missing heartbeat file keeps legacy always-on behavior");
+// No heartbeat file = no TUI part loaded = the client check is disabled
+// and the presence must never auto-clear (legacy behavior).
+rmSync(CLIENT_HEARTBEAT, { force: true });
+{
+    const clearBefore = countMatches(/auto-clear \(no client/);
+    await new Promise((r) => setTimeout(r, 7000));
+    ok(countMatches(/auto-clear \(no client/) === clearBefore, "no heartbeat file: no auto-clear");
+}
 
 section("location.shutdown clears presence");
 emit({

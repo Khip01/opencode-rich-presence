@@ -41,7 +41,7 @@
 
 import "./test-env.mjs";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
-import { mkdtempSync, existsSync, statSync, readFileSync, readdirSync, rmSync, renameSync, writeFileSync } from "node:fs";
+import { mkdtempSync, existsSync, statSync, readFileSync, readdirSync, rmSync, renameSync, writeFileSync, mkdirSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -485,33 +485,92 @@ const useGithub = process.env.ORP_USE_GITHUB_RELEASE === "1";
         "sandbox help does NOT recommend broken `npm install -g <repo>`");
 }
 
-// Run opencode-rpc install in sandbox: creates symlink + config.
+// Run opencode-rpc install in sandbox: creates the plugin entry + config.
+// The OpenCode binary is hidden from PATH and the version question is
+// answered explicitly, so both plugin forms are exercised deterministically
+// regardless of whether this machine has OpenCode installed.
 {
-    // Use a temp OPENCODE_CONFIG_DIR so the symlink goes to a known place.
-    const fakeHome = mkdtempSync(join(sandbox, "home-"));
-    const cfgDir = join(fakeHome, ".config", "opencode");
-    const r = run(join(sandboxBin, "opencode-rpc"), ["install"], {
-        env: { ...sandboxEnv, OPENCODE_CONFIG_DIR: cfgDir, HOME: fakeHome },
+    const cliEntry = join(sandboxLib, "opencode-rich-presence", "bin", "opencode-rpc.js");
+    const noBin = join(sandbox, "empty-bin");
+    mkdirSync(noBin, { recursive: true });
+
+    // V2 (answering yes): plugin directory with server + TUI part links.
+    const homeV2 = mkdtempSync(join(sandbox, "home-"));
+    const cfgV2 = join(homeV2, ".config", "opencode");
+    const r2 = run(process.execPath, [cliEntry, "install"], {
+        env: { ...sandboxEnv, PATH: noBin, OPENCODE_CONFIG_DIR: cfgV2, HOME: homeV2 },
+        input: "y\n",
     });
-    assert(r.status === 0, "sandbox opencode-rpc install exits 0");
-    assert(existsSync(join(cfgDir, "plugins", "opencode-rich-presence.js")),
-        "plugin symlink created");
-    assert(existsSync(join(cfgDir, "discord-config.json")),
+    assert(r2.status === 0, "sandbox opencode-rpc install (V2) exits 0");
+    const v2Dir = join(cfgV2, "plugins", "opencode-rich-presence");
+    assert(existsSync(join(v2Dir, "index.js")), "V2 plugin dir has server part link");
+    assert(existsSync(join(v2Dir, "tui.js")), "V2 plugin dir has TUI part link");
+    assert(existsSync(join(v2Dir, "package.json")), "V2 plugin dir has manifest");
+    assert(!existsSync(join(cfgV2, "plugins", "opencode-rich-presence.js")),
+        "V2 install leaves no legacy single-file link");
+    assert(existsSync(join(cfgV2, "discord-config.json")),
         "config file created");
+
+    // Idempotent re-install keeps the same setup.
+    const again = run(process.execPath, [cliEntry, "install"], {
+        env: { ...sandboxEnv, PATH: noBin, OPENCODE_CONFIG_DIR: cfgV2, HOME: homeV2 },
+        input: "y\n",
+    });
+    assert(again.status === 0, "sandbox opencode-rpc re-install (V2) exits 0");
+    assert(existsSync(join(v2Dir, "index.js")), "V2 plugin dir survives re-install");
+
+    // Legacy migration: a pre-directory single-file link is replaced.
+    const homeMig = mkdtempSync(join(sandbox, "home-"));
+    const cfgMig = join(homeMig, ".config", "opencode");
+    mkdirSync(join(cfgMig, "plugins"), { recursive: true });
+    const legacy = join(cfgMig, "plugins", "opencode-rich-presence.js");
+    symlinkSync(join(sandboxLib, "opencode-rich-presence", "src", "plugin", "index.v2.js"), legacy);
+    const mig = run(process.execPath, [cliEntry, "install"], {
+        env: { ...sandboxEnv, PATH: noBin, OPENCODE_CONFIG_DIR: cfgMig, HOME: homeMig },
+        input: "y\n",
+    });
+    assert(mig.status === 0, "sandbox opencode-rpc install (migration) exits 0");
+    assert(existsSync(join(cfgMig, "plugins", "opencode-rich-presence", "index.js")),
+        "migration creates the V2 plugin dir");
+    assert(!existsSync(legacy),
+        "migration removes the legacy single-file link");
+
+    // V1 (answering no): legacy single-file symlink.
+    const homeV1 = mkdtempSync(join(sandbox, "home-"));
+    const cfgV1 = join(homeV1, ".config", "opencode");
+    const r1 = run(process.execPath, [cliEntry, "install"], {
+        env: { ...sandboxEnv, PATH: noBin, OPENCODE_CONFIG_DIR: cfgV1, HOME: homeV1 },
+        input: "n\n",
+    });
+    assert(r1.status === 0, "sandbox opencode-rpc install (V1) exits 0");
+    assert(existsSync(join(cfgV1, "plugins", "opencode-rich-presence.js")),
+        "V1 plugin symlink created");
+    assert(!existsSync(join(cfgV1, "plugins", "opencode-rich-presence")),
+        "V1 install creates no plugin directory");
 }
 
 // Run opencode-rpc uninstall in sandbox: cleanup all generated files.
 {
     const fakeHome = join(sandbox, "home-uninstall");
     const cfgDir = join(fakeHome, ".config", "opencode");
-    // Set up sandbox install first (re-install because previous was uninstalled
-    // ... actually we did not uninstall yet, we just installed. Let me uninstall
-    // the existing setup.)
-    const r = run(join(sandboxBin, "opencode-rpc"), ["uninstall"], {
-        env: { ...sandboxEnv, OPENCODE_CONFIG_DIR: cfgDir, HOME: fakeHome },
+    const cliEntry = join(sandboxLib, "opencode-rich-presence", "bin", "opencode-rpc.js");
+    const noBin = join(sandbox, "empty-bin");
+    // Install the V2 form first so uninstall is checked against the
+    // plugin directory it must remove.
+    const ins = run(process.execPath, [cliEntry, "install"], {
+        env: { ...sandboxEnv, PATH: noBin, OPENCODE_CONFIG_DIR: cfgDir, HOME: fakeHome },
+        input: "y\n",
+    });
+    assert(ins.status === 0, "sandbox install before uninstall exits 0");
+    const r = run(process.execPath, [cliEntry, "uninstall"], {
+        env: { ...sandboxEnv, PATH: noBin, OPENCODE_CONFIG_DIR: cfgDir, HOME: fakeHome },
         input: "n\n", // don't delete config
     });
     assert(r.status === 0, "sandbox opencode-rpc uninstall exits 0");
+    assert(!existsSync(join(cfgDir, "plugins", "opencode-rich-presence")),
+        "V2 plugin dir removed by uninstall");
+    assert(!existsSync(join(cfgDir, "plugins", "opencode-rich-presence.js")),
+        "legacy plugin link removed by uninstall");
 }
 
 // npm uninstall -g from sandbox: remove the package.

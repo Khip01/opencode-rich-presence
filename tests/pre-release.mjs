@@ -33,7 +33,7 @@
 //   --tarball=PATH  override auto-detection (default: look in cwd and REPO_ROOT)
 
 import { execFileSync, spawn, spawnSync } from "node:child_process";
-import { mkdtempSync, existsSync, statSync, readFileSync, readdirSync, rmSync, renameSync } from "node:fs";
+import { mkdtempSync, existsSync, statSync, readFileSync, readdirSync, rmSync, renameSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -214,16 +214,23 @@ section("3. Run CLI commands to verify");
 section("4. opencode-rpc install (plugin symlink + config)");
 
 {
-    // Use a temp OPENCODE_CONFIG_DIR so the symlink goes to a known place.
+    // Use a temp OPENCODE_CONFIG_DIR so the plugin entry goes to a known
+    // place. Hide the OpenCode binary from PATH and answer the version
+    // question explicitly, so the V2 plugin form is exercised
+    // deterministically on every machine.
     const fakeHome = mkdtempSync(join(sandbox, "home-"));
     const cfgDir = join(fakeHome, ".config", "opencode");
-    const cli = join(sandboxBin, "opencode-rpc");
-    const r = run(cli, ["install"], {
-        env: { ...sandboxEnv, OPENCODE_CONFIG_DIR: cfgDir, HOME: fakeHome },
+    const cliEntry = join(sandboxLib, "opencode-rich-presence", "bin", "opencode-rpc.js");
+    const noBin = join(sandbox, "empty-bin");
+    mkdirSync(noBin, { recursive: true });
+    const r = run(process.execPath, [cliEntry, "install"], {
+        env: { ...sandboxEnv, PATH: noBin, OPENCODE_CONFIG_DIR: cfgDir, HOME: fakeHome },
+        input: "y\n",
     });
     assert(r.status === 0, "opencode-rpc install exits 0");
-    assert(existsSync(join(cfgDir, "plugins", "opencode-rich-presence.js")),
-        "plugin symlink created");
+    const v2Dir = join(cfgDir, "plugins", "opencode-rich-presence");
+    assert(existsSync(join(v2Dir, "index.js")), "plugin server part link created");
+    assert(existsSync(join(v2Dir, "tui.js")), "plugin TUI part link created");
     assert(existsSync(join(cfgDir, "discord-config.json")),
         "config file created");
 }

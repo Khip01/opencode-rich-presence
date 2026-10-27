@@ -15,6 +15,8 @@ usage, cost, and elapsed time.
 - Live Rich Presence for OpenCode sessions
 - Stable updates when switching between OpenCode windows
 - Presence returns when OpenCode is reopened
+- Presence clears automatically once every OpenCode window has been
+  closed (client heartbeat; no idle limit while a window is open)
 - Customizable presence templates
 - Built-in activity logs for troubleshooting
 - OpenCode v1 and v2 support

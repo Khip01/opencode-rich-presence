@@ -39,3 +39,14 @@ Thumbs.db
 # these belong in ~/.config/opencode, never in source control.
 presence-states/
 presence-state-pid*.txt
+
+# Client heartbeat (TUI plugin part) and daemon IPC/runtime artifacts.
+# Same safety-net rationale: they live in ~/.config/opencode, never in
+# source control, even if a stray write lands in the repo working
+# directory.
+.opencode-rich-presence.heartbeat
+.opencode-rich-presence.sock
+.opencode-rich-presence.pid
+.opencode-rich-presence.lock
+presence-state.txt
+.discord-restart-request

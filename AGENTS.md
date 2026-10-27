@@ -286,11 +286,14 @@ CLI install path remains canonical.
 ### Plugin Loading
 
 OpenCode loads the plugin from
-`~/.config/opencode/plugins/opencode-rich-presence.js`. This is a
-symlink created by `opencode-rpc install` pointing to the npm
+`~/.config/opencode/plugins/opencode-rich-presence/` (a directory with
+`index.js` server part and `tui.js` TUI part symlinks; OpenCode V1 and
+legacy V2 installs use a single-file symlink at
+`~/.config/opencode/plugins/opencode-rich-presence.js` instead). The
+entries are created by `opencode-rpc install` and point into the npm
 global install location. The package is NOT on the npm registry, so
-OpenCode's default auto-install via Bun returns 404. The symlink
-bypasses this entirely.
+OpenCode's default auto-install via Bun returns 404. The symlinks
+bypass this entirely.
 
 **NEVER add `opencode-rich-presence` to the `plugin` array in
 `~/.config/opencode/opencode.jsonc` (or `.json`).** OpenCode reads
@@ -454,6 +457,10 @@ longer need it.
   (default 120000). When a terminal execution event is lost, a guarded poll
   releases the guard after this quiet period (also requires no in-progress
   answer and an idle stamp that is absent or at/after turn start).
+- `ORP_CLIENT_TIMEOUT_MS`: client heartbeat staleness in milliseconds
+  (default 30000). The presence auto-clears once every OpenCode window
+  has been closed for this long and nothing is running; the TUI plugin
+  part heartbeat is the signal.
 
 ## Build, Test, and Verify
 

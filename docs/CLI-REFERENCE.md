@@ -146,7 +146,13 @@ Sets up the Rich Presence plugin for OpenCode.
 `@xhayper/discord-rpc` npm dependency. v3.5.0 and newer have zero
 runtime dependencies: `src/plugin/index.v2.js` inlines the
 `Plugin.define` identity helper that `@opencode/plugin` provides.
-The v1 entry and the daemon stay dependency-free.
+The v1 entry and the daemon stay dependency-free. On OpenCode V2,
+step 3 creates a plugin directory
+(`~/.config/opencode/plugins/opencode-rich-presence/`) with an
+`index.js` server part symlink and a `tui.js` TUI part symlink (the
+client heartbeat behind presence auto-clear) plus a small manifest;
+OpenCode V1 keeps the single-file symlink, and legacy single-file V2
+links are migrated in place.
 
 **Example: fresh install**
 
@@ -154,19 +160,22 @@ The v1 entry and the daemon stay dependency-free.
 $ opencode-rpc install
 
 opencode-rich-presence installer
+
 Phase 1: local state collector + activity log (no Discord push yet).
-
 Creating OpenCode config directory: /home/user/.config/opencode
-Created /home/user/.config/opencode/discord-config.json.
+Created /home/user/.config/opencode/discord-config.json
 
-  Linked /home/user/.config/opencode/plugins/opencode-rich-presence.js
-    -> /home/user/.nvm/versions/node/v24/lib/node_modules/opencode-rich-presence/src/plugin/index.js
+
+  Detected OpenCode v2 (opencode --version).
+  Linked /home/user/.config/opencode/plugins/opencode-rich-presence (V2 server + TUI parts)
+    -> /home/user/.nvm/versions/node/v24/lib/node_modules/opencode-rich-presence/src/plugin/index.v2.js
+    -> /home/user/.nvm/versions/node/v24/lib/node_modules/opencode-rich-presence/src/plugin/index.tui.js
 
 Next steps:
 
-1. Restart OpenCode. The plugin loads from a symlink at:
-   ~/.config/opencode/plugins/opencode-rich-presence.js
-   pointing to the installed package entry file in your npm prefix.
+1. Restart OpenCode. The plugin loads from symlinks under:
+   ~/.config/opencode/plugins/
+   pointing to the installed package entry files in your npm prefix.
 
 Run `opencode-rpc info` anytime to check status.
 ```
@@ -181,8 +190,9 @@ Removes plugin-generated files. Steps:
    signal).
 2. v3 Phase 1: also removes the activity log and any
    per-instance state files.
-3. Removes the local plugin symlink at
-   `~/.config/opencode/plugins/opencode-rich-presence.js`.
+3. Removes the local plugin entry under `~/.config/opencode/plugins/`
+   (the `opencode-rich-presence/` plugin directory on OpenCode V2, or
+   the legacy single-file `opencode-rich-presence.js` symlink).
 4. v2.x: removes `@xhayper/discord-rpc` from
    `~/.config/opencode/package.json` and re-runs `npm install` to
    prune from `node_modules`.
@@ -201,14 +211,16 @@ opencode-rich-presence uninstaller
 
 Cleaning up plugin-generated runtime files:
   removed /home/user/.config/opencode/.opencode-rich-presence.lock
+  removed /home/user/.config/opencode/.discord-restart-request
   removed /home/user/.config/opencode/presence-state.txt
   removed /home/user/.config/opencode/presence-activity.log
-  removed /home/user/.config/opencode/presence-state-pid12345.txt
-  removed /home/user/.config/opencode/plugins/opencode-rich-presence.js
-  removed "opencode-rich-presence" entry from /home/user/.config/opencode/opencode.jsonc
+  removed /home/user/.config/opencode/.opencode-rich-presence.pid
+  removed /home/user/.config/opencode/.opencode-rich-presence.state.json
+  removed /home/user/.config/opencode/.opencode-rich-presence.sock
+  removed /home/user/.config/opencode/plugins/opencode-rich-presence
 
-Delete /home/user/.config/opencode/discord-config.json? [y/N] n
-  Kept. The file remains at /home/user/.config/opencode/discord-config.json.
+Delete /home/user/.config/opencode/discord-config.json? [y/N]   Kept. The file remains at /home/user/.config/opencode/discord-config.json.
+  removed "opencode-rich-presence" entry from /home/user/.config/opencode/opencode.jsonc
 
 Final cleanup (run manually if you want a full uninstall):
   npm uninstall -g opencode-rich-presence    (removes the CLI globally)
@@ -509,9 +521,10 @@ Config (discord-config.json)
   Custom template: yes
 
 OpenCode plugin symlink
-  Path           : /home/khip/.config/opencode/plugins/opencode-rich-presence.js
+  Path           : /home/khip/.config/opencode/plugins/opencode-rich-presence
   Linked         : yes
-  Target         : /home/khip/.nvm/versions/node/v24.13.1/lib/node_modules/opencode-rich-presence/src/plugin/index.js
+  Target         : /home/khip/.nvm/versions/node/v24.13.1/lib/node_modules/opencode-rich-presence/src/plugin/index.v2.js
+  TUI part       : linked
 
 Per-instance state files (2)
   presence-state-pid12345.txt  [1.8 KB, modified 2026-07-05T15:00:00.000Z]

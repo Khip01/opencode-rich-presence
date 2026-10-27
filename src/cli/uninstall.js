@@ -1,4 +1,4 @@
-import { existsSync, unlinkSync, readFileSync, writeFileSync, renameSync, lstatSync } from "node:fs";
+import { existsSync, unlinkSync, readFileSync, writeFileSync, renameSync, lstatSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { CONFIG_PATH, OUTPUT_FILE, ACTIVITY_LOG, OPENCODE_DIR, DAEMON_SOCKET, DAEMON_PID_FILE, PRESENCE_STATE, IS_WINDOWS, PRESENCE_STATE_DIR } from "../shared/paths.js";
 import { readDaemonPid } from "../shared/daemon-liveness.js";
@@ -64,9 +64,35 @@ export async function uninstall() {
         }
     } catch {}
 
-    // Local plugin symlink installed by `opencode-rpc install`. Created so OpenCode
-    // can load the plugin without it being on the npm registry.
+    // Local plugin entry installed by `opencode-rpc install`. Created so
+    // OpenCode can load the plugin without it being on the npm registry.
+    // V2 installs a plugin directory (server + TUI parts); V1 and legacy
+    // V2 installs use a single-file symlink. Remove whichever is present.
+    const pluginDir = join(OPENCODE_DIR, "plugins", PLUGIN_NAME);
     const pluginLink = join(OPENCODE_DIR, "plugins", `${PLUGIN_NAME}.js`);
+    if (existsSync(pluginDir)) {
+        let ours = false;
+        try {
+            ours = lstatSync(join(pluginDir, "index.js")).isSymbolicLink();
+        } catch {}
+        if (!ours) {
+            try {
+                const manifest = JSON.parse(readFileSync(join(pluginDir, "package.json"), "utf-8"));
+                ours = manifest?.name === PLUGIN_NAME;
+            } catch {}
+        }
+        if (ours) {
+            try {
+                rmSync(pluginDir, { recursive: true, force: true });
+                console.log(`  removed ${pluginDir}`);
+                removed++;
+            } catch (e) {
+                console.log(`  failed to remove ${pluginDir}: ${e.message}`);
+            }
+        } else {
+            console.log(`  Skipped ${pluginDir}: not created by ${PLUGIN_NAME} (remove manually if you want it gone)`);
+        }
+    }
     if (existsSync(pluginLink)) {
         let isSymlink = false;
         try { isSymlink = lstatSync(pluginLink).isSymbolicLink(); } catch {}

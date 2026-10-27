@@ -21,6 +21,7 @@ const REQUIRED_FILES = [
     "bin/opencode-rpc.js",
     "src/plugin/index.js",
     "src/plugin/index.v2.js",
+    "src/plugin/index.tui.js",
     "src/plugin/template-engine.js",
     "src/plugin/config-resolver.js",
     "src/plugin/local-presence.js",

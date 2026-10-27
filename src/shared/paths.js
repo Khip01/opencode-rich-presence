@@ -66,5 +66,15 @@ export const DAEMON_SOCKET = IS_WINDOWS
 // the socket (the socket itself is the authoritative source of truth).
 export const DAEMON_PID_FILE = join(OPENCODE_DIR, ".opencode-rich-presence.pid");
 
+// Client heartbeat file. The TUI plugin part (src/plugin/index.tui.js)
+// touches this file every few seconds from inside each OpenCode client
+// window; the server part reads its mtime to know whether any window is
+// still attached. OpenCode keeps its background service running after the
+// last window closes and emits no client disconnect event, so this file is
+// the only "user is gone" signal a plugin can get. A missing file means no
+// TUI part is loaded (older client), which disables the client check and
+// keeps the legacy always-on presence behavior.
+export const CLIENT_HEARTBEAT = join(OPENCODE_DIR, ".opencode-rich-presence.heartbeat");
+
 // Debug log uses OS temp directory (cross-platform: /tmp on Linux, /var/folders/... on macOS, %TEMP% on Windows).
 export const DEBUG_LOG = join(tmpdir(), "opencode-rich-presence-debug.log");

@@ -474,10 +474,14 @@ The plugin code itself is fully cross-platform thanks to:
 
 OpenCode loads plugins from `~/.config/opencode/plugins/`. The
 `opencode-rich-presence` package is NOT published to the npm
-registry. v2.0.6+ relies entirely on a symlink at
-`~/.config/opencode/plugins/opencode-rich-presence.js` pointing to
-the plugin entry file in the user's npm prefix. OpenCode loads the
-plugin directly from disk via this symlink.
+registry. v2.0.6+ relies entirely on symlinks into the user's npm
+prefix. V2 installs use a plugin directory at
+`~/.config/opencode/plugins/opencode-rich-presence/` whose manifest
+exports resolve the two plugin parts: `index.js` (server part, the V2
+entry) and `tui.js` (TUI part, the client heartbeat). V1 installs and
+older V2 installs use a single-file symlink at
+`~/.config/opencode/plugins/opencode-rich-presence.js`; `opencode-rpc
+install` migrates that form to the directory.
 
 The package has zero runtime dependencies. The V2 entry inlines the
 `Plugin.define` identity helper from the `@opencode/plugin` SDK, so a
@@ -485,6 +489,33 @@ fresh `npm install -g` resolves no dependency tree at all and cannot
 be broken by upstream dependency churn (a `@opencode/plugin@2.2.0`
 peer-set change crashed npm 10.8.x installs; see
 `docs/TROUBLESHOOTING.md`).
+
+## Client Presence (heartbeat + auto-clear)
+
+OpenCode's background service keeps running (and keeps the server part
+loaded) after the last client window closes, and it emits no client
+disconnect event. The plugin therefore cannot ask the server whether a
+window is open. Instead, the TUI part runs inside every client window
+and touches `~/.config/opencode/.opencode-rich-presence.heartbeat`
+every 10 seconds; the server part reads that file's mtime.
+
+The push loop shows the presence while any of these hold:
+
+- a client window is attached (heartbeat mtime within
+  `ORP_CLIENT_TIMEOUT_MS`, default 30 seconds),
+- server-side work is running (an execution guard or a non-idle,
+  non-ASKING session state), covering headless `opencode run` usage and
+  turns that finish after the user quit,
+- no heartbeat file exists at all (older clients without TUI parts),
+  which keeps the legacy always-on behavior.
+
+When none hold, the server part sends a goodbye to the daemon (which
+clears the Discord activity) and suppresses pushes until a client or
+new activity reappears. An ASKING session (pending permission) counts
+as no work: it cannot advance without a client, so it must not pin the
+presence forever. The heartbeat is the only "user is gone" signal, so
+the client timeout is the detection window between closing the last
+window and clearing the presence.
 
 **Do not add `"opencode-rich-presence"` to the `plugin` array in
 `opencode.jsonc` or `opencode.json`.** OpenCode reads that array as

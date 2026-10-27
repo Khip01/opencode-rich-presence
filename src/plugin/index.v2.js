@@ -4,14 +4,14 @@
 // Keep this adapter separate from src/plugin/index.js, but share the session
 // state, renderer, daemon, and configuration layers.
 
-import { unlinkSync } from "node:fs";
+import { statSync, unlinkSync } from "node:fs";
 import { stat } from "node:fs/promises";
 import { loadConfig } from "./config-resolver.js";
 import { SessionState } from "./session-state.js";
 import { STATE } from "../shared/constants.js";
 import { activity, log } from "../shared/logger.js";
 import { readState } from "../shared/presence-state.js";
-import { DAEMON_PID_FILE, CONFIG_PATH, OPENCODE_DIR } from "../shared/paths.js";
+import { DAEMON_PID_FILE, CONFIG_PATH, OPENCODE_DIR, CLIENT_HEARTBEAT } from "../shared/paths.js";
 import { join } from "node:path";
 import {
     isDaemonAlive,
@@ -58,6 +58,17 @@ let eventLoopToken = 0;
 // No native event traffic for this long while a guard is active means the
 // terminal event was lost; release the guard and let polling reconcile.
 const STUCK_GUARD_MS = 2 * 60 * 1000;
+
+// Client heartbeat staleness. The TUI plugin part touches CLIENT_HEARTBEAT
+// every 10s while a client window is open; no touch for this long means the
+// last window is gone and the presence should clear. Overridable via env so
+// tests do not wait.
+const CLIENT_TIMEOUT_MS = 30 * 1000;
+
+function clientTimeoutMs() {
+    const value = Number(process.env.ORP_CLIENT_TIMEOUT_MS);
+    return Number.isFinite(value) && value > 0 ? value : CLIENT_TIMEOUT_MS;
+}
 
 function sleep(ms) {
     return new Promise((resolve) => {
@@ -240,6 +251,10 @@ function createRuntime(ctx, loadedConfig) {
     let config = loadedConfig;
     let presenceEnabled = true;
     let daemonStopped = false;
+    // True while the auto-clear policy is hiding the presence (every client
+    // window closed and nothing running). Pushes resume on the first sign
+    // of a client or work.
+    let presenceSuppressed = false;
 
     function limitFor(modelID) {
         if (!modelID) return null;
@@ -628,12 +643,65 @@ function createRuntime(ctx, loadedConfig) {
         }
     }
 
+    // True: a client window is attached (the TUI part's heartbeat is
+    // fresh). False: every window has been closed for longer than the
+    // timeout. Null: no heartbeat file at all, i.e. the TUI part is not
+    // loaded (older client), so the client check is unavailable and the
+    // presence keeps the legacy always-on behavior.
+    function clientAttached() {
+        try {
+            const st = statSync(CLIENT_HEARTBEAT);
+            return Date.now() - st.mtimeMs <= clientTimeoutMs();
+        } catch {
+            return null;
+        }
+    }
+
+    // Server-side work that must keep the presence alive even with every
+    // window closed: a headless `opencode run`, or a turn that finishes
+    // after the user already quit. An ASKING session (permission prompt)
+    // is deliberately not work: it cannot advance without a client to
+    // answer it, so it must not pin the presence forever.
+    function workInProgress() {
+        for (const session of sessions.values()) {
+            if (session.state === STATE.ASKING) continue;
+            if (executionGuarded(session)) return true;
+            if (session.state !== STATE.WAITING) return true;
+        }
+        return false;
+    }
+
+    // The presence shows while a client window is attached (heartbeat
+    // fresh) or server-side work is still running. When every window has
+    // been closed and nothing runs anymore, the presence must not linger
+    // on Discord until the next service restart.
+    function presenceAllowed() {
+        const client = clientAttached();
+        if (client === true) return true;
+        if (workInProgress()) return true;
+        return client === null;
+    }
+
     function push() {
         try {
             const state = readState();
             presenceEnabled = state.presenceEnabled;
             daemonStopped = state.daemonStopped;
         } catch {}
+        if (!presenceAllowed()) {
+            if (!presenceSuppressed) {
+                presenceSuppressed = true;
+                activity("presence", "auto-clear (no client window attached and nothing running)");
+                stopPresence();
+            }
+            return;
+        }
+        if (presenceSuppressed) {
+            presenceSuppressed = false;
+            activity("presence", "auto-clear: resumed");
+            void ensureDaemonAndConnect(daemonStopped).then(() => push());
+            return;
+        }
         const session = displayedID ? sessions.get(displayedID) ?? null : null;
         let rendered = null;
         try {
