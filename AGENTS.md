@@ -81,7 +81,10 @@ IPC socket actually dies.
     `opencode-rich-presence-v2`). Same daemon/templates/config, but
     normalizes native V2 execution, step, usage, text, reasoning, tool,
     compaction, retry, idle, and permission events. Multiple V2 plugin
-    locations share one event subscription and polling loop. `install`
+    locations share one event subscription and polling loop; the
+    subscription restarts with backoff when the stream ends, and a guarded
+    poll can recover a lost terminal event from the server idle stamp or
+    the `ORP_STUCK_GUARD_MS` watchdog. `install`
     links exactly one entry based on `opencode --version`. Needs the
     `@opencode/plugin` dep.
   - `config-resolver.js`: load discord-config.json + env vars
@@ -447,6 +450,10 @@ longer need it.
 - `OPENCODE_RICH_PRESENCE_DEBUG`: enable verbose plugin logging
 - `OPENCODE_RPC_DEBUG`: print CLI stack traces on errors
 - `OPENCODE_CONFIG_DIR`: override OpenCode config dir
+- `ORP_STUCK_GUARD_MS`: V2 stuck-guard watchdog timeout in milliseconds
+  (default 120000). When a terminal execution event is lost, a guarded poll
+  releases the guard after this quiet period (also requires no in-progress
+  answer and an idle stamp that is absent or at/after turn start).
 
 ## Build, Test, and Verify
 

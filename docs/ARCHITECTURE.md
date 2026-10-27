@@ -144,6 +144,34 @@ The normal V2 state sequence is:
 This arbitration is implemented only in `src/plugin/index.v2.js`. The V1
 entry in `src/plugin/index.js` is unchanged.
 
+### V2 event stream resilience and guard recovery
+
+The shared event subscription lives in a restartable loop
+(`restartEventLoop`). If the stream ends cleanly or errors (location
+shutdown, service restart), the loop resubscribes with backoff instead of
+silently losing every native execution event. On dispose the subscription
+is handed to a surviving plugin location, so multiple locations in one
+service keep exactly one live subscription.
+
+Native terminal events remain the authority for clearing the execution
+guard. Because a lost terminal event can otherwise strand the presence on
+`Working`, a guarded poll may release the guard on timestamp evidence:
+
+1. `poll: terminal event recovered` when the latest assistant answer is
+   completed at or after the turn start and the server idle stamp
+   (`time.idle` from `session.get`, monotonic) is at or after that
+   completion. The idle stamp only advances on a real idle transition, so
+   it doubles as proof that the turn ended.
+2. `poll: watchdog released` when the guard has been stuck longer than the
+   watchdog timeout (`ORP_STUCK_GUARD_MS`, default 2 minutes), no answer is
+   in progress, and the idle stamp is absent or at/after the turn start.
+
+Stale history whose completion predates the turn start never satisfies rule
+1, so a long-running turn (which only shows an old idle stamp) cannot be
+released into a false `Waiting for command`. Native events, tool hook
+activity, and server message updates all count as activity evidence that
+keeps the watchdog quiet.
+
 V1 vs V2 session storage (important for prompt counting)
 ---------------------------------------------------------
 

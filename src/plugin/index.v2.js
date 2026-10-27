@@ -41,6 +41,66 @@ let sharedRuntimeRefs = 0;
 let sharedController = null;
 let sharedTimer = null;
 let lastConfigMtime = 0;
+// The V2 event stream is owned by one setup ctx at a time. A location
+// shutdown can end that stream silently (the for-await just returns), so
+// the loop must be restartable with a surviving ctx. The token invalidates
+// an older loop when a new one takes over.
+let sharedSubscribeCtx = null;
+const liveCtxs = new Set();
+let eventLoopToken = 0;
+// No native event traffic for this long while a guard is active means the
+// terminal event was lost; release the guard and let polling reconcile.
+const STUCK_GUARD_MS = 2 * 60 * 1000;
+
+function sleep(ms) {
+    return new Promise((resolve) => {
+        const timer = setTimeout(resolve, ms);
+        timer.unref?.();
+    });
+}
+
+// Keep one shared event subscription alive for the whole service. If the
+// stream ends or errors (location shutdown, service restart), resubscribe
+// with backoff instead of silently losing every native execution event.
+// Losing those events is what strands a session in Working: the execution
+// guard waits for a terminal event that will never arrive.
+function restartEventLoop(ctx) {
+    sharedSubscribeCtx = ctx;
+    eventLoopToken += 1;
+    const token = eventLoopToken;
+    try { sharedController?.abort(); } catch {}
+    sharedController = new AbortController();
+    const controller = sharedController;
+    void (async () => {
+        let delay = 1000;
+        while (!controller.signal.aborted && token === eventLoopToken) {
+            try {
+                const source = sharedSubscribeCtx ?? [...liveCtxs].at(-1);
+                if (!source?.event?.subscribe) {
+                    await sleep(delay);
+                    continue;
+                }
+                for await (const event of source.event.subscribe({ signal: controller.signal })) {
+                    delay = 1000;
+                    try {
+                        await sharedRuntime?.handleEvent(event);
+                    } catch (error) {
+                        log(`event loop item: ${error?.message || error}`);
+                    }
+                }
+                // A clean end is still a dead stream: resubscribe.
+                if (controller.signal.aborted || token !== eventLoopToken) return;
+                activity("event", "event stream ended, resubscribing");
+            } catch (error) {
+                if (controller.signal.aborted || token !== eventLoopToken) return;
+                log(`event loop: ${error?.message || error}`);
+                activity("event", `event stream failed, resubscribing in ${delay}ms`);
+            }
+            await sleep(delay);
+            delay = Math.min(delay * 2, 30000);
+        }
+    })();
+}
 
 function acquirePresence() {
     activePresenceUsers += 1;
@@ -200,6 +260,14 @@ function createRuntime(ctx, loadedConfig) {
             session._executionActive = false;
             session._promptAt = 0;
             session._executionStartedAt = 0;
+            // Server-side "session became idle" timestamp from session.get().
+            // Only stamped when the session really goes idle, so it is solid
+            // evidence that a guarded execution has finished even when the
+            // terminal event never arrived (see refreshSessionStats).
+            session._serverIdleAt = 0;
+            // Last time a native execution event touched this session. Used
+            // as a watchdog: a guard with no event traffic at all is stuck.
+            session._lastNativeEventAt = 0;
             sessions.set(sid, session);
             activity("queue", `added sid=${sid.slice(-8)} (v2)`);
         }
@@ -257,6 +325,78 @@ function createRuntime(ctx, loadedConfig) {
 
     function executionGuarded(session) {
         return !!(session?._executionPending || session?._executionActive);
+    }
+
+    function markNativeEvent(session, timestamp = Date.now()) {
+        if (!session) return;
+        // Monotonic: a stale server timestamp must not erase fresher event
+        // activity (the watchdog reads this as "last time anything moved").
+        const value = eventTimestamp(timestamp);
+        session._lastNativeEventAt = Math.max(session._lastNativeEventAt || 0, value);
+    }
+
+    // Watchdog timeout. Overridable via env so tests do not wait minutes.
+    function stuckGuardMs() {
+        const value = Number(process.env.ORP_STUCK_GUARD_MS);
+        return Number.isFinite(value) && value > 0 ? value : STUCK_GUARD_MS;
+    }
+
+    // Watchdog: a guard is only meaningful while activity keeps coming in
+    // (native events, server message updates, the prompt itself). If nothing
+    // has moved for a long time, the terminal event was lost (typically a
+    // dead event stream) and the guard must not freeze the presence.
+    function guardStuckTooLong(session) {
+        if (!executionGuarded(session)) return false;
+        const guardSetAt = Math.max(session._promptAt || 0, session._executionStartedAt || 0);
+        const evidence = Math.max(
+            session._lastNativeEventAt || 0,
+            session._serverIdleAt || 0,
+            guardSetAt,
+        );
+        return evidence > 0 && Date.now() - evidence > stuckGuardMs();
+    }
+
+    // Recover from a lost terminal execution event (dead event stream,
+    // missed session.execution.succeeded). Returns true when a stuck guard
+    // was released and the state was decided here.
+    //
+    // All evidence comes from the context/server APIs, which keep working
+    // even when the event stream dies (the failure mode that leaves the
+    // presence frozen on Working):
+    // - Rule 1: the assistant answer for this turn is complete and the
+    //   server stamped the session idle after that completion.
+    // - Rule 2 (watchdog): the guard has seen no activity for
+    //   STUCK_GUARD_MS and the server reports idle after the turn started
+    //   without any in-progress answer (aborted/failed turn).
+    // Both rules require the idle proof, so a long-running tool (which only
+    // stamps stale idle) never triggers a false Completed state.
+    function tryRecoverFromLostTerminalEvent(session, latest) {
+        if (!executionGuarded(session) || session.state === STATE.ASKING) return false;
+        const guardSetAt = Math.max(session._promptAt || 0, session._executionStartedAt || 0);
+        const completedAt = isAssistantMessage(latest) && latest.time?.completed
+            ? eventTimestamp(latest.time.completed, 0)
+            : 0;
+        const createdAt = latest?.time?.created
+            ? eventTimestamp(latest.time.created, 0)
+            : 0;
+        const idleAt = session._serverIdleAt || 0;
+        const turnFinished = completedAt > 0 && (!guardSetAt || completedAt >= guardSetAt);
+        const turnInProgress = isAssistantMessage(latest) && !latest.time?.completed
+            && createdAt > 0 && (!guardSetAt || createdAt >= guardSetAt);
+
+        if (turnFinished && idleAt > 0 && idleAt >= completedAt) {
+            markExecutionFinished(session, completedAt);
+            setState(session, STATE.WAITING, "poll: terminal event recovered");
+            activity("event", `poll recovered terminal state sid=${session.sessionID.slice(-8)} completed=${completedAt} idle=${idleAt}`);
+            return true;
+        }
+        if (!turnInProgress && guardStuckTooLong(session) && (idleAt === 0 || idleAt >= guardSetAt)) {
+            markExecutionFinished(session, completedAt || Date.now());
+            setState(session, STATE.WAITING, "poll: watchdog released");
+            activity("event", `poll watchdog released sid=${session.sessionID.slice(-8)} idle=${idleAt} guard=${guardSetAt}`);
+            return true;
+        }
+        return false;
     }
 
     function applyModel(session, ref) {
@@ -420,6 +560,16 @@ function createRuntime(ctx, loadedConfig) {
         const session = ensureSession(sid);
         if (!session) return null;
         if (info?.time?.created) session.startedAt = info.time.created;
+        // The server-side idle stamp only advances when the session really
+        // becomes idle. It doubles as proof of terminal state when the
+        // execution events are lost.
+        if (info?.time?.idle) {
+            session._serverIdleAt = Math.max(session._serverIdleAt || 0, eventTimestamp(info.time.idle, 0));
+        }
+        // Server-side message updates count as activity evidence too: a turn
+        // that is still streaming keeps time.updated moving even when the
+        // event stream is dead, so the watchdog will not fire early.
+        if (info?.time?.updated) markNativeEvent(session, info.time.updated);
         touch(session, info?.time?.updated || eventTime);
         applyModel(session, info?.model ?? info?.modelID);
         applyAgent(session, info?.agent ?? info?.agentID);
@@ -595,9 +745,22 @@ function createRuntime(ctx, loadedConfig) {
             // Never let that stale record turn an active execution into the
             // completed/Waiting state or replace native Thinking/Typing.
             const generationStillCurrent = session._executionGeneration === refreshGeneration;
-            if (updateState && generationStillCurrent && !executionGuarded(session)) {
+            // A guard with a lost terminal event (dead event stream) never
+            // clears and freezes the presence on Working. Try recovery first:
+            // it releases the guard only with timestamp evidence that the
+            // current turn really finished.
+            const recovered = updateState && generationStillCurrent && executionGuarded(session)
+                && tryRecoverFromLostTerminalEvent(session, latest);
+            if (updateState && generationStillCurrent && !executionGuarded(session) && !recovered) {
+                const idleAt = session._serverIdleAt || 0;
                 if (isUserMessage(latest)) {
-                    setState(session, STATE.WORKING, "poll: latest is user message");
+                    // Newest record is a prompt with no answer. The server
+                    // idle stamp decides whether the turn is still running
+                    // (stale idle) or dead without reply (idle after it).
+                    const createdAt = latest.time?.created ? eventTimestamp(latest.time.created, 0) : 0;
+                    const turnDead = idleAt > 0 && createdAt > 0 && idleAt >= createdAt;
+                    if (turnDead) setState(session, STATE.WAITING, "poll: prompt finished without reply");
+                    else setState(session, STATE.WORKING, "poll: latest is user message");
                 } else if (isAssistantMessage(latest)) {
                     if (latest.time?.completed) setState(session, STATE.WAITING, "poll: assistant message completed");
                     else setState(session, STATE.TYPING, "poll: assistant message in progress");
@@ -660,6 +823,9 @@ function createRuntime(ctx, loadedConfig) {
         const data = dataOf(event);
         const sid = sidOf(event);
         const eventTime = event?.created || Date.now();
+        // Any native event for this session proves the event stream is
+        // alive; the stuck-guard watchdog relies on this signal.
+        if (sid) markNativeEvent(sessions.get(sid), eventTime);
 
         if (type === "session.created") {
             const session = syncSessionInfo(data, sid, eventTime);
@@ -925,6 +1091,7 @@ function createRuntime(ctx, loadedConfig) {
         ensureSession,
         addPrompt,
         markPromptPending,
+        markNativeEvent,
         applyModel,
         applyAgent,
         setState,
@@ -1021,6 +1188,7 @@ export default Plugin.define({
                 if (!sid) return;
                 const session = runtime.ensureSession(sid);
                 runtime.touch(session);
+                runtime.markNativeEvent?.(session);
                 if (session.state !== STATE.ASKING) runtime.setState(session, STATE.WORKING, "tool.execute.before");
                 runtime.commit("tool.execute.before");
             } catch (error) {
@@ -1028,21 +1196,12 @@ export default Plugin.define({
             }
         });
 
+        liveCtxs.add(ctx);
         if (isFirstRuntime) {
-            sharedController = new AbortController();
-            void (async () => {
-                try {
-                    for await (const event of ctx.event.subscribe({ signal: sharedController.signal })) {
-                        try {
-                            await runtime.handleEvent(event);
-                        } catch (error) {
-                            log(`event loop item: ${error?.message || error}`);
-                        }
-                    }
-                } catch (error) {
-                    if (error?.name !== "AbortError") log(`event loop: ${error?.message || error}`);
-                }
-            })();
+            // Restartable shared subscription: a silent stream end (service
+            // restart, location shutdown) must not kill native events for the
+            // rest of the session's life.
+            restartEventLoop(ctx);
 
             sharedTimer = setInterval(() => {
                 runtime.readControlState();
@@ -1080,15 +1239,23 @@ export default Plugin.define({
             try { await toolHook?.dispose?.(); } catch {}
             activity("load", "v2 plugin unloaded");
             releasePresence();
+            liveCtxs.delete(ctx);
             sharedRuntimeRefs -= 1;
             if (sharedRuntimeRefs <= 0) {
+                eventLoopToken += 1;
                 try { sharedController?.abort(); } catch {}
                 try { if (sharedTimer) clearInterval(sharedTimer); } catch {}
                 sharedController = null;
                 sharedTimer = null;
                 sharedRuntime = null;
+                sharedSubscribeCtx = null;
                 sharedRuntimeRefs = 0;
                 lastForwardedEnabled = null;
+            } else if (sharedSubscribeCtx === ctx) {
+                // The subscription belonged to this runtime. Hand it to a
+                // surviving one instead of letting the event stream die.
+                const survivor = [...liveCtxs].at(-1);
+                if (survivor) restartEventLoop(survivor);
             }
         };
     },

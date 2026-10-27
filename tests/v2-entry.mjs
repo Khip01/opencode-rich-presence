@@ -71,6 +71,15 @@ async function waitForCount(re, before, timeoutMs, what) {
     console.log(`    [timeout waiting for ${what || re} to grow past ${before}]`);
     return false;
 }
+async function waitForCondition(fn, timeoutMs, what) {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+        if (fn()) return true;
+        await new Promise((r) => setTimeout(r, 100));
+    }
+    console.log(`    [timeout waiting for ${what || "condition"}]`);
+    return false;
+}
 function killSandboxDaemon() {
     const pid = readDaemonPid();
     if (pid === null || !isPidAlive(pid)) return false;
@@ -91,6 +100,11 @@ const hooks = {};
 const toolHooks = {};
 let subscribeEvents = [];
 let subscribeResolve = null;
+let subscribeCalls = 0;
+let endStreamRequested = false;
+// Controllable session.get() extras: when set, the mock reports session
+// time fields (e.g. the server-side idle stamp) to the plugin.
+let mockSessionGetTime = null;
 const subscribeReady = new Promise((resolve) => { subscribeResolve = resolve; });
 const mockCtx = {
     location: { directory: "/tmp/orp-v2-harness-proj" },
@@ -103,7 +117,7 @@ const mockCtx = {
     },
     session: {
         hook: async (name, cb) => { hooks[name] = cb; return { dispose: async () => {} }; },
-        get: async ({ sessionID }) => ({ id: sessionID }),
+        get: async ({ sessionID }) => ({ id: sessionID, ...(mockSessionGetTime ? { time: mockSessionGetTime } : {}) }),
         context: async () => contextMessages,
     },
     tool: {
@@ -135,8 +149,13 @@ const mockCtx = {
     },
     event: {
         subscribe: async function* () {
+            subscribeCalls += 1;
             subscribeResolve?.();
             while (true) {
+                if (endStreamRequested) {
+                    endStreamRequested = false;
+                    return;
+                }
                 if (subscribeEvents.length === 0) {
                     await new Promise((resolve) => { subscribeResolve = resolve; });
                     continue;
@@ -149,6 +168,14 @@ const mockCtx = {
 
 function emit(event) {
     subscribeEvents.push(event);
+    subscribeResolve?.();
+    subscribeResolve = null;
+}
+
+// Simulate a silent stream end (service restart / location shutdown): the
+// generator returns so the for-await loop in the plugin sees a clean end.
+function endEventStream() {
+    endStreamRequested = true;
     subscribeResolve?.();
     subscribeResolve = null;
 }
@@ -296,6 +323,69 @@ section("full prompt count from database");
 // SQLite may not have the test session; fallback to session.context
 // which returns mock messages. Verify the count is logged.
 ok(await waitFor(/full prompt count=\d+/, 15000, "full count"), "full prompt count is logged from database or fallback");
+
+section("stuck guard watchdog releases a lost turn");
+// A dead event stream drops session.execution.succeeded and strands the
+// guard. With no activity beyond the watchdog timeout the guard must
+// release even without an idle stamp (server never stamped one).
+process.env.ORP_STUCK_GUARD_MS = "300";
+const watchdogBefore = countMatches(/poll watchdog released sid=arness01/);
+contextMessages = [{ id: "msg_v2_user_only", type: "user", time: { created: Date.now() - 1000 } }];
+hooks.prompt({ sessionID: SID, messageID: "prompt_watchdog_stuck" });
+await new Promise((r) => setTimeout(r, 500));
+hooks.context({ sessionID: SID, agent: "build", model: { providerID: "openrouter", id: "gpt-6.1-sol" } });
+ok(await waitForCount(/poll watchdog released sid=arness01/, watchdogBefore, 15000, "watchdog release"), "watchdog releases the guard after a lost terminal event");
+ok(await waitFor(/-> Waiting for command \(poll: watchdog released\)/, 15000), "watchdog recovery renders Waiting for command");
+delete process.env.ORP_STUCK_GUARD_MS;
+contextMessages = [
+    { id: "msg_v2_restore_1", type: "assistant", time: { created: Date.now() } },
+    { id: "msg_v2_restore_2", type: "assistant", time: { created: Date.now() + 1 } },
+];
+
+section("lost terminal event recovers from server idle");
+// The turn finished server-side but the terminal event never arrived. The
+// completed answer plus the idle stamp (which only advances on a real idle
+// transition) proves the turn is over.
+const recoveredBefore = countMatches(/poll recovered terminal state sid=arness01 completed=/);
+hooks.prompt({ sessionID: SID, messageID: "prompt_lost_terminal" });
+const doneAt = Date.now();
+contextMessages = [{ id: "msg_v2_done", type: "assistant", time: { created: doneAt - 3000, completed: doneAt } }];
+mockSessionGetTime = { idle: doneAt + 100 };
+hooks.context({ sessionID: SID, agent: "build", model: { providerID: "openrouter", id: "gpt-6.1-sol" } });
+ok(await waitForCount(/poll recovered terminal state sid=arness01 completed=/, recoveredBefore, 15000, "idle recovery"), "completed answer plus server idle releases the lost terminal event");
+ok(await waitFor(/-> Waiting for command \(poll: terminal event recovered\)/, 15000), "recovered execution renders Waiting for command");
+mockSessionGetTime = null;
+
+section("stale history cannot fake a terminal recovery");
+// The answer completed BEFORE the prompt guard was set, so it belongs to the
+// previous turn. Even a fresh idle stamp must not release the guard.
+const staleRecBefore = countMatches(/poll recovered terminal state sid=arness01/);
+const staleIgnBefore = countMatches(/poll state ignored sid=arness01 execution active, latest=assistant/);
+const staleAt = Date.now();
+contextMessages = [{ id: "msg_v2_stale2", type: "assistant", time: { created: staleAt - 9000, completed: staleAt - 8000 } }];
+mockSessionGetTime = { idle: staleAt };
+hooks.prompt({ sessionID: SID, messageID: "prompt_stale_recovery" });
+await new Promise((r) => setTimeout(r, 500));
+hooks.context({ sessionID: SID, agent: "build", model: { providerID: "openrouter", id: "gpt-6.1-sol" } });
+ok(await waitForCount(/poll state ignored sid=arness01 execution active, latest=assistant/, staleIgnBefore, 15000, "stale ignore"), "stale completed history is still ignored while a turn is guarded");
+ok(countMatches(/poll recovered terminal state sid=arness01/) === staleRecBefore, "stale history never triggers terminal recovery");
+mockSessionGetTime = null;
+
+section("event stream resubscribes after a silent end");
+// A silent stream end (service restart) must not kill native events for the
+// rest of the session's life: the loop resubscribes and events flow again.
+const callsBefore = subscribeCalls;
+const resubEventBefore = countMatches(/session\.execution\.started sid=arness01/);
+endEventStream();
+ok(await waitFor(/event stream ended, resubscribing/, 15000), "silent stream end is detected and logged");
+ok(await waitForCondition(() => subscribeCalls > callsBefore, 15000, "resubscribe"), "plugin resubscribes after the stream ends");
+emit({
+    type: "session.execution.started",
+    location: { directory: mockCtx.location.directory },
+    created: Date.now(),
+    data: { sessionID: SID, id: "exec_resub_1" },
+});
+ok(await waitForCount(/session\.execution\.started sid=arness01/, resubEventBefore, 15000, "post-resubscribe event"), "native events flow again after resubscribe");
 
 section("location.shutdown clears presence");
 emit({

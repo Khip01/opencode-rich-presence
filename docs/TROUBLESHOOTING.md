@@ -312,6 +312,56 @@ execution event.
 
 ---
 
+### "V2 presence stays on Working after the turn finished"
+
+**Cause:** Two failure modes combined. First, the shared V2 event
+subscription can end silently (for example during a location shutdown or
+service restart). Before the fix it was never resubscribed, so terminal
+events such as `session.execution.succeeded` stopped arriving while the
+`prompt`/`context` hooks kept running. Second, the execution guard waits
+for a terminal event to clear it. With a dead event stream that event never
+comes, every poll is skipped as `poll state ignored ... execution active`,
+and the presence freezes on `Working` even though OpenCode is idle.
+
+**Fix:** Upgrade to a build with guard recovery and resubscription, then
+restart the OpenCode service:
+
+```bash
+opencode-rpc update --stable
+opencode-rpc install
+opencode service restart
+```
+
+The fixed adapter repairs itself without waiting for the lost event:
+
+- `poll: terminal event recovered` when the assistant answer is completed
+  at or after the turn start and the server idle stamp (`time.idle`)
+  confirms the session really went idle.
+- `poll: watchdog released` when the guard has seen no activity beyond the
+  watchdog timeout (default 2 minutes), no answer is in progress, and the
+  idle stamp is absent or at/after the turn start.
+
+Stale history completed before the prompt never releases the guard, so
+long-running tools cannot be mistaken for a finished turn.
+
+To verify, inspect the activity log after sending one prompt and letting it
+finish:
+
+```bash
+grep -E 'event stream|poll recovered terminal state|poll watchdog released|poll state ignored|\[state\]' \
+  ~/.config/opencode/presence-activity.log | tail -80
+```
+
+After a silent stream end, `event stream ended, resubscribing` must appear
+and later events must keep flowing. If a terminal event was lost, the next
+poll should log `poll recovered terminal state` or `poll watchdog released`
+and the state should settle on `Waiting for command`.
+
+To shorten the watchdog for testing, set `ORP_STUCK_GUARD_MS` (milliseconds)
+before starting OpenCode.
+
+---
+
 ### "V2 prompt count is way too low (e.g. 10 instead of 878)"
 
 **Cause:** The plugin was counting prompts from `session.context`, which

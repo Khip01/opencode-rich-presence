@@ -5,6 +5,37 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **V2 presence stuck on Working**: a shared event subscription that ended
+  silently (location shutdown, service restart) was never resubscribed, so
+  native terminal events stopped arriving while hooks kept running. The
+  execution guard then never cleared and every poll was skipped with
+  `poll state ignored ... execution active`, freezing the presence on
+  `Working`. The event loop now resubscribes with backoff (1s doubling up
+  to 30s) on a clean end or an error, and the subscription is handed to a
+  surviving plugin location on dispose.
+- **V2 guard recovery from lost terminal events**: a guarded poll can now
+  release the guard when timestamp evidence proves the turn already
+  finished. An assistant answer completed at or after turn start plus the
+  server idle stamp (`time.idle`, which only advances on a real idle
+  transition) releases the guard as `poll: terminal event recovered`.
+  A guard with no activity beyond the watchdog timeout
+  (`ORP_STUCK_GUARD_MS`, default 2 minutes), no in-progress answer, and an
+  idle stamp that is absent or at/after turn start releases as
+  `poll: watchdog released`. Stale history completed before the prompt
+  still never releases the guard.
+- **V2 watchdog tuning**: new `ORP_STUCK_GUARD_MS` environment variable
+  overrides the stuck-guard watchdog timeout in milliseconds.
+
+### Added
+
+- **Regression coverage for guard recovery**: the V2 harness verifies
+  watchdog release, idle-stamp recovery, stale-history protection against
+  fake recovery, and event stream resubscription after a silent end.
+
 ## [3.4.2] - 2026-10-24
 
 ### Fixed
