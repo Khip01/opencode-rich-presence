@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.5.0] - 2026-10-27
+
 ### Fixed
 
 - **V2 presence stuck on Working**: a shared event subscription that ended
@@ -27,8 +29,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   idle stamp that is absent or at/after turn start releases as
   `poll: watchdog released`. Stale history completed before the prompt
   still never releases the guard.
-- **V2 watchdog tuning**: new `ORP_STUCK_GUARD_MS` environment variable
-  overrides the stuck-guard watchdog timeout in milliseconds.
 - **`npm install` crash on npm 10.8.x**: a fresh install (no lockfile)
   resolved the floating `@opencode/plugin` range to 2.2.0, whose new
   optional peer set crashes the npm 10.8.x dependency resolver
@@ -39,6 +39,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **V2 watchdog tuning**: new `ORP_STUCK_GUARD_MS` environment variable
+  overrides the stuck-guard watchdog timeout in milliseconds.
 - **Regression coverage for guard recovery**: the V2 harness verifies
   watchdog release, idle-stamp recovery, stale-history protection against
   fake recovery, and event stream resubscription after a silent end.

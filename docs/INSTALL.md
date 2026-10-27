@@ -40,7 +40,7 @@ set up the plugin symlink and config. Pin to a specific version:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Khip01/opencode-rich-presence/main/install.sh \
-  | ORP_VERSION=v3.4.2 bash
+  | ORP_VERSION=v3.5.0 bash
 ```
 
 If you do not have `curl`, replace it with `wget -qO- <url>` or
@@ -59,7 +59,7 @@ use the manual tarball install in path B.
    The tarball name is `opencode-rich-presence-<version>.tgz`.
 2. Install it:
    ```bash
-   npm install -g ./opencode-rich-presence-3.4.2.tgz
+   npm install -g ./opencode-rich-presence-3.5.0.tgz
    ```
 3. Continue with Step 2 below (`opencode-rpc install`).
 
@@ -70,7 +70,7 @@ upgrade without manually downloading a tarball:
 
 ```bash
 opencode-rpc update                    # latest stable release tag
-opencode-rpc update --ref v3.4.2 # pin to a specific tag
+opencode-rpc update --ref v3.5.0 # pin to a specific tag
 opencode-rpc update --dev main         # latest commit on main (developer)
 opencode-rpc update --ref <branch>     # a feature branch you want to test
 opencode-rpc update --repo fork/repo    # install from a fork instead
@@ -132,7 +132,7 @@ The installer:
    `~/.config/opencode/plugins/opencode-rich-presence.js`. v2.x also
    installed `@xhayper/discord-rpc` under
    `~/.config/opencode/node_modules/`; v3 no longer installs that
-   dependency. Builds after v3.4.2 have zero runtime dependencies:
+   dependency. v3.5.0 and newer have zero runtime dependencies:
    the v2 plugin entry inlines the `Plugin.define` identity helper
    from `@opencode/plugin`. The v1 entry and the daemon stay
    dependency-free.

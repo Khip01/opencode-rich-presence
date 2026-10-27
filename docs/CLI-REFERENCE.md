@@ -86,7 +86,7 @@ Installation (one-time):
   opencode-rpc install
 
   # Specific version:
-  opencode-rpc update --ref v3.4.2
+  opencode-rpc update --ref v3.5.0
   opencode-rpc install
 
   # Specific branch:
@@ -106,7 +106,7 @@ Installation (one-time):
   opencode-rpc install
 
   # Or, for npmjs registry / stable tag with npm (zsh needs quotes):
-  npm install -g 'Khip01/opencode-rich-presence#v3.4.2'
+  npm install -g 'Khip01/opencode-rich-presence#v3.5.0'
   opencode-rpc install
 
   # Or default branch tip:
@@ -143,7 +143,7 @@ Sets up the Rich Presence plugin for OpenCode.
    to link.
 
 **v3:** Same as v2.x except step 3 no longer installs the
-`@xhayper/discord-rpc` npm dependency. Builds after v3.4.2 have zero
+`@xhayper/discord-rpc` npm dependency. v3.5.0 and newer have zero
 runtime dependencies: `src/plugin/index.v2.js` inlines the
 `Plugin.define` identity helper that `@opencode/plugin` provides.
 The v1 entry and the daemon stay dependency-free.
@@ -348,7 +348,7 @@ Upgrades the installed package. Five modes:
 | Mode | What it does |
 |------|--------------|
 | default | Compare current version against latest stable release tag. If newer, install. |
-| `--dev [BRANCH]` | Skip version check. Install latest commit on BRANCH. Defaults to `main`, which is currently v3.4.2. |
+| `--dev [BRANCH]` | Skip version check. Install latest commit on BRANCH. Defaults to `main`, which is currently v3.5.0. |
 | `--stable` | Skip version check. Install latest stable release tag. |
 | `--ref REF` | Install a specific git ref: tag, branch, or commit SHA. Supports any ref including short SHAs (`6664bfb`) and full SHAs (`6664bfb0ba316180fa08617dcb04ee1b59599e7f`). |
 | `--repo OWNER/REPO` | Install from a fork instead of the upstream repo. Combine with `--dev`, `--stable`, or `--ref`. |
@@ -399,7 +399,7 @@ $ opencode-rpc update --dev redesign/v3-daemon
 
 opencode-rich-presence update (--dev redesign/v3-daemon)
 
-Current: v3.4.2 (dev: redesig)
+Current: v3.5.0 (dev: redesig)
 Latest:  471ce94 (latest commit on redesign/v3-daemon)
 Installing dev build (471ce94)...
 
@@ -412,7 +412,7 @@ Restart OpenCode to load the new build.
 ```
 
 `--dev` without a branch name defaults to `main`, which is
-currently v3.4.2.
+currently v3.5.0.
 
 **Example: install a specific branch**
 
@@ -421,7 +421,7 @@ $ opencode-rpc update --ref redesign/v3-daemon
 
 opencode-rich-presence update (--ref)
 
-Current: v3.4.2 (stable)
+Current: v3.5.0 (stable)
 Treating as channel=dev for version reporting.
 
 Cloning repo...
@@ -433,7 +433,7 @@ Restart OpenCode to load the new build.
 ```
 
 `--ref` works with any git ref the repo exposes: a tag
-(`--ref v3.4.2`), a branch (`--ref redesign/v3-daemon`), a
+(`--ref v3.5.0`), a branch (`--ref redesign/v3-daemon`), a
 short commit SHA (`--ref 6664bfb`), or a full commit SHA
 (`--ref 6664bfb0ba316180fa08617dcb04ee1b59599e7f`). The channel
 label written to the `.install-channel` marker is inferred from the
@@ -448,7 +448,7 @@ $ opencode-rpc update --repo myname/opencode-rich-presence --ref my-branch
 opencode-rich-presence update (--ref my-branch)
 Source repo:    myname/opencode-rich-presence
 
-Current: v3.4.2 (stable)
+Current: v3.5.0 (stable)
 Treating as channel=dev for version reporting.
 
 Cloning repo...

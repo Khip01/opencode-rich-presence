@@ -1,7 +1,7 @@
 # Legacy Migrations
 
 This page is for users upgrading from the old v1.x or v2.x plugin to the
-current v3.4.2 release.
+current v3.5.0 release.
 New installations should follow the [installation guide](./INSTALL.md)
 instead.
 

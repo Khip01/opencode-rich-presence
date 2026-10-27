@@ -4,7 +4,7 @@ Show your OpenCode session in Discord.
 
 <img width="449" height="190" alt="image" src="https://github.com/user-attachments/assets/ef8233c2-aa6e-48a5-be98-e0ec58691376" />
 
-**Current release: v3.4.2**
+**Current release: v3.5.0**
 
 OpenCode Rich Presence gives your Discord profile a live view of what
 OpenCode is doing. It can show the model, current activity, context
@@ -44,7 +44,7 @@ To install a specific release:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Khip01/opencode-rich-presence/main/install.sh \
-  | ORP_VERSION=v3.4.2 bash
+  | ORP_VERSION=v3.5.0 bash
 ```
 
 ### Manual install
@@ -53,7 +53,7 @@ curl -fsSL https://raw.githubusercontent.com/Khip01/opencode-rich-presence/main/
 2. Install it:
 
    ```bash
-   npm install -g ./opencode-rich-presence-v3.4.2.tgz
+   npm install -g ./opencode-rich-presence-v3.5.0.tgz
    ```
 
 3. Set up the plugin:
@@ -102,7 +102,7 @@ assistant message. Normal stopped model steps remain in `Thinking` or
 opencode-rpc update                  # latest stable release
 opencode-rpc update --stable         # force latest stable release
 opencode-rpc update --dev            # latest commit on main
-   opencode-rpc update --ref v3.4.2     # install a specific ref
+   opencode-rpc update --ref v3.5.0     # install a specific ref
 ```
 
 If an update fails, see the [troubleshooting guide](./docs/TROUBLESHOOTING.md).
