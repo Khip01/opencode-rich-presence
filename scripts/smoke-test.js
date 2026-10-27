@@ -92,10 +92,11 @@ if (!pkg.bin || !pkg.bin["opencode-rpc"]) {
     process.exit(1);
 }
 
-// Runtime deps: only @opencode/plugin (imported solely by the V2 entry,
-// src/plugin/index.v2.js; the V1 entry never touches it). Everything else
-// stays dependency-free so the daemon and V1 path keep zero-dep behavior.
-const ALLOWED_DEPS = ["@opencode/plugin"];
+// Runtime deps: none. The V2 entry inlines the identity helper that
+// `@opencode/plugin`'s `Plugin.define` provided, so a fresh install
+// resolves nothing and cannot be broken by upstream dependency churn.
+// The V1 entry and the daemon were already dependency-free.
+const ALLOWED_DEPS = [];
 const depKeys = pkg.dependencies ? Object.keys(pkg.dependencies) : [];
 const unexpected = depKeys.filter((d) => !ALLOWED_DEPS.includes(d));
 if (unexpected.length > 0) {

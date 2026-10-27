@@ -493,6 +493,39 @@ above.
 
 ---
 
+## `npm install` fails with "Cannot read properties of null (reading 'edgesOut')"
+
+**Symptom:** `npm install -g` of the release tarball aborts with:
+
+```
+npm error Cannot read properties of null (reading 'edgesOut')
+```
+
+**Cause:** a bug in the dependency resolver of npm 10.8.x (arborist
+`#loadPeerSet`), triggered by the optional peer dependency set of
+`@opencode/plugin@2.2.0` (published 2026-10-27). Releases up to v3.4.2
+depend on `@opencode/plugin`, so a fresh install (no lockfile, which
+includes every `npm install -g` of the tarball) resolved 2.2.0 and
+crashed npm 10.8.x, the npm bundled with Node 20.20.x. npm 10.9+ and
+11.x are not affected.
+
+**Fix:** builds after v3.4.2 ship zero runtime dependencies (the used
+`Plugin.define` helper is inlined), so this crash cannot happen
+anymore. Update to the latest release:
+
+```bash
+opencode-rpc update --stable
+```
+
+Workaround for v3.4.2 and older: upgrade npm first, then install:
+
+```bash
+npm install -g npm@latest
+npm install -g ./opencode-rich-presence-v3.4.2.tgz
+```
+
+---
+
 ## `opencode-rpc: command not found` after install
 
 **Symptom:** `npm list -g` shows `opencode-rich-presence@` in the

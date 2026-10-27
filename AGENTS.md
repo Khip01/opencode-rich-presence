@@ -85,8 +85,8 @@ IPC socket actually dies.
     subscription restarts with backoff when the stream ends, and a guarded
     poll can recover a lost terminal event from the server idle stamp or
     the `ORP_STUCK_GUARD_MS` watchdog. `install`
-    links exactly one entry based on `opencode --version`. Needs the
-    `@opencode/plugin` dep.
+    links exactly one entry based on `opencode --version`. Zero
+    runtime deps (`Plugin.define` is inlined).
   - `config-resolver.js`: load discord-config.json + env vars
   - `local-presence.js`: render payload + send to daemon
   - `session-state.js`: per-session token/cost/state tracking, including
@@ -213,8 +213,8 @@ The CLI commands are:
 1. `opencode-rpc install`: one-time setup. Symlinks the
    version-matched plugin entry into
    `~/.config/opencode/plugins/`, writes the example config.
-   v3 installs one npm dependency (`@opencode/plugin`, used only
-   by the V2 entry).
+   v3 installs zero npm dependencies (the `@opencode/plugin`
+   `Plugin.define` helper used by the V2 entry is inlined).
 2. `opencode-rpc update`: upgrade an existing installation to the
    latest stable release tag.
 3. `opencode-rpc update --stable`: force install latest stable tag,

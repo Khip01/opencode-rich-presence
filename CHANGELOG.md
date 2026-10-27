@@ -29,12 +29,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   still never releases the guard.
 - **V2 watchdog tuning**: new `ORP_STUCK_GUARD_MS` environment variable
   overrides the stuck-guard watchdog timeout in milliseconds.
+- **`npm install` crash on npm 10.8.x**: a fresh install (no lockfile)
+  resolved the floating `@opencode/plugin` range to 2.2.0, whose new
+  optional peer set crashes the npm 10.8.x dependency resolver
+  (`Cannot read properties of null (reading 'edgesOut')`). The V2 entry
+  now inlines the `Plugin.define` identity helper and the package ships
+  zero runtime dependencies, so installs cannot be broken by upstream
+  dependency churn again.
 
 ### Added
 
 - **Regression coverage for guard recovery**: the V2 harness verifies
   watchdog release, idle-stamp recovery, stale-history protection against
   fake recovery, and event stream resubscription after a silent end.
+- **Install failure diagnostics**: the CLI lifecycle harness now prints
+  the npm/node versions, exit code, and stderr/stdout when the sandbox
+  `npm install -g` fails, instead of only reporting a non-zero exit.
+
+### Removed
+
+- **`@opencode/plugin` runtime dependency**: the V2 entry used only its
+  `Plugin.define` identity helper, which is now inlined. Installing the
+  package no longer pulls a 273-package dependency tree.
 
 ## [3.4.2] - 2026-10-24
 

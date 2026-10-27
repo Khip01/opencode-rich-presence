@@ -479,6 +479,13 @@ registry. v2.0.6+ relies entirely on a symlink at
 the plugin entry file in the user's npm prefix. OpenCode loads the
 plugin directly from disk via this symlink.
 
+The package has zero runtime dependencies. The V2 entry inlines the
+`Plugin.define` identity helper from the `@opencode/plugin` SDK, so a
+fresh `npm install -g` resolves no dependency tree at all and cannot
+be broken by upstream dependency churn (a `@opencode/plugin@2.2.0`
+peer-set change crashed npm 10.8.x installs; see
+`docs/TROUBLESHOOTING.md`).
+
 **Do not add `"opencode-rich-presence"` to the `plugin` array in
 `opencode.jsonc` or `opencode.json`.** OpenCode reads that array as
 a list of npm packages to fetch on startup via Bun, and the package

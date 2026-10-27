@@ -430,6 +430,17 @@ const useGithub = process.env.ORP_USE_GITHUB_RELEASE === "1";
 // Install the tarball into the sandbox prefix.
 {
     const r = run("npm", ["install", "-g", tarballPath], { env: sandboxEnv });
+    if (r.status !== 0) {
+        // Surface npm's own output on failure. Without this, a failed
+        // install only reports "exit N" and the real cause (registry,
+        // engine, EACCES, ...) is swallowed, which costs a full CI
+        // round-trip to diagnose.
+        const npmVersion = run("npm", ["--version"], { env: sandboxEnv });
+        console.log(`  npm: ${String(npmVersion.stdout || "").trim()} / node: ${process.version}`);
+        console.log(`  npm install exit code: ${r.status}`);
+        console.log(`  npm install stderr:\n${String(r.stderr || "").trim()}`);
+        console.log(`  npm install stdout:\n${String(r.stdout || "").trim()}`);
+    }
     assert(r.status === 0, "npm install -g <tarball> succeeds in sandbox");
 }
 

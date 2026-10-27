@@ -143,9 +143,10 @@ Sets up the Rich Presence plugin for OpenCode.
    to link.
 
 **v3:** Same as v2.x except step 3 no longer installs the
-`@xhayper/discord-rpc` npm dependency. The only runtime dependency
-is `@opencode/plugin`, imported by `src/plugin/index.v2.js`. The v1
-entry and the daemon stay dependency-free.
+`@xhayper/discord-rpc` npm dependency. Builds after v3.4.2 have zero
+runtime dependencies: `src/plugin/index.v2.js` inlines the
+`Plugin.define` identity helper that `@opencode/plugin` provides.
+The v1 entry and the daemon stay dependency-free.
 
 **Example: fresh install**
 

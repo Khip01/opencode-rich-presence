@@ -132,9 +132,10 @@ The installer:
    `~/.config/opencode/plugins/opencode-rich-presence.js`. v2.x also
    installed `@xhayper/discord-rpc` under
    `~/.config/opencode/node_modules/`; v3 no longer installs that
-   dependency. The only runtime dependency is `@opencode/plugin`,
-   imported by the v2 plugin entry. The v1 entry and the daemon
-   stay dependency-free.
+   dependency. Builds after v3.4.2 have zero runtime dependencies:
+   the v2 plugin entry inlines the `Plugin.define` identity helper
+   from `@opencode/plugin`. The v1 entry and the daemon stay
+   dependency-free.
 
 The symlink approach works around the fact that the package is not on
 the npm registry: OpenCode loads the plugin directly from disk instead

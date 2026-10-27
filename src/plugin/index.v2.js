@@ -4,7 +4,6 @@
 // Keep this adapter separate from src/plugin/index.js, but share the session
 // state, renderer, daemon, and configuration layers.
 
-import { Plugin } from "@opencode/plugin";
 import { unlinkSync } from "node:fs";
 import { stat } from "node:fs/promises";
 import { loadConfig } from "./config-resolver.js";
@@ -31,6 +30,14 @@ import {
     disconnectFromDaemon,
 } from "./local-presence.js";
 import { ensureDaemonRunning } from "./daemon-spawner.js";
+
+// `Plugin.define` from the `@opencode/plugin` SDK is a pure identity
+// function (`define(def) { return def; }`). It is inlined here so the
+// package ships zero runtime dependencies: a fresh `npm install -g`
+// resolves nothing and cannot be broken by upstream dependency churn
+// (the `@opencode/plugin@2.2.0` peer set crashed npm 10.8.x installs;
+// see docs/TROUBLESHOOTING.md).
+const Plugin = { define(def) { return def; } };
 
 // All V2 locations in one OpenCode service share the daemon client. Keep the
 // connection alive until the last V2 plugin setup is disposed.
