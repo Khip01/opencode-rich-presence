@@ -40,7 +40,7 @@ set up the local plugin and config. Pin to a specific version:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Khip01/opencode-rich-presence/main/install.sh \
-  | ORP_VERSION=v3.5.0 bash
+  | ORP_VERSION=v3.6.0 bash
 ```
 
 If you do not have `curl`, replace it with `wget -qO- <url>` or
@@ -56,10 +56,10 @@ use the manual tarball install in path B.
 
 1. Download the tarball from
    [GitHub Releases](https://github.com/Khip01/opencode-rich-presence/releases/latest).
-   The tarball name is `opencode-rich-presence-<version>.tgz`.
+   The tarball name is `opencode-rich-presence-v<version>.tgz`.
 2. Install it:
    ```bash
-   npm install -g ./opencode-rich-presence-3.5.0.tgz
+   npm install -g ./opencode-rich-presence-v3.6.0.tgz
    ```
 3. Continue with Step 2 below (`opencode-rpc install`).
 
@@ -70,10 +70,10 @@ upgrade without manually downloading a tarball:
 
 ```bash
 opencode-rpc update                    # latest stable release tag
-opencode-rpc update --ref v3.5.0 # pin to a specific tag
+opencode-rpc update --ref v3.6.0       # pin to a specific tag
 opencode-rpc update --dev main         # latest commit on main (developer)
 opencode-rpc update --ref <branch>     # a feature branch you want to test
-opencode-rpc update --repo fork/repo    # install from a fork instead
+opencode-rpc update --repo fork/repo   # install from a fork instead
 ```
 
 `update` clones the repo, runs `npm pack`, and installs the local
@@ -111,8 +111,9 @@ If you want your own:
 4. (Optional) Go to **Rich Presence > Art Assets** and upload an image.
    Note the asset key.
 
-v3 Phase 1 does not push to Discord, so the App ID and asset key are
-read but not used. They will be needed when Phase 2 lands.
+The daemon pushes presence to Discord through the plugin, so the App ID
+and asset key are used directly. (Pre-3.0 Phase 1 builds read them but
+did not push.)
 
 ## Step 3: Run the installer
 

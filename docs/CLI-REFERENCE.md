@@ -7,8 +7,9 @@ opencode-rpc <command> [options]
 All commands work the same on Linux, macOS, and Windows. Output below
 shows real examples captured from the CLI.
 
-This reference documents both the v2.x line (Discord push) and the
-v3 Phase 1 redesign (no Discord push, activity log instead). Where
+This reference documents both the v2.x line and the v3 line (the
+current releases use the daemon-based Discord push plus the activity
+log as the diagnostic surface). Where
 the commands behave differently between versions, the difference is
 called out in each section.
 
@@ -25,17 +26,15 @@ show just the version (no suffix).
 
 ```
 $ opencode-rpc version
-opencode-rich-presence v2.1.1 (stable)
+opencode-rich-presence v3.6.0 (stable)
 ```
 
 ```
 $ opencode-rpc update --dev    # switch to dev channel
 ...
 $ opencode-rpc version
-opencode-rich-presence v2.1.1 (dev: eac311d)
+opencode-rich-presence v3.6.0 (dev: 7daadbb)
 ```
-
-v3 Phase 1 prints the same format with version `3.0.0-phase1`.
 
 ---
 
@@ -51,73 +50,73 @@ opencode-rich-presence - Discord Rich Presence plugin for OpenCode AI
 Usage:
   opencode-rpc <command> [options]
 
-Commands:
-  install      Set up Rich Presence for OpenCode (creates config)
+Setup:
+  install      Set up Rich Presence for OpenCode (config + plugin)
   uninstall    Remove Rich Presence configuration
-  restart      Reload the plugin worker (writes restart signal, kills worker)
-  update       Check for updates and upgrade
+  update       Upgrade to latest stable release tag, or a specific ref
+
+Presence:
+  on           Enable Rich Presence (instant, keeps daemon alive)
+  off          Disable Rich Presence (instant, keeps daemon alive)
   info         Show diagnostic information
+
+Daemon:
+  restart      Restart the daemon (kill + auto-respawn on next message)
+  kill         Stop the daemon permanently (use 'spawn' to start again)
+  spawn        Start the daemon again after a 'kill'
+
+General:
   help         Show this message
   version      Print version
 
 Options (update):
-  --dev [BRANCH]  Install latest commit on BRANCH (default: main).
-                  IMPORTANT: --dev defaults to the upstream `main`
-                  branch, which is currently v2.1.1 (pre-redesign).
-                  If you are on v3, pass the branch explicitly or
-                  you will be downgraded to v2.x:
-                    opencode-rpc update --dev redesign/v3-daemon
   --stable         Force install latest stable tag (use to switch off dev)
   --ref REF        Install a specific git ref: tag, branch, or commit SHA.
-                   Use this for pre-release branches (e.g.
-                   --ref redesign/v3-daemon). Avoids the npm v11
-                   git-dep symlink bug that breaks `npm install -g
-                   <url>#<branch>` for global packages. Supports any
-                   git ref including short SHAs (`--ref 6664bfb`) and
-                   full SHAs (`--ref 6664bfb0ba316180fa08617dcb04ee1b59599e7f`).
+                   Use this instead of `npm install -g <url>#<ref>`, which
+                   hits a npm v11 bug that installs the package without
+                   bin symlinks (the opencode-rpc command would be missing).
+                   Examples:
+                      opencode-rpc update --ref v3.6.0
+                     opencode-rpc update --ref <branch-name>
+                     opencode-rpc update --ref 6664bfb
+                     opencode-rpc update --ref 471ce940ba316180fa08617dcb04ee1b59599e7f
+  --dev [BRANCH]   Install latest commit on BRANCH (defaults to `main`,
+                    which is currently v3.6.0). Combine with --repo for
+                   forks.
   --repo OWNER/REPO  Install from a fork instead of the upstream repo.
-                    Use this to test changes in your own fork before
-                    opening a PR. Combine with --dev, --stable, or --ref.
-                    Format: OWNER/REPO (letters, digits, `.`, `_`, `-`).
+                     Combine with --dev, --stable, or --ref:
+                       opencode-rpc update --repo myname/opencode-rich-presence --ref my-branch
 
 Installation (one-time):
-  # Recommended (sidesteps npm v11 git-dep bug):
-  opencode-rpc update                  # latest stable
+
+  # Quick install (Linux, macOS, Windows via Git Bash / MSYS2 / Cygwin / WSL):
+  curl -fsSL https://raw.githubusercontent.com/Khip01/opencode-rich-presence/main/install.sh | bash
+
+  # Pin to a specific version:
+  curl -fsSL https://raw.githubusercontent.com/Khip01/opencode-rich-presence/main/install.sh \
+     | ORP_VERSION=v3.6.0 bash
+
+  # Manual tarball install (any platform):
+  # Download from https://github.com/Khip01/opencode-rich-presence/releases/latest
+   npm install -g ./opencode-rich-presence-v3.6.0.tgz
+
+  # After install, set up the OpenCode plugin symlink + config:
   opencode-rpc install
 
-  # Specific version:
-  opencode-rpc update --ref v3.5.0
-  opencode-rpc install
-
-  # Specific branch:
-  opencode-rpc update --ref redesign/v3-daemon
-  opencode-rpc install
-
-  # Track a pre-release branch (latest commit):
-  opencode-rpc update --dev redesign/v3-daemon
-  opencode-rpc install
-
-  # Specific commit SHA:
-  opencode-rpc update --ref 471ce94
-  opencode-rpc install
-
-  # Install from your own fork:
-  opencode-rpc update --repo myname/opencode-rich-presence --ref my-branch
-  opencode-rpc install
-
-  # Or, for npmjs registry / stable tag with npm (zsh needs quotes):
-  npm install -g 'Khip01/opencode-rich-presence#v3.5.0'
-  opencode-rpc install
-
-  # Or default branch tip:
-  npm install -g Khip01/opencode-rich-presence
-  opencode-rpc install
+   # Why not `npm install -g Khip01/opencode-rich-presence#v3.6.0`?
+  # npm v11 has a bug installing global git deps: the package appears
+  # to install (npm reports "added 1 package") but the opencode-rpc
+  # binary is missing (`zsh: command not found: opencode-rpc`).
+  # The package cannot fix this from its own package.json; always
+  # install from a local tarball (curl installer or manual download).
 
 Update:
   opencode-rpc update                  # latest stable release tag
+  opencode-rpc update --stable         # force install latest stable tag
   opencode-rpc update --dev            # latest commit on main (developer)
-  opencode-rpc update --stable         # latest stable tag (any state)
-  opencode-rpc update --ref REF        # specific ref (branch/tag/SHA)
+  opencode-rpc update --dev <branch>   # latest commit on <branch> (developer)
+  opencode-rpc update --ref REF        # install specific ref (branch/tag/SHA)
+  opencode-rpc update --repo OWNER/REPO  # install from a fork (combine with above)
 
 Documentation: https://github.com/Khip01/opencode-rich-presence
 ```
@@ -236,28 +235,32 @@ Done. Removed 6 plugin-generated file(s).
 
 ## `opencode-rpc restart`
 
+Restarts the presence backend and starts a fresh activity log.
+
 **v2.x:** Writes a restart signal and kills the worker subprocess.
 The plugin respawns the worker within about 7 seconds and reconnects
 to Discord. Does NOT touch Discord Desktop.
 
-**v3 Phase 1:** No worker subprocess. Rotates the activity log
-(renames `presence-activity.log` to `presence-activity.log.prev`)
-so the next OpenCode launch starts fresh.
+**v3 (Phase 2 daemon):** Kills the daemon (SIGTERM, then SIGKILL
+after a short grace), clears the PID file and any stale socket, and
+rotates the activity log (renames `presence-activity.log` to
+`presence-activity.log.prev`) so the next session starts with a
+clean history. The next OpenCode `chat.message` spawns a fresh
+daemon. Does NOT touch Discord Desktop.
 
 ```
 $ opencode-rpc restart
 
-opencode-rich-presence restart (Phase 1)
+opencode-rich-presence restart (Phase 2)
 
-Phase 1 has no Discord worker. This command rotates the activity log so
-the next OpenCode launch starts with a clean history.
-
-Moved /home/user/.config/opencode/presence-activity.log
-       to /home/user/.config/opencode/presence-activity.log.prev
+Sent SIGTERM to daemon (pid 12345)
+Removed stale socket: /home/user/.config/opencode/.opencode-rich-presence.sock
+Rotated activity log to /home/user/.config/opencode/presence-activity.log.prev
 
 Next steps:
-  1. Restart OpenCode so it reloads the plugin and starts writing to a fresh log.
-  2. tail -f /home/user/.config/opencode/presence-activity.log  to follow the next session.
+  1. The next OpenCode chat.message will spawn a fresh daemon.
+  2. tail -f /home/user/.config/opencode/presence-activity.log to follow the next session.
+  (Killed old daemon pid 12345; it will respawn on next firing.)
 ```
 
 ---
@@ -364,7 +367,7 @@ Upgrades the installed package. Five modes:
 | Mode | What it does |
 |------|--------------|
 | default | Compare current version against latest stable release tag. If newer, install. |
-| `--dev [BRANCH]` | Skip version check. Install latest commit on BRANCH. Defaults to `main`, which is currently v3.5.0. |
+| `--dev [BRANCH]` | Skip version check. Install latest commit on BRANCH. Defaults to `main`, which is currently v3.6.0. |
 | `--stable` | Skip version check. Install latest stable release tag. |
 | `--ref REF` | Install a specific git ref: tag, branch, or commit SHA. Supports any ref including short SHAs (`6664bfb`) and full SHAs (`6664bfb0ba316180fa08617dcb04ee1b59599e7f`). |
 | `--repo OWNER/REPO` | Install from a fork instead of the upstream repo. Combine with `--dev`, `--stable`, or `--ref`. |
@@ -415,7 +418,7 @@ $ opencode-rpc update --dev redesign/v3-daemon
 
 opencode-rich-presence update (--dev redesign/v3-daemon)
 
-Current: v3.5.0 (dev: redesig)
+Current: v3.6.0 (dev: redesig)
 Latest:  471ce94 (latest commit on redesign/v3-daemon)
 Installing dev build (471ce94)...
 
@@ -428,7 +431,7 @@ Restart OpenCode to load the new build.
 ```
 
 `--dev` without a branch name defaults to `main`, which is
-currently v3.5.0.
+currently v3.6.0.
 
 **Example: install a specific branch**
 
@@ -437,7 +440,7 @@ $ opencode-rpc update --ref redesign/v3-daemon
 
 opencode-rich-presence update (--ref)
 
-Current: v3.5.0 (stable)
+Current: v3.6.0 (stable)
 Treating as channel=dev for version reporting.
 
 Cloning repo...
@@ -449,7 +452,7 @@ Restart OpenCode to load the new build.
 ```
 
 `--ref` works with any git ref the repo exposes: a tag
-(`--ref v3.5.0`), a branch (`--ref redesign/v3-daemon`), a
+(`--ref v3.6.0`), a branch (`--ref redesign/v3-daemon`), a
 short commit SHA (`--ref 6664bfb`), or a full commit SHA
 (`--ref 6664bfb0ba316180fa08617dcb04ee1b59599e7f`). The channel
 label written to the `.install-channel` marker is inferred from the
@@ -464,7 +467,7 @@ $ opencode-rpc update --repo myname/opencode-rich-presence --ref my-branch
 opencode-rich-presence update (--ref my-branch)
 Source repo:    myname/opencode-rich-presence
 
-Current: v3.5.0 (stable)
+Current: v3.6.0 (stable)
 Treating as channel=dev for version reporting.
 
 Cloning repo...
