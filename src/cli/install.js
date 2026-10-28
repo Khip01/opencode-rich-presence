@@ -1,7 +1,7 @@
-import { existsSync, readFileSync, writeFileSync, copyFileSync, mkdirSync, lstatSync, symlinkSync, unlinkSync, rmSync } from "node:fs";
+import { existsSync, readFileSync, readlinkSync, writeFileSync, copyFileSync, mkdirSync, lstatSync, symlinkSync, unlinkSync, rmSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { dirname, join, basename } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { OPENCODE_DIR, CONFIG_PATH } from "../shared/paths.js";
 import { confirm } from "./prompt.js";
 
@@ -190,16 +190,26 @@ async function installLocalPlugin() {
 }
 
 // V2 installs a plugin directory instead of a single file. OpenCode
-// discovers plugin package directories under ~/.config/opencode/plugins/
-// and loads each part through the package exports: `.` is the server part,
-// `./tui` the TUI part (the client heartbeat; see docs/ARCHITECTURE.md).
-// The directory holds only symlinks into the npm install plus a tiny
-// package.json, so `npm update -g` is picked up without re-linking.
+// discovers plugin directories under ~/.config/opencode/plugins/ and
+// resolves each part by its root file name: `index.js` is the server
+// part (or `server.js`), `tui.js` the TUI part (the client heartbeat;
+// see docs/ARCHITECTURE.md).
+//
+// The parts are tiny re-export shim files, not symlinks. Since v2.2.0
+// OpenCode silently drops a plugin directory whose resolved entrypoint
+// lies outside the directory after symlink resolution (a containment
+// check against symlink escapes): a symlinked entrypoint loads nothing
+// and logs nothing. A real file inside the directory passes the check
+// and re-exports the implementation from the npm install, so
+// `npm update -g` is still picked up without re-linking. No
+// package.json here on purpose: a manifest with a `name` makes OpenCode
+// resolve the parts as package specifiers through node_modules instead
+// of as files in this directory.
 async function installV2PluginDir(pluginsDir, entry, legacyLink) {
     const pluginDir = join(pluginsDir, PLUGIN_NAME);
-    const indexLink = join(pluginDir, "index.js");
+    const indexShim = join(pluginDir, "index.js");
     const tuiEntry = join(PKG_ROOT, PLUGIN_TUI_ENTRY);
-    const tuiLink = join(pluginDir, "tui.js");
+    const tuiShim = join(pluginDir, "tui.js");
 
     if (!existsSync(tuiEntry)) {
         console.log(`  TUI part not found at ${tuiEntry}. Skipping local install.`);
@@ -219,24 +229,23 @@ async function installV2PluginDir(pluginsDir, entry, legacyLink) {
         }
     }
 
-    // Check if already linked correctly.
-    let linked = false;
-    try {
-        linked = readlinkTarget(indexLink) === entry
-            && readlinkTarget(tuiLink) === tuiEntry
-            && existsSync(join(pluginDir, "package.json"));
-    } catch {}
-    if (linked) {
-        console.log(`  Plugin already linked at ${pluginDir}`);
+    // Check if already installed correctly (shim content matches the
+    // current npm install path).
+    if (shimMatches(indexShim, entry) && shimMatches(tuiShim, tuiEntry)) {
+        console.log(`  Plugin already installed at ${pluginDir}`);
         return;
     }
 
     if (existsSync(pluginDir)) {
-        // Existing directory is wrong or foreign: replace it (after asking).
-        const ok = await confirm(`  Replace existing ${pluginDir}?`, { defaultYes: true });
-        if (!ok) {
-            console.log(`  Skipped. Remove ${pluginDir} manually to retry.`);
-            return;
+        // Earlier forms from this installer (shim files, part symlinks,
+        // the short-lived manifest form) are upgraded silently. Anything
+        // else is foreign and is only replaced after confirmation.
+        if (!isOurPluginDir(pluginDir)) {
+            const ok = await confirm(`  Replace existing ${pluginDir}?`, { defaultYes: true });
+            if (!ok) {
+                console.log(`  Skipped. Remove ${pluginDir} manually to retry.`);
+                return;
+            }
         }
         rmSync(pluginDir, { recursive: true, force: true });
     } else {
@@ -244,30 +253,58 @@ async function installV2PluginDir(pluginsDir, entry, legacyLink) {
     }
 
     mkdirSync(pluginDir, { recursive: true });
-    writeFileSync(join(pluginDir, "package.json"), pluginPackageJson(), "utf-8");
-    symlinkSync(entry, indexLink);
-    symlinkSync(tuiEntry, tuiLink);
-    console.log(`  Linked ${pluginDir} (V2 server + TUI parts)`);
-    console.log(`    -> ${entry}`);
-    console.log(`    -> ${tuiEntry}`);
+    writeFileSync(indexShim, shimSource(entry), "utf-8");
+    writeFileSync(tuiShim, shimSource(tuiEntry), "utf-8");
+    console.log(`  Installed ${pluginDir} (V2 server + TUI parts)`);
+    console.log(`    server part: ${entry}`);
+    console.log(`    TUI part   : ${tuiEntry}`);
 }
 
-// Minimal manifest for the V2 plugin directory. name + exports make
-// OpenCode resolve the parts explicitly: `.` (server) and `./tui`.
-function pluginPackageJson() {
-    return `${JSON.stringify({
-        name: PLUGIN_NAME,
-        private: true,
-        version: "0.0.0",
-        exports: {
-            ".": "./index.js",
-            "./tui": "./tui.js",
-        },
-    }, null, 2)}\n`;
+// Shim content for one V2 plugin part: a real file inside the plugin
+// directory that re-exports the part from the npm install through a
+// stable file:// URL (see installV2PluginDir for why not a symlink).
+function shimSource(targetPath) {
+    const url = pathToFileURL(targetPath).href;
+    return `// Generated by \`opencode-rpc install\`; do not edit.\n`
+        + `// Re-exports the plugin part from the npm install. Re-run\n`
+        + `// \`opencode-rpc install\` after moving the npm install to a new prefix.\n`
+        + `export * from "${url}";\n`
+        + `export { default } from "${url}";\n`;
+}
+
+// A shim file exactly matches the expected content for targetPath and is
+// a regular file (a symlink would fail OpenCode's containment check).
+function shimMatches(file, targetPath) {
+    try {
+        if (lstatSync(file).isSymbolicLink()) return false;
+        return readFileSync(file, "utf-8") === shimSource(targetPath);
+    } catch {
+        return false;
+    }
+}
+
+// True when the plugin directory was created by this installer in any
+// generation (shim files, part symlinks, or the manifest form). Foreign
+// directories are never replaced without confirmation.
+function isOurPluginDir(pluginDir) {
+    const indexFile = join(pluginDir, "index.js");
+    try {
+        if (lstatSync(indexFile).isSymbolicLink()) {
+            return readlinkSync(indexFile).includes(PLUGIN_NAME);
+        }
+    } catch {}
+    try {
+        if (readFileSync(indexFile, "utf-8").includes(PLUGIN_NAME)) return true;
+    } catch {}
+    try {
+        const manifest = JSON.parse(readFileSync(join(pluginDir, "package.json"), "utf-8"));
+        if (manifest?.name === PLUGIN_NAME) return true;
+    } catch {}
+    return false;
 }
 
 function readlinkTarget(p) {
-    return require("node:fs").readlinkSync(p);
+    return readlinkSync(p);
 }
 
 function printNextSteps() {
@@ -285,9 +322,9 @@ function printNextSteps() {
         console.log("");
     }
 
-    console.log(`${hasAppId ? "1" : "2"}. Restart OpenCode. The plugin loads from symlinks under:`);
+    console.log(`${hasAppId ? "1" : "2"}. Restart OpenCode. The plugin loads from the plugin directory under:`);
     console.log(`   ~/.config/opencode/plugins/`);
-    console.log(`   pointing to the installed package entry files in your npm prefix.`);
+    console.log(`   (re-export shims pointing at the installed package entry files in your npm prefix).`);
     console.log("");
     console.log("Run `opencode-rpc info` anytime to check status.");
 }

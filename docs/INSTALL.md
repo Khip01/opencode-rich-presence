@@ -36,7 +36,7 @@ curl -fsSL https://raw.githubusercontent.com/Khip01/opencode-rich-presence/main/
 
 The script downloads the latest stable release tarball, installs it
 via `npm install -g <tarball>`, and runs `opencode-rpc install` to
-set up the plugin symlink and config. Pin to a specific version:
+set up the local plugin and config. Pin to a specific version:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Khip01/opencode-rich-presence/main/install.sh \
@@ -126,12 +126,19 @@ The installer:
    example (only if missing, or after confirmation to overwrite).
 2. Detects and offers to remove any stale `"opencode-rich-presence"`
    entry left in `opencode.jsonc` (or `.json`) by pre-v2.0.6 installs.
-   The symlink alone is sufficient; the entry would cause OpenCode to
+   The local plugin directory alone is sufficient; the entry would cause
+   OpenCode to
    attempt an npm install on every startup, returning 404.
-3. Symlinks the plugin entries under `~/.config/opencode/plugins/`:
+3. Installs the plugin under `~/.config/opencode/plugins/`:
    a `opencode-rich-presence/` directory with `index.js` (server part)
-   and `tui.js` (TUI part, the client heartbeat) on OpenCode V2, or the
+   and `tui.js` (TUI part, the client heartbeat) re-export shims on
+   OpenCode V2, or the
    single-file `opencode-rich-presence.js` symlink on OpenCode V1.
+   The V2 part shims are real files inside the directory that re-export
+   the implementation from the npm install: since OpenCode v2.2.0 the
+   loader silently drops plugin directories whose resolved entrypoint
+   lies outside the directory after symlink resolution, so symlinked
+   parts would load nothing.
    Package v2.x also
    installed `@xhayper/discord-rpc` under
    `~/.config/opencode/node_modules/`; v3 no longer installs that
@@ -140,7 +147,7 @@ The installer:
    from `@opencode/plugin`. The v1 entry and the daemon stay
    dependency-free.
 
-The symlink approach works around the fact that the package is not on
+The local plugin files work around the fact that the package is not on
 the npm registry: OpenCode loads the plugin directly from disk instead
 of trying to fetch it via Bun and getting a 404.
 
@@ -157,8 +164,10 @@ nano ~/.config/opencode/discord-config.json
 opencode-rpc info
 ```
 
-You should see `OpenCode plugin symlink` with `Linked: yes` and a
-`Target:` pointing to the package entry file in your npm prefix. The
+You should see `OpenCode plugin` with `Installed: yes (V2 plugin
+directory)` and `Server part` / `TUI part` lines pointing at the
+package entry files in your npm prefix (or `Installed: yes
+(single-file symlink)` with a `Target:` on OpenCode V1). The
 last 30 lines of the activity log appear at the bottom of the output.
 
 After installing or upgrading the package, restart OpenCode so it
@@ -212,7 +221,7 @@ upgrade so the service reloads the plugin.
 ## Uninstalling
 
 ```bash
-opencode-rpc uninstall    # removes plugin-generated files + symlink
+opencode-rpc uninstall    # removes plugin-generated files + local plugin
 npm uninstall -g opencode-rich-presence    # removes the package globally
 ```
 
@@ -246,7 +255,8 @@ not need this page.
 
 If something looks wrong after install:
 
-1. Run `opencode-rpc info`. It shows the plugin symlink target,
+1. Run `opencode-rpc info`. It shows the installed plugin form and
+   part targets,
    the config (App ID masked), the daemon IPC/PID status, and
    the last 30 entries of the activity log.
 2. For real-time monitoring: `tail -f

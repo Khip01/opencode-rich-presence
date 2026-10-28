@@ -41,7 +41,7 @@
 
 import "./test-env.mjs";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
-import { mkdtempSync, existsSync, statSync, readFileSync, readdirSync, rmSync, renameSync, writeFileSync, mkdirSync, symlinkSync } from "node:fs";
+import { mkdtempSync, existsSync, statSync, readFileSync, readdirSync, rmSync, renameSync, writeFileSync, mkdirSync, symlinkSync, lstatSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -203,10 +203,9 @@ if (!hasGlobalInstall) {
         assert(r.stdout.includes("Environment"), "info shows Environment section");
         assert(r.stdout.includes("Paths"), "info shows Paths section");
         assert(r.stdout.includes("Config"), "info shows Config section");
-        assert(r.stdout.includes("OpenCode plugin symlink"), "info shows symlink section");
-        // info formats `Linked         : yes` with padding. Match loosely.
-        assert(/Linked\s*:\s*yes/i.test(r.stdout),
-            "info shows symlink as Linked");
+        assert(r.stdout.includes("OpenCode plugin"), "info shows plugin section");
+        assert(/Installed\s*:\s*yes/i.test(r.stdout),
+            "info shows the plugin as Installed");
     }
 }
 
@@ -503,9 +502,21 @@ const useGithub = process.env.ORP_USE_GITHUB_RELEASE === "1";
     });
     assert(r2.status === 0, "sandbox opencode-rpc install (V2) exits 0");
     const v2Dir = join(cfgV2, "plugins", "opencode-rich-presence");
-    assert(existsSync(join(v2Dir, "index.js")), "V2 plugin dir has server part link");
-    assert(existsSync(join(v2Dir, "tui.js")), "V2 plugin dir has TUI part link");
-    assert(existsSync(join(v2Dir, "package.json")), "V2 plugin dir has manifest");
+    // V2 parts are shim files (real files re-exporting the package entry;
+    // symlinks are silently dropped by OpenCode v2.2.0+).
+    const shimOk = (file, rel) => {
+        try {
+            if (lstatSync(file).isSymbolicLink()) return false;
+            const raw = readFileSync(file, "utf-8");
+            return raw.includes('export { default } from "file://') && raw.includes(rel);
+        } catch { return false; }
+    };
+    assert(shimOk(join(v2Dir, "index.js"), "src/plugin/index.v2.js"),
+        "V2 server part is a shim file re-exporting the package entry");
+    assert(shimOk(join(v2Dir, "tui.js"), "src/plugin/index.tui.js"),
+        "V2 TUI part is a shim file re-exporting the package entry");
+    assert(!existsSync(join(v2Dir, "package.json")),
+        "V2 plugin dir has no manifest (root-file part resolution)");
     assert(!existsSync(join(cfgV2, "plugins", "opencode-rich-presence.js")),
         "V2 install leaves no legacy single-file link");
     assert(existsSync(join(cfgV2, "discord-config.json")),
@@ -530,8 +541,8 @@ const useGithub = process.env.ORP_USE_GITHUB_RELEASE === "1";
         input: "y\n",
     });
     assert(mig.status === 0, "sandbox opencode-rpc install (migration) exits 0");
-    assert(existsSync(join(cfgMig, "plugins", "opencode-rich-presence", "index.js")),
-        "migration creates the V2 plugin dir");
+    assert(shimOk(join(cfgMig, "plugins", "opencode-rich-presence", "index.js"), "src/plugin/index.v2.js"),
+        "migration creates the V2 plugin dir with shim parts");
     assert(!existsSync(legacy),
         "migration removes the legacy single-file link");
 

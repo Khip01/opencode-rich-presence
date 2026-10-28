@@ -2,6 +2,7 @@ import { existsSync, statSync, readFileSync, lstatSync, readlinkSync } from "nod
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { platform, version as nodeVersion, execPath } from "node:process";
 import { CONFIG_PATH, OUTPUT_FILE, ACTIVITY_LOG, DEBUG_LOG, OPENCODE_DIR, DAEMON_SOCKET, PRESENCE_STATE, IS_WINDOWS, PRESENCE_STATE_DIR } from "../shared/paths.js";
 import { isDaemonAlive, readDaemonPid } from "../shared/daemon-liveness.js";
@@ -105,47 +106,60 @@ export async function info() {
         lines.push("");
     }
 
-    // V2 installs a plugin directory (server + TUI parts as symlinks);
-    // V1 and legacy V2 installs use a single-file symlink. Report the
-    // form that exists, directory first.
+    // V2 installs a plugin directory (server + TUI part shims); V1 and
+    // legacy V2 installs use a single-file symlink. Report the form that
+    // exists, directory first.
     const pluginDir = join(opencodeDir, "plugins", PLUGIN_NAME);
     const pluginLink = join(opencodeDir, "plugins", `${PLUGIN_NAME}.js`);
     const dirIndex = join(pluginDir, "index.js");
-    let probe = null;
-    let displayPath = pluginLink;
-    try {
-        if (lstatSync(dirIndex).isSymbolicLink()) {
-            probe = dirIndex;
-            displayPath = pluginDir;
-        }
-    } catch {}
-    if (!probe) {
-        try {
-            if (lstatSync(pluginLink).isSymbolicLink()) probe = pluginLink;
-        } catch {}
-    }
+    const dirTui = join(pluginDir, "tui.js");
 
-    lines.push("OpenCode plugin symlink");
-    lines.push(`  Path           : ${displayPath}`);
-    if (probe) {
-        let target = "";
-        try { target = readlinkSync(probe); } catch {}
+    // Status of one plugin part: a shim file shows its re-export target,
+    // older symlink forms and unknown files are reported as-is.
+    const partStatus = (part) => {
+        if (!existsSync(part)) return null;
+        let raw = null;
+        try {
+            if (!lstatSync(part).isSymbolicLink()) raw = readFileSync(part, "utf-8");
+        } catch {}
+        const m = raw && raw.match(/export \{ default \} from "([^"]+)";/);
+        if (m) {
+            const target = m[1].startsWith("file://") ? fileURLToPath(m[1]) : m[1];
+            return existsSync(target)
+                ? `ok -> ${target}`
+                : `BROKEN (target missing: ${target}; run \`opencode-rpc install\`)`;
+        }
+        try {
+            if (lstatSync(part).isSymbolicLink()) return `ok (symlink -> ${readlinkSync(part)})`;
+        } catch {}
+        return `present (not a shim; run \`opencode-rpc install\`)`;
+    };
+
+    lines.push("OpenCode plugin");
+    if (existsSync(dirIndex)) {
+        lines.push(`  Path           : ${pluginDir}`);
+        lines.push(`  Installed      : yes (V2 plugin directory)`);
+        lines.push(`  Server part    : ${partStatus(dirIndex)}`);
+        lines.push(`  TUI part       : ${partStatus(dirTui) ?? "MISSING (presence auto-clear inactive)"}`);
+    } else if (existsSync(pluginDir)) {
+        lines.push(`  Path           : ${pluginDir}`);
+        lines.push(`  Installed      : NO (directory exists but has no server part)`);
+        lines.push(`                  Run \`opencode-rpc install\` to recreate.`);
+    } else if (existsSync(pluginLink)) {
+        let target = null;
+        try {
+            if (lstatSync(pluginLink).isSymbolicLink()) target = readlinkSync(pluginLink);
+        } catch {}
+        lines.push(`  Path           : ${pluginLink}`);
         if (target) {
-            lines.push(`  Linked         : yes`);
+            lines.push(`  Installed      : yes (single-file symlink)`);
             lines.push(`  Target         : ${target}`);
         } else {
-            lines.push(`  Linked         : yes (target unreadable)`);
+            lines.push(`  Installed      : NO (regular file at that path, not a symlink)`);
+            lines.push(`                  Run \`opencode-rpc install\` to recreate.`);
         }
-        if (probe === dirIndex) {
-            let tuiOk = false;
-            try { tuiOk = lstatSync(join(pluginDir, "tui.js")).isSymbolicLink(); } catch {}
-            lines.push(`  TUI part       : ${tuiOk ? "linked" : "MISSING (presence auto-clear inactive)"}`);
-        }
-    } else if (existsSync(pluginDir) || existsSync(pluginLink)) {
-        lines.push(`  Linked         : NO (regular file at that path, not a symlink)`);
-        lines.push(`                  Run \`opencode-rpc install\` to recreate as symlink.`);
     } else {
-        lines.push(`  Linked         : NO. Run \`opencode-rpc install\` to create.`);
+        lines.push(`  Installed      : NO. Run \`opencode-rpc install\` to create.`);
     }
     lines.push("");
 

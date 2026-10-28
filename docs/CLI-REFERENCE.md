@@ -149,10 +149,14 @@ runtime dependencies: `src/plugin/index.v2.js` inlines the
 The v1 entry and the daemon stay dependency-free. On OpenCode V2,
 step 3 creates a plugin directory
 (`~/.config/opencode/plugins/opencode-rich-presence/`) with an
-`index.js` server part symlink and a `tui.js` TUI part symlink (the
-client heartbeat behind presence auto-clear) plus a small manifest;
-OpenCode V1 keeps the single-file symlink, and legacy single-file V2
-links are migrated in place.
+`index.js` server part shim and a `tui.js` TUI part shim (the
+client heartbeat behind presence auto-clear), resolved by their root
+file names. The shims are real files that re-export the parts from the
+npm install; since OpenCode v2.2.0 the loader silently drops plugin
+directories whose resolved entrypoint lies outside the directory after
+symlink resolution, so symlinked parts would load nothing. OpenCode V1
+keeps the single-file symlink, and legacy single-file V2 links are
+migrated in place.
 
 **Example: fresh install**
 
@@ -167,15 +171,15 @@ Created /home/user/.config/opencode/discord-config.json
 
 
   Detected OpenCode v2 (opencode --version).
-  Linked /home/user/.config/opencode/plugins/opencode-rich-presence (V2 server + TUI parts)
-    -> /home/user/.nvm/versions/node/v24/lib/node_modules/opencode-rich-presence/src/plugin/index.v2.js
-    -> /home/user/.nvm/versions/node/v24/lib/node_modules/opencode-rich-presence/src/plugin/index.tui.js
+  Installed /home/user/.config/opencode/plugins/opencode-rich-presence (V2 server + TUI parts)
+    server part: /home/user/.nvm/versions/node/v24/lib/node_modules/opencode-rich-presence/src/plugin/index.v2.js
+    TUI part   : /home/user/.nvm/versions/node/v24/lib/node_modules/opencode-rich-presence/src/plugin/index.tui.js
 
 Next steps:
 
-1. Restart OpenCode. The plugin loads from symlinks under:
+1. Restart OpenCode. The plugin loads from the plugin directory under:
    ~/.config/opencode/plugins/
-   pointing to the installed package entry files in your npm prefix.
+   (re-export shims pointing at the installed package entry files in your npm prefix).
 
 Run `opencode-rpc info` anytime to check status.
 ```
@@ -488,7 +492,8 @@ Prints diagnostics. Sections:
   currency, presence template customisation status.
 - **Legacy lock** (v2.x artifact): PID, start time, age. Shown as
   informational only in v3 Phase 1 (the lock is no longer used).
-- **OpenCode plugin symlink**: Linked yes/no, target path.
+- **OpenCode plugin**: installed form (V2 plugin directory or
+  single-file symlink) and per-part status with re-export targets.
 - **Per-instance state files** (v3 Phase 1): One entry per running
   OpenCode instance.
 - **Activity log tail** (v3 Phase 1): Last 30 entries of the
@@ -520,11 +525,11 @@ Config (discord-config.json)
   Currency       : $
   Custom template: yes
 
-OpenCode plugin symlink
+OpenCode plugin
   Path           : /home/khip/.config/opencode/plugins/opencode-rich-presence
-  Linked         : yes
-  Target         : /home/khip/.nvm/versions/node/v24.13.1/lib/node_modules/opencode-rich-presence/src/plugin/index.v2.js
-  TUI part       : linked
+  Installed      : yes (V2 plugin directory)
+  Server part    : ok -> /home/khip/.nvm/versions/node/v24.13.1/lib/node_modules/opencode-rich-presence/src/plugin/index.v2.js
+  TUI part       : ok -> /home/khip/.nvm/versions/node/v24.13.1/lib/node_modules/opencode-rich-presence/src/plugin/index.tui.js
 
 Per-instance state files (2)
   presence-state-pid12345.txt  [1.8 KB, modified 2026-07-05T15:00:00.000Z]

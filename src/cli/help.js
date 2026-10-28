@@ -15,7 +15,7 @@ ${section("Usage")}:
   opencode-rpc <command> [options]
 
 ${section("Setup")}:
-${cmd("install", "Set up Rich Presence for OpenCode (config + symlink)")}
+${cmd("install", "Set up Rich Presence for OpenCode (config + plugin)")}
 ${cmd("uninstall", "Remove Rich Presence configuration")}
 ${cmd("update", "Upgrade to latest stable release tag, or a specific ref")}
 

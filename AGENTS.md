@@ -287,12 +287,20 @@ CLI install path remains canonical.
 
 OpenCode loads the plugin from
 `~/.config/opencode/plugins/opencode-rich-presence/` (a directory with
-`index.js` server part and `tui.js` TUI part symlinks; OpenCode V1 and
+`index.js` server part and `tui.js` TUI part re-export shims; OpenCode
+V1 and
 legacy V2 installs use a single-file symlink at
 `~/.config/opencode/plugins/opencode-rich-presence.js` instead). The
-entries are created by `opencode-rpc install` and point into the npm
-global install location. The package is NOT on the npm registry, so
-OpenCode's default auto-install via Bun returns 404. The symlinks
+shims are created by `opencode-rpc install` and re-export the parts
+from the npm
+global install location. They are real files inside the plugin
+directory on purpose: since OpenCode v2.2.0 the loader silently drops
+a plugin directory whose resolved entrypoint lies outside the
+directory after symlink resolution (a containment check against
+symlink escapes), so symlinked parts load nothing and log nothing.
+The package is NOT on the npm registry, so
+OpenCode's default auto-install via Bun returns 404. The local plugin
+files
 bypass this entirely.
 
 **NEVER add `opencode-rich-presence` to the `plugin` array in

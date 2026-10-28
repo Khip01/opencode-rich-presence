@@ -16,7 +16,8 @@ Run `opencode-rpc info` first. Output sections:
   are garbage-collected automatically on plugin init (dead PIDs, files
   older than 72h, cap of the 20 newest). Legacy flat files in the config
   root are migrated once and still listed here until cleaned up.
-- **OpenCode plugin symlink**: Whether the plugin entry is symlinked
+- **OpenCode plugin**: Installed form (V2 plugin directory or
+  single-file symlink) and per-part status with re-export targets
 - **Activity log tail**: Last 30 entries of the chronological activity log
 
 If something looks wrong, the next steps depend on what's missing.
@@ -161,8 +162,8 @@ tail -50 /tmp/opencode-rich-presence-debug.log
 ```
 
 Look for `=== Plugin loaded ===` (legacy log line) or `[load]
-plugin loaded` (new activity log line). If absent, the plugin
-symlink is missing or OpenCode did not load the plugin. See
+plugin loaded` (new activity log line). If absent, the local plugin
+is missing or OpenCode did not load the plugin. See
 "Plugin does not load" below.
 
 ### "Plugin must export a default definition" (V1 entry on OpenCode v2)
@@ -174,11 +175,11 @@ failed to load plugin ... Plugin must export a default definition
 with an id and an effect or setup function
 ```
 
-the v1 entry (`src/plugin/index.js`, function export) is linked
+the v1 entry (`src/plugin/index.js`, function export) is installed
 but the backend is v2. Re-run `opencode-rpc install`: it detects
-the major version via `opencode --version` and links the matching
-entry (`src/plugin/index.v2.js` for v2) under the same symlink
-name. If no OpenCode binary is on PATH (Desktop-only installs),
+the major version via `opencode --version` and installs the matching
+entry (`src/plugin/index.v2.js` for v2) as the plugin. If no OpenCode
+binary is on PATH (Desktop-only installs),
 the installer asks which entry to link. After switching entries,
 fully restart OpenCode Desktop. Its `opencode-cli` backend is
 long-lived and keeps serving the old plugin set until restarted
@@ -187,7 +188,7 @@ long-lived and keeps serving the old plugin set until restarted
 
 ### "Plugin failed to load" after upgrading to the V2 entry
 
-**Cause:** `opencode-rpc install` updates the plugin symlink, but it
+**Cause:** `opencode-rpc install` updates the local plugin, but it
 does not restart the long-lived OpenCode background service. The
 service can retain a failed module resolution from before the package
 upgrade, such as:
@@ -196,18 +197,19 @@ upgrade, such as:
 Cannot find module .../opencode-rich-presence/src/plugin/index.v2.js
 ```
 
-**Fix:** Confirm the installed version and symlink first:
+**Fix:** Confirm the installed version and plugin install first:
 
 ```bash
 opencode --version
 opencode-rpc version
-readlink -f ~/.config/opencode/plugins/opencode-rich-presence/index.js
+opencode-rpc info
 ```
 
-The target must end in `src/plugin/index.v2.js` (V1 and legacy V2
+The `Server part` / `TUI part` lines must point into the npm prefix
+and end in `src/plugin/index.v2.js` (server part; V1 and legacy V2
 installs use a single-file symlink at
 `~/.config/opencode/plugins/opencode-rich-presence.js` instead). The
-sibling `tui.js` link must exist too (it hosts the client heartbeat).
+sibling `tui.js` part must exist too (it hosts the client heartbeat).
 Then restart the OpenCode service and verify the plugin state:
 
 ```bash
@@ -383,14 +385,14 @@ window is open.
 
 **If the presence still lingers:**
 
-1. Check that the TUI part is linked:
+1. Check that the TUI part is installed:
 
    ```bash
-   opencode-rpc info | grep -A4 "OpenCode plugin symlink"
-   # Expected: TUI part       : linked
+   opencode-rpc info | grep -A4 "OpenCode plugin"
+   # Expected: TUI part       : ok -> .../opencode-rich-presence/src/plugin/index.tui.js
    ```
 
-   A missing `tui.js` link (or an install made before the plugin
+   A missing `tui.js` part (or an install made before the plugin
    directory form existed) disables the client
    check and keeps the legacy always-on behavior. Run
    `opencode-rpc install` to migrate to the plugin directory form.
@@ -847,7 +849,7 @@ registry at startup via Bun. The `opencode-rich-presence` package is
 NOT published there (we distribute via GitHub Releases tarball or
 git URL), so the install attempt 404s. The fix is the plugin entry at
 `~/.config/opencode/plugins/opencode-rich-presence/` (V2: a directory
-with `index.js`/`tui.js` symlinks; V1: a single-file symlink at
+with `index.js`/`tui.js` re-export shims; V1: a single-file symlink at
 `~/.config/opencode/plugins/opencode-rich-presence.js`).
 
 **How to verify:**
@@ -858,17 +860,16 @@ npm view opencode-rich-presence version 2>&1 | head -3
 ls -la ~/.cache/opencode/packages/opencode-rich-presence@latest/
 # Expected: empty directory
 ls -la ~/.config/opencode/plugins/opencode-rich-presence/
-# Expected: index.js -> /.../opencode-rich-presence/src/plugin/index.v2.js
-#           tui.js   -> /.../opencode-rich-presence/src/plugin/index.tui.js
+# Expected: index.js and tui.js as regular files (re-export shims), no `->` targets
 ```
 
-**Fix:** Run `opencode-rpc install` to recreate the symlink if
+**Fix:** Run `opencode-rpc install` to recreate the plugin files if
 missing.
 
 **Root cause 2 (v2.0.5-era installs):** `opencode.jsonc` (or `.json`)
 has `"opencode-rich-presence"` in the `plugin` array. OpenCode
 reads that array as npm packages to fetch on startup, returning 404.
-The symlink in `~/.config/opencode/plugins/` alone is sufficient;
+The plugin directory in `~/.config/opencode/plugins/` alone is sufficient;
 the entry in `opencode.jsonc` is no longer required and should not
 be present.
 
@@ -887,6 +888,27 @@ grep "opencode-rich-presence" ~/.config/opencode/opencode.jsonc ~/.config/openco
 - v2.0.5 users: Edit `~/.config/opencode/opencode.jsonc` (or
   `.json`) and remove the `"opencode-rich-presence"` line from
   the `"plugin"` array manually.
+
+**Root cause 3 (OpenCode v2.2.0+):** the plugin directory exists but
+its `index.js`/`tui.js` parts are symlinks into the npm install. Since
+v2.2.0 OpenCode silently drops a plugin directory whose resolved
+entrypoint lies outside the directory after symlink resolution (a
+containment check against symlink escapes): no `loading plugin` line
+appears in the OpenCode log and nothing loads, with no error anywhere.
+The installer writes re-export shims (real files inside the directory)
+for exactly this reason.
+
+**How to verify:**
+
+```bash
+ls -la ~/.config/opencode/plugins/opencode-rich-presence/
+# Expected: index.js and tui.js as regular files, not symlinks (no `->` targets)
+grep "loading plugin" ~/.local/share/opencode/log/opencode.log | tail -3
+# Expected: a line with id=.../plugins/opencode-rich-presence
+```
+
+**Fix:** Run `opencode-rpc install`; it recognizes its own older forms
+and migrates the directory in place.
 
 ### Plugin fixes applied but Discord still does not show
 
@@ -1033,12 +1055,13 @@ the child's writes become EPIPE. For long-lived children, prefer
 
 When something looks wrong, walk through this in order:
 
-1. **Plugin symlinked?**
+1. **Plugin installed?**
    ```bash
-   opencode-rpc info | grep -A2 "OpenCode plugin symlink"
+   opencode-rpc info | grep -A3 "OpenCode plugin"
    ```
-   Should show `Linked: yes` and a `Target:` path. If `Linked: NO`,
-   run `opencode-rpc install` to create the symlink.
+   Should show `Installed: yes` and `Server part` / `TUI part` lines
+   with `ok ->` targets. If `Installed: NO`,
+   run `opencode-rpc install` to create the plugin.
 
 2. **Plugin loaded by OpenCode?**
    ```bash
@@ -1046,7 +1069,8 @@ When something looks wrong, walk through this in order:
    tail -20 /tmp/opencode-rich-presence-debug.log
    ```
    The plugin directory should exist with `index.js` and `tui.js`
-   symlinks (V1/legacy: `plugins/opencode-rich-presence.js`). Debug log
+   shim files (regular files, not symlinks; V1/legacy:
+   `plugins/opencode-rich-presence.js`). Debug log
    should show plugin load.
 
 3. **Activity log growing?**

@@ -72,9 +72,17 @@ export async function uninstall() {
     const pluginLink = join(OPENCODE_DIR, "plugins", `${PLUGIN_NAME}.js`);
     if (existsSync(pluginDir)) {
         let ours = false;
+        const indexFile = join(pluginDir, "index.js");
         try {
-            ours = lstatSync(join(pluginDir, "index.js")).isSymbolicLink();
+            ours = lstatSync(indexFile).isSymbolicLink();
         } catch {}
+        if (!ours) {
+            // Shim form: a real file that re-exports the plugin part from
+            // the npm install (its content names the package).
+            try {
+                ours = readFileSync(indexFile, "utf-8").includes(PLUGIN_NAME);
+            } catch {}
+        }
         if (!ours) {
             try {
                 const manifest = JSON.parse(readFileSync(join(pluginDir, "package.json"), "utf-8"));

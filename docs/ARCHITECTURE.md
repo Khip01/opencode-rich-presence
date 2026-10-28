@@ -442,7 +442,7 @@ Variable substitution handles edge cases:
 
 | Command | Purpose |
 |---------|---------|
-| `install` | Create config; migrate any v2.0.5-era opencode.jsonc entry; create symlink. |
+| `install` | Create config; migrate any v2.0.5-era opencode.jsonc entry; install the local plugin. |
 | `uninstall` | Stop daemon; remove runtime files, per-instance state files, activity log, socket, PID file, presence state marker; optional config backup. |
 | `restart` | Kill running daemon (SIGTERM + 2s grace + SIGKILL); rotate activity log. Auto-respawns on next chat.message. |
 | `on` / `off` | Toggle presence via the state marker + a `set-enabled` socket message. The daemon stays alive, so `on` never pays a Discord reconnect. `on` also clears a leftover kill lock. |
@@ -474,11 +474,22 @@ The plugin code itself is fully cross-platform thanks to:
 
 OpenCode loads plugins from `~/.config/opencode/plugins/`. The
 `opencode-rich-presence` package is NOT published to the npm
-registry. v2.0.6+ relies entirely on symlinks into the user's npm
-prefix. V2 installs use a plugin directory at
-`~/.config/opencode/plugins/opencode-rich-presence/` whose manifest
-exports resolve the two plugin parts: `index.js` (server part, the V2
-entry) and `tui.js` (TUI part, the client heartbeat). V1 installs and
+registry; v2.0.6+ installs nothing on load and references the
+installed package files in the user's npm prefix instead. V2 installs
+use a plugin directory at
+`~/.config/opencode/plugins/opencode-rich-presence/` whose root file
+names resolve the two plugin parts: `index.js` (server part, the V2
+entry) and `tui.js` (TUI part, the client heartbeat). Each part is a
+tiny real file that re-exports the implementation from the npm install
+through a `file://` URL. The parts must be real files inside the
+directory: since OpenCode v2.2.0 the loader silently drops a plugin
+directory whose resolved entrypoint lies outside the directory after
+symlink resolution (a containment check against symlink escapes), so
+symlinked parts load nothing and log nothing. The directory carries no
+package manifest on purpose: when a plugin directory has a
+`package.json` with a `name`, OpenCode resolves the parts as package
+specifiers through node_modules instead of as files in the directory.
+V1 installs and
 older V2 installs use a single-file symlink at
 `~/.config/opencode/plugins/opencode-rich-presence.js`; `opencode-rpc
 install` migrates that form to the directory.

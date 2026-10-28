@@ -229,8 +229,18 @@ section("4. opencode-rpc install (plugin symlink + config)");
     });
     assert(r.status === 0, "opencode-rpc install exits 0");
     const v2Dir = join(cfgDir, "plugins", "opencode-rich-presence");
-    assert(existsSync(join(v2Dir, "index.js")), "plugin server part link created");
-    assert(existsSync(join(v2Dir, "tui.js")), "plugin TUI part link created");
+    // V2 parts are shim files (real files re-exporting the package entry;
+    // symlinks are silently dropped by OpenCode v2.2.0+).
+    const shimOk = (file, rel) => {
+        try {
+            const raw = readFileSync(file, "utf-8");
+            return raw.includes('export { default } from "file://') && raw.includes(rel);
+        } catch { return false; }
+    };
+    assert(shimOk(join(v2Dir, "index.js"), "src/plugin/index.v2.js"),
+        "plugin server part shim created");
+    assert(shimOk(join(v2Dir, "tui.js"), "src/plugin/index.tui.js"),
+        "plugin TUI part shim created");
     assert(existsSync(join(cfgDir, "discord-config.json")),
         "config file created");
 }

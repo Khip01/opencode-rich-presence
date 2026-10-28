@@ -24,10 +24,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **`opencode-rpc install` (V2) installs a plugin directory**
   (`~/.config/opencode/plugins/opencode-rich-presence/`) with `index.js`
-  (server part) and `tui.js` (TUI part) symlinks plus a small manifest,
-  instead of a single-file symlink; OpenCode resolves both plugin parts
-  through the manifest exports. Legacy single-file links are migrated in
-  place. V1 installs keep the single-file symlink unchanged.
+  (server part) and `tui.js` (TUI part) re-export shims instead of a
+  single-file symlink; OpenCode resolves both plugin parts by their root
+  file names. The shims are real files inside the directory that
+  re-export the parts from the npm install: since OpenCode v2.2.0 the
+  loader silently drops a plugin directory whose resolved entrypoint
+  lies outside the directory after symlink resolution (a containment
+  check against symlink escapes), so symlinked parts load nothing and
+  log nothing. `npm update -g` is still picked up without re-linking.
+  The directory carries no package manifest on purpose: a manifest
+  `name` makes OpenCode resolve the parts as package specifiers through
+  node_modules instead of as files in the directory. Legacy single-file
+  links and symlink-form directories are migrated in place. V1 installs
+  keep the single-file symlink unchanged.
 
 ## [3.5.0] - 2026-10-27
 
