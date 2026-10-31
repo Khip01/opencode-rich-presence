@@ -61,7 +61,7 @@
 | `{cost}` | `$0.0042` | Session cost (raw) |
 | `{costCompact}` | `$1.5K` | Cost (compact) |
 | `{prompts}` | `12` | User prompt count (from SQLite database, not context window) |
-| `{promptsCompact}` | `1.5K` | Prompt count (compact) |
+| `{promptsCompact}` | `1.5K` | Prompt count (compact), useful with labels such as `prmpts` |
 
 ### Model Name Variants
 
@@ -197,7 +197,7 @@ Customize per state. The `"Waiting for command"` entry is shown when
 a session EXISTS and is waiting for your next input (i.e. right after
 the AI finishes generating). It is a real session with real
 accumulated cost and tokens, so `{costCompact}`, `{contextCompact}`,
-and `{prompts}` are populated there. This is the state your config
+and `{promptsCompact}` are populated there. This is the state your config
 displays as "Completed!".
 
 ```json
@@ -205,15 +205,15 @@ displays as "Completed!".
   "presence": {
     "byState": {
       "Waiting for command": {
-        "details": "{model} ({mode}) {{#if cost == \"free\"}} • $0 spent{{else}}{costCompact} spent{{/if}}",
-        "state": "Completed! • {contextCompact}/{contextLimitCompact} token • {prompts} prompts"
+        "details": "{modelName}{{#if effort}} · {effortCapital} effort{{/if}} ({mode}) {{#if cost == \"free\"}} • $0 spent{{else}}{costCompact} spent{{/if}}",
+        "state": "Completed! • {contextCompact}/{contextLimitCompact} tok • {promptsCompact} prmpts"
       },
       "Working": {
-        "details": "{model} · Working",
+        "details": "{modelName}{{#if effort}} · {effortCapital} effort{{/if}} · Working",
         "state": "{contextPercent}% ctx"
       },
       "Thinking": {
-        "details": "{model} · Thinking",
+        "details": "{modelName}{{#if effort}} · {effortCapital} effort{{/if}} · Thinking",
         "state": "{{#if contextPercent > 50}}heavy{{else}}light{{/if}}"
       }
     }
@@ -249,38 +249,51 @@ entry above (so its cost persists, it does not reset to $0):
 
 ## Full Example
 
+This example is sanitized for documentation. Replace the app ID and image key
+with your own values. It demonstrates compact token and prompt labels together
+with conditional effort display.
+
 ```json
 {
-  "discordAppId": "1512803991300476989",
-  "discordLargeImageKey": "opencode-logo-too-rich-presence",
+  "discordAppId": "YOUR_APP_ID",
+  "discordLargeImageKey": "your-asset-key",
   "discordLargeImageText": "OpenCode",
   "currency": "$",
   "replacements": [
     { "vars": ["modelName"], "from": "* Free", "to": "" },
-    { "vars": ["mode"], "from": "plan", "to": "Planning" }
+    { "vars": ["mode"], "from": "plan", "to": "Planning" },
+    { "vars": ["mode"], "from": "build", "to": "Building" }
   ],
   "presence": {
-    "details": "{model} ({mode})",
-    "state": "{state} · {contextCompact}",
-    "largeImageText": "OpenCode",
+    "details": "{modelName}{{#if effort}} · {effortCapital} effort{{/if}} ({mode}) {{#if cost == \"free\"}} • $0 spent{{else}}{costCompact} spent{{/if}}",
+    "state": "{state} • {contextCompact}/{contextLimitCompact} tok • {promptsCompact} prmpts",
+    "largeImageText": "Context: {contextCompact}/{contextLimitCompact} tok",
     "smallImageText": "{provider}",
     "byState": {
-      "Typing": {
-        "details": "{model} · Typing",
-        "state": "{{#if contextPercent > 80}}⚠️ {contextPercent}% full{{else}}{contextPercent}% ctx{{/if}}"
+      "Waiting for command": {
+        "details": "{modelName}{{#if effort}} · {effortCapital} effort{{/if}} ({mode}) {{#if cost == \"free\"}} • $0 spent{{else}}{costCompact} spent{{/if}}",
+        "state": "Completed! • {contextCompact}/{contextLimitCompact} tok • {promptsCompact} prmpts"
       },
-      "Asking": {
-        "details": "{model} · Permission needed",
-        "state": "{{#if mode == \"build\"}}Build access{else}}Plan access{{/if}}"
+      "Working": {
+        "details": "{modelName}{{#if effort}} · {effortCapital} effort{{/if}} ({mode}) {{#if cost == \"free\"}} • $0 spent{{else}}{costCompact} spent{{/if}}",
+        "state": "Working • {contextCompact}/{contextLimitCompact} tok • {promptsCompact} prmpts"
       },
       "Thinking": {
-        "details": "{model} · Thinking · {elapsed}",
-        "state": "{{#if contextPercent > 50}}Thinking heavy{else}}Thinking{{/if}}"
+        "details": "{modelName}{{#if effort}} · {effortCapital} effort{{/if}} ({mode}) {{#if cost == \"free\"}} • $0 spent{{else}}{costCompact} spent{{/if}}",
+        "state": "Thinking • {contextCompact}/{contextLimitCompact} tok • {promptsCompact} prmpts"
+      },
+      "Typing": {
+        "details": "{modelName}{{#if effort}} · {effortCapital} effort{{/if}} ({mode}) {{#if cost == \"free\"}} • $0 spent{{else}}{costCompact} spent{{/if}}",
+        "state": "Typing • {contextCompact}/{contextLimitCompact} tok • {promptsCompact} prmpts"
+      },
+      "Asking": {
+        "details": "{modelName}{{#if effort}} · {effortCapital} effort{{/if}} ({mode}) {{#if cost == \"free\"}} • $0 spent{{else}}{costCompact} spent{{/if}}",
+        "state": "Asking • {contextCompact}/{contextLimitCompact} tok • {promptsCompact} prmpts"
       }
     },
     "idle": {
       "details": "OpenCode · idle",
-      "state": "{prompts} prompts today",
+      "state": "{promptsCompact|0} prmpts today",
       "largeImageText": "OpenCode",
       "smallImageText": "Idle"
     }

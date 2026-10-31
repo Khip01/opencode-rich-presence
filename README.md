@@ -152,8 +152,8 @@ Example:
 ```json
 {
   "presence": {
-    "details": "{modelName}{{#if effort}} · {effortCapital} effort{{/if}} | {mode}",
-    "state": "{state} | {contextCompact}"
+    "details": "{modelName}{{#if effort}} · {effortCapital} effort{{/if}} ({mode}) {{#if cost == \"free\"}} • $0 spent{{else}}{costCompact} spent{{/if}}",
+    "state": "{state} • {contextCompact}/{contextLimitCompact} tok • {promptsCompact} prmpts"
   }
 }
 ```

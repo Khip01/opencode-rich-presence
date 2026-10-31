@@ -15,6 +15,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   recognized directly; custom aliases use `reasoningEffort` metadata when
   available, and unknown or absent effort remains empty. Boolean effort
   conditionals can omit separators when no effort is available.
+- **Expanded configuration examples**: README, the example JSON, and the
+  customization guide now demonstrate conditional effort, compact `tok`
+  context labels, and compact `prmpts` counts.
 
 ## [3.6.0] - 2026-10-28
 

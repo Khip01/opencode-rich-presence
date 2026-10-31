@@ -17,37 +17,37 @@
     ],
 
     "presence": {
-        "details": "{model} ({mode}) {{#if cost == \"free\"}} • $0 spent{{else}}{costCompact} spent{{/if}}",
-        "state": "{state} • {contextCompact}/{contextLimitCompact} token • {prompts} prompts",
+        "details": "{modelName}{{#if effort}} · {effortCapital} effort{{/if}} ({mode}) {{#if cost == \"free\"}} • $0 spent{{else}}{costCompact} spent{{/if}}",
+        "state": "{state} • {contextCompact}/{contextLimitCompact} tok • {promptsCompact} prmpts",
         "largeImageText": "Context: {context} / {contextLimit} tokens",
         "smallImageText": "Provider: {provider}",
 
         "byState": {
             "Waiting for command": {
-                "details": "{model} ({mode}) {{#if cost == \"free\"}} • $0 spent{{else}}{costCompact} spent{{/if}}",
-                "state": "Waiting • {contextCompact}/{contextLimitCompact} token • {prompts} prompts"
+                "details": "{modelName}{{#if effort}} · {effortCapital} effort{{/if}} ({mode}) {{#if cost == \"free\"}} • $0 spent{{else}}{costCompact} spent{{/if}}",
+                "state": "Completed! • {contextCompact}/{contextLimitCompact} tok • {promptsCompact} prmpts"
             },
             "Working": {
-                "details": "{model} ({mode}) {{#if cost == \"free\"}} • $0 spent{{else}}{costCompact} spent{{/if}}",
-                "state": "Working • {contextCompact}/{contextLimitCompact} token • {prompts} prompts"
+                "details": "{modelName}{{#if effort}} · {effortCapital} effort{{/if}} ({mode}) {{#if cost == \"free\"}} • $0 spent{{else}}{costCompact} spent{{/if}}",
+                "state": "Working • {contextCompact}/{contextLimitCompact} tok • {promptsCompact} prmpts"
             },
             "Thinking": {
-                "details": "{model} ({mode}) {{#if cost == \"free\"}} • $0 spent{{else}}{costCompact} spent{{/if}}",
-                "state": "Thinking • {contextCompact}/{contextLimitCompact} token • {prompts} prompts"
+                "details": "{modelName}{{#if effort}} · {effortCapital} effort{{/if}} ({mode}) {{#if cost == \"free\"}} • $0 spent{{else}}{costCompact} spent{{/if}}",
+                "state": "Thinking • {contextCompact}/{contextLimitCompact} tok • {promptsCompact} prmpts"
             },
             "Typing": {
-                "details": "{model} ({mode}) {{#if cost == \"free\"}} • $0 spent{{else}}{costCompact} spent{{/if}}",
-                "state": "Typing • {contextCompact}/{contextLimitCompact} token • {prompts} prompts"
+                "details": "{modelName}{{#if effort}} · {effortCapital} effort{{/if}} ({mode}) {{#if cost == \"free\"}} • $0 spent{{else}}{costCompact} spent{{/if}}",
+                "state": "Typing • {contextCompact}/{contextLimitCompact} tok • {promptsCompact} prmpts"
             },
             "Asking": {
-                "details": "{model} ({mode}) {{#if cost == \"free\"}} • $0 spent{{else}}{costCompact} spent{{/if}}",
-                "state": "Asking • {contextCompact}/{contextLimitCompact} token • {prompts} prompts"
+                "details": "{modelName}{{#if effort}} · {effortCapital} effort{{/if}} ({mode}) {{#if cost == \"free\"}} • $0 spent{{else}}{costCompact} spent{{/if}}",
+                "state": "Asking • {contextCompact}/{contextLimitCompact} tok • {promptsCompact} prmpts"
             }
         },
 
         "idle": {
-            "details": "{model|OpenCode} ({mode|standby}) • $0 spent",
-            "state": "Waiting • {contextCompact|0}/{contextLimitCompact|0} token • {prompts|0} prompts",
+            "details": "{modelName|OpenCode}{{#if effort}} · {effortCapital} effort{{/if}} ({mode|standby}) • $0 spent",
+            "state": "Waiting • {contextCompact|0}/{contextLimitCompact|0} tok • {promptsCompact|0} prmpts",
             "largeImageText": "Context: {context|0} / {contextLimit|0} tokens",
             "smallImageText": "Provider: {provider|Local}"
         },
