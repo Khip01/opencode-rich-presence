@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.6.1] - 2026-10-31
+
 ### Added
 
 - **Model effort template variables**: V1 and V2 now resolve the selected

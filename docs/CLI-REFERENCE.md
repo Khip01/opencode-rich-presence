@@ -26,14 +26,14 @@ show just the version (no suffix).
 
 ```
 $ opencode-rpc version
-opencode-rich-presence v3.6.0 (stable)
+opencode-rich-presence v3.6.1 (stable)
 ```
 
 ```
 $ opencode-rpc update --dev    # switch to dev channel
 ...
 $ opencode-rpc version
-opencode-rich-presence v3.6.0 (dev: 7daadbb)
+opencode-rich-presence v3.6.1 (dev: 7daadbb)
 ```
 
 ---
@@ -76,12 +76,12 @@ Options (update):
                    hits a npm v11 bug that installs the package without
                    bin symlinks (the opencode-rpc command would be missing).
                    Examples:
-                      opencode-rpc update --ref v3.6.0
+                      opencode-rpc update --ref v3.6.1
                      opencode-rpc update --ref <branch-name>
                      opencode-rpc update --ref 6664bfb
                      opencode-rpc update --ref 471ce940ba316180fa08617dcb04ee1b59599e7f
   --dev [BRANCH]   Install latest commit on BRANCH (defaults to `main`,
-                    which is currently v3.6.0). Combine with --repo for
+                    which is currently v3.6.1). Combine with --repo for
                    forks.
   --repo OWNER/REPO  Install from a fork instead of the upstream repo.
                      Combine with --dev, --stable, or --ref:
@@ -94,16 +94,16 @@ Installation (one-time):
 
   # Pin to a specific version:
   curl -fsSL https://raw.githubusercontent.com/Khip01/opencode-rich-presence/main/install.sh \
-     | ORP_VERSION=v3.6.0 bash
+     | ORP_VERSION=v3.6.1 bash
 
   # Manual tarball install (any platform):
   # Download from https://github.com/Khip01/opencode-rich-presence/releases/latest
-   npm install -g ./opencode-rich-presence-v3.6.0.tgz
+   npm install -g ./opencode-rich-presence-v3.6.1.tgz
 
   # After install, set up the OpenCode plugin symlink + config:
   opencode-rpc install
 
-   # Why not `npm install -g Khip01/opencode-rich-presence#v3.6.0`?
+   # Why not `npm install -g Khip01/opencode-rich-presence#v3.6.1`?
   # npm v11 has a bug installing global git deps: the package appears
   # to install (npm reports "added 1 package") but the opencode-rpc
   # binary is missing (`zsh: command not found: opencode-rpc`).
@@ -367,7 +367,7 @@ Upgrades the installed package. Five modes:
 | Mode | What it does |
 |------|--------------|
 | default | Compare current version against latest stable release tag. If newer, install. |
-| `--dev [BRANCH]` | Skip version check. Install latest commit on BRANCH. Defaults to `main`, which is currently v3.6.0. |
+| `--dev [BRANCH]` | Skip version check. Install latest commit on BRANCH. Defaults to `main`, which is currently v3.6.1. |
 | `--stable` | Skip version check. Install latest stable release tag. |
 | `--ref REF` | Install a specific git ref: tag, branch, or commit SHA. Supports any ref including short SHAs (`6664bfb`) and full SHAs (`6664bfb0ba316180fa08617dcb04ee1b59599e7f`). |
 | `--repo OWNER/REPO` | Install from a fork instead of the upstream repo. Combine with `--dev`, `--stable`, or `--ref`. |
@@ -418,7 +418,7 @@ $ opencode-rpc update --dev redesign/v3-daemon
 
 opencode-rich-presence update (--dev redesign/v3-daemon)
 
-Current: v3.6.0 (dev: redesig)
+Current: v3.6.1 (dev: redesig)
 Latest:  471ce94 (latest commit on redesign/v3-daemon)
 Installing dev build (471ce94)...
 
@@ -431,7 +431,7 @@ Restart OpenCode to load the new build.
 ```
 
 `--dev` without a branch name defaults to `main`, which is
-currently v3.6.0.
+currently v3.6.1.
 
 **Example: install a specific branch**
 
@@ -440,7 +440,7 @@ $ opencode-rpc update --ref redesign/v3-daemon
 
 opencode-rich-presence update (--ref)
 
-Current: v3.6.0 (stable)
+Current: v3.6.1 (stable)
 Treating as channel=dev for version reporting.
 
 Cloning repo...
@@ -452,7 +452,7 @@ Restart OpenCode to load the new build.
 ```
 
 `--ref` works with any git ref the repo exposes: a tag
-(`--ref v3.6.0`), a branch (`--ref redesign/v3-daemon`), a
+(`--ref v3.6.1`), a branch (`--ref redesign/v3-daemon`), a
 short commit SHA (`--ref 6664bfb`), or a full commit SHA
 (`--ref 6664bfb0ba316180fa08617dcb04ee1b59599e7f`). The channel
 label written to the `.install-channel` marker is inferred from the
@@ -467,7 +467,7 @@ $ opencode-rpc update --repo myname/opencode-rich-presence --ref my-branch
 opencode-rich-presence update (--ref my-branch)
 Source repo:    myname/opencode-rich-presence
 
-Current: v3.6.0 (stable)
+Current: v3.6.1 (stable)
 Treating as channel=dev for version reporting.
 
 Cloning repo...
