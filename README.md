@@ -152,7 +152,7 @@ Example:
 ```json
 {
   "presence": {
-    "details": "{modelName} | {mode}",
+    "details": "{modelName}{{#if effort}} · {effortCapital} effort{{/if}} | {mode}",
     "state": "{state} | {contextCompact}"
   }
 }

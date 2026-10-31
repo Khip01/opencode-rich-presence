@@ -407,15 +407,17 @@ Same precedence applies to:
 The template engine (`src/plugin/template-engine.js`) derives vars in `getTemplateVars(session, replacements)`:
 
 - **Model variants:** `model` (raw), `modelCode` (after last `/`, any provider level stripped), `modelName` (from code: `-`/`_`/`:` -> space, `.` preserved, Title Cased), `modelNameLower` (lowercased). Example `oc/muse-spark-1.2-contributor-free` -> `modelCode=muse-spark-1.2-contributor-free`, `modelName=Muse Spark 1.2 Contributor Free`.
+- **Effort variables:** `effort` and `effortLower` are canonical lowercase, `effortUpper` is uppercase, and `effortCapital` is first-letter uppercase. Standard model variants are recognized directly. Custom aliases resolve through `reasoningEffort`; unknown or absent effort stays empty. V1 and V2 use separate model adapters but share the same template variables.
 - **Replacements:** wildcard rules from `replacements` (top-level, see CUSTOMIZATION.md) are applied to the derived vars before they are substituted into templates. `*` only at the edges of `from` (`Free`, `*Free`, `Free*`, `*Free*`), literal and case-sensitive, chaining in order, duplicates deduped. Config validation lives in `config-resolver.js` (`normalizeReplacements`), render path is `local-presence.js: getTemplateVars(session, config.replacements)`.
 
 The template engine supports:
 
-1. **Variables:** `{model}`, `{modelCode}`, `{modelName}`, `{modelNameLower}`, `{context}`, etc.
+1. **Variables:** `{model}`, `{modelCode}`, `{modelName}`, `{modelNameLower}`, `{effort}`, `{effortLower}`, `{effortUpper}`, `{effortCapital}`, `{context}`, etc.
 2. **Fallbacks:** `{var|fallback}` is used if var is undefined/null.
 3. **Boolean conditionals:** `{{#if thinking}}...{{else}}...{{/if}}`
 4. **Comparison conditionals:** `{{#if contextPercent > 50}}...{{else}}...{{/if}}`
-5. **Per-state templates:** `byState.Typing.state`, etc.
+5. **Effort presence conditionals:** `{{#if effort}}...{{else}}...{{/if}}` treats a non-empty effort as present.
+6. **Per-state templates:** `byState.Typing.state`, etc.
 
 Template set selection (in `local-presence.js` `renderPresence`):
 - **No session at all** (queue empty, nothing displayed) -> the

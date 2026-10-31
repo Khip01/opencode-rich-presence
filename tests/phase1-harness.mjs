@@ -131,6 +131,13 @@ await clearLogs();
 let handlers = null;
 
 await scenario("1. Plugin lifecycle", async () => {
+    writeFileSync(join(OPENCODE_DIR, "discord-config.json"), JSON.stringify({
+        presence: {
+            byState: {
+                Working: { state: "{state}{{#if effort}} · {effortUpper}{{/if}}" },
+            },
+        },
+    }), "utf-8");
     handlers = await loadPlugin();
     const log = readActivityLog();
     assert(log.includes("[load] plugin loaded"), "[load] plugin loaded entry");
@@ -155,6 +162,16 @@ await scenario("2. chat.message -> WORKING", async () => {
     assert(log.includes("[display] sid="), "display changed event logged");
     assert(log.includes(`[template] sid=${SHORT_A} details=`), "template render logged with sid");
     assert(log.includes("[push] would-push details="), "would-push entry logged");
+});
+
+await scenario("2b. V1 model effort variant", async () => {
+    await handlers["chat.message"]({
+        sessionID: SID_A,
+        agent: "build",
+        model: { modelID: "minimax-m3#high" },
+    });
+    await sleep(300);
+    assert(readActivityLog().includes("Working · HIGH"), "V1 standard high effort renders uppercase effort");
 });
 
 await scenario("3. message.part.updated text -> TYPING", async () => {

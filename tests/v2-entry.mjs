@@ -31,7 +31,7 @@ let contextMessages = [
 writeFileSync(CONFIG_PATH, JSON.stringify({
     presence: {
         byState: {
-            Working: { state: "{contextLimitCompact} token · {prompts} prompts" },
+            Working: { state: "{contextLimitCompact} token · {prompts} prompts{{#if effort}} · {effortCapital}{{/if}}" },
             Typing: { state: "{contextLimitCompact} token · {prompts} prompts" },
         },
     },
@@ -202,6 +202,8 @@ section("model id keeps one shape");
 hooks.context({ sessionID: SID, agent: "build", model: { providerID: "openrouter", id: "gpt-6.1-sol" } });
 ok(await waitFor(/gpt-6\.1-sol · (Working|Typing)/, 10000, "bare model render"), "context hook renders the bare model id");
 ok(!/openrouter\/gpt-6\.1-sol/.test(logText()), "no provider/model compound id leaks into the render");
+hooks.context({ sessionID: SID, agent: "build", model: { providerID: "openrouter", id: "gpt-6.1-sol", variant: "high" } });
+ok(await waitFor(/1M token · \d+ prompts · High/, 10000, "high effort render"), "V2 standard high effort renders with typography helper");
 hooks.context({ sessionID: SID, agent: "build", model: { providerID: "xkiro", id: "gpt-6-luna" } });
 ok(await waitFor(/393\.2K token/, 10000, "prefixed model limit render"), "provider-prefixed model id resolves its context limit");
 ok(await waitFor(/2 prompts/, 10000, "assistant prompt fallback"), "assistant history repairs the V2 prompt count");

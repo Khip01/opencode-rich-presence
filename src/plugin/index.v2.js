@@ -30,6 +30,13 @@ import {
     disconnectFromDaemon,
 } from "./local-presence.js";
 import { ensureDaemonRunning } from "./daemon-spawner.js";
+import {
+    extractModelReference,
+    findModelInfo,
+    modelReferenceFromInfo,
+    rememberModelInfo,
+    resolveEffort,
+} from "./model-effort.js";
 
 // `Plugin.define` from the `@opencode/plugin` SDK is a pure identity
 // function (`define(def) { return def; }`). It is inlined here so the
@@ -148,28 +155,7 @@ function sidOf(event) {
 }
 
 function modelRefOf(value) {
-    if (!value) return { id: null, providerID: null };
-    if (typeof value === "string") {
-        const slash = value.indexOf("/");
-        if (slash > 0) {
-            const providerID = value.slice(0, slash);
-            const variant = value.indexOf("#", slash + 1);
-            return {
-                id: value.slice(slash + 1, variant === -1 ? undefined : variant),
-                providerID,
-            };
-        }
-        return { id: value, providerID: null };
-    }
-    const providerID = value.providerID ?? value.provider ?? null;
-    let id = value.id ?? value.modelID ?? null;
-    if (typeof id === "string") {
-        const slash = id.indexOf("/");
-        if (slash > 0) id = id.slice(slash + 1);
-        const variant = id.indexOf("#");
-        if (variant !== -1) id = id.slice(0, variant);
-    }
-    return { id, providerID };
+    return extractModelReference(value);
 }
 
 function isAssistantMessage(info) {
@@ -247,6 +233,7 @@ async function recycleDaemon() {
 function createRuntime(ctx, loadedConfig) {
     const sessions = new Map();
     const modelLimits = new Map();
+    const modelCatalog = new Map();
     let displayedID = null;
     let config = loadedConfig;
     let presenceEnabled = true;
@@ -422,9 +409,14 @@ function createRuntime(ctx, loadedConfig) {
     }
 
     function applyModel(session, ref) {
+        if (!session || ref === null || ref === undefined) return;
         const model = modelRefOf(ref);
         if (model.id) session.model = model.id;
         if (model.providerID) session.provider = model.providerID;
+        session.variant = model.hasVariant ? model.variant : "";
+        session.effort = model.hasVariant
+            ? resolveEffort(model.variant, findModelInfo(modelCatalog, model.providerID, model.id))
+            : "";
         const limit = limitFor(session.model) ?? limitFor(model.id);
         if (limit) session.modelLimit = limit;
     }
@@ -551,7 +543,7 @@ function createRuntime(ctx, loadedConfig) {
     function applyAssistantMessage(sid, info, eventTime) {
         if (!sid || !isAssistantMessage(info)) return null;
         const session = ensureSession(sid);
-        const model = modelRefOf(info.model ?? info.modelID);
+        const model = modelRefOf(modelReferenceFromInfo(info));
         const messageID = info.id;
         const time = info.time || {};
         if (messageID) session._assistantPromptIDs.add(String(messageID));
@@ -568,7 +560,8 @@ function createRuntime(ctx, loadedConfig) {
         } catch (error) {
             log(`stats update failed: ${error?.message || error}`);
         }
-        applyModel(session, info.model ?? info.modelID);
+        const sessionModel = modelReferenceFromInfo(info);
+        if (sessionModel !== null && sessionModel !== undefined) applyModel(session, sessionModel);
         applyAgent(session, info.agent ?? info.agentID);
         if (info.mode) session.mode = info.mode;
         reconcilePromptCount(session);
@@ -593,7 +586,8 @@ function createRuntime(ctx, loadedConfig) {
         // event stream is dead, so the watchdog will not fire early.
         if (info?.time?.updated) markNativeEvent(session, info.time.updated);
         touch(session, info?.time?.updated || eventTime);
-        applyModel(session, info?.model ?? info?.modelID);
+        const sessionModel = modelReferenceFromInfo(info);
+        if (sessionModel !== null && sessionModel !== undefined) applyModel(session, sessionModel);
         applyAgent(session, info?.agent ?? info?.agentID);
         applyUsage(session, info?.cost, info?.tokens);
         return session;
@@ -726,22 +720,31 @@ function createRuntime(ctx, loadedConfig) {
         try {
             const list = await sourceCtx.model.list();
             const models = Array.isArray(list) ? list : list?.data ?? [];
-            if (!Array.isArray(models)) return;
-            for (const model of models) {
-                const limit = model?.limit?.context;
-                if (typeof limit !== "number" || limit <= 0) continue;
-                const rawID = model.modelID ?? model.id;
-                const provider = model.providerID;
-                if (rawID) {
-                    for (const candidate of modelIDVariants(rawID)) modelLimits.set(candidate, limit);
-                }
-                if (provider && rawID) {
-                    for (const candidate of modelIDVariants(rawID)) {
-                        modelLimits.set(`${provider}/${candidate}`, limit);
+            if (Array.isArray(models)) {
+                for (const model of models) {
+                    rememberModelInfo(modelCatalog, model);
+                    const limit = model?.limit?.context;
+                    if (typeof limit !== "number" || limit <= 0) continue;
+                    const rawID = model.modelID ?? model.id;
+                    const provider = model.providerID;
+                    if (rawID) {
+                        for (const candidate of modelIDVariants(rawID)) modelLimits.set(candidate, limit);
+                    }
+                    if (provider && rawID) {
+                        for (const candidate of modelIDVariants(rawID)) {
+                            modelLimits.set(`${provider}/${candidate}`, limit);
+                        }
                     }
                 }
+                activity("models", `loaded ${modelLimits.size} model limits and ${modelCatalog.size} model definitions (v2)`);
+                for (const session of sessions.values()) {
+                    if (!session.variant) continue;
+                    session.effort = resolveEffort(
+                        session.variant,
+                        findModelInfo(modelCatalog, session.provider, session.model),
+                    );
+                }
             }
-            activity("models", `loaded ${modelLimits.size} model limits (v2)`);
         } catch (error) {
             log(`model limits: ${error?.message || error}`);
         }
@@ -764,6 +767,7 @@ function createRuntime(ctx, loadedConfig) {
                     for (const [pid, prov] of Object.entries(providers)) {
                         const models = prov.models || {};
                         for (const [mid, mdef] of Object.entries(models)) {
+                            rememberModelInfo(modelCatalog, mdef, pid, mid);
                             const limit = mdef?.limit?.context;
                             if (typeof limit !== "number" || limit <= 0) continue;
                             for (const candidate of modelIDVariants(mid)) {
@@ -776,6 +780,13 @@ function createRuntime(ctx, loadedConfig) {
                         }
                     }
                     activity("models", `config fallback loaded, total ${modelLimits.size} model limits`);
+                    for (const session of sessions.values()) {
+                        if (!session.variant) continue;
+                        session.effort = resolveEffort(
+                            session.variant,
+                            findModelInfo(modelCatalog, session.provider, session.model),
+                        );
+                    }
                     break;
                 } catch {}
             }

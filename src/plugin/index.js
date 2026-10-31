@@ -17,6 +17,13 @@ import { readState } from "../shared/presence-state.js";
 import { SessionState } from "./session-state.js";
 import { withTimeout, formatDuration } from "./template-engine.js";
 import {
+    extractModelReference,
+    findModelInfo,
+    modelReferenceFromInfo,
+    rememberModelInfo,
+    resolveEffort,
+} from "./model-effort.js";
+import {
     renderPresence,
     pushPresence,
     startPresence,
@@ -35,6 +42,7 @@ const sessions = new Map();
 const queue = [];
 let displayedSessionID = null;
 const providerModels = new Map();
+const modelCatalog = new Map();
 let writeTimer = null;
 let config = null;
 const MY_STATE_FILE = stateFilePathFor(process.pid);
@@ -168,6 +176,34 @@ function getModelLimit(mid) {
     return null;
 }
 
+function applyModelEffort(session, ref, { preserveWhenMissing = false } = {}) {
+    if (!session || ref === null || ref === undefined) return;
+    const model = extractModelReference(ref);
+    if (model.id) session.model = model.id;
+    if (model.providerID) session.provider = model.providerID;
+    if (!model.hasVariant) {
+        if (!preserveWhenMissing) {
+            session.variant = "";
+            session.effort = "";
+        }
+        return;
+    }
+    session.variant = model.variant;
+    const modelInfo = findModelInfo(modelCatalog, model.providerID, model.id);
+    session.effort = resolveEffort(model.variant, modelInfo);
+}
+
+function refreshSessionEfforts() {
+    for (const session of sessions.values()) {
+        if (!session.variant) continue;
+        session.effort = resolveEffort(
+            session.variant,
+            findModelInfo(modelCatalog, session.provider, session.model),
+        );
+    }
+    if (sessions.size && config) scheduleWrite();
+}
+
 function ensureSession(sid) {
     if (!sid) return null;
     let s = sessions.get(sid);
@@ -201,10 +237,23 @@ async function restoreSessionMessages(client, sid, wd) {
         for (const m of msgs) {
             const i = m?.info ?? m;
             if (!i || i.role !== "assistant") continue;
+            const modelRef = modelReferenceFromInfo(i);
+            const model = extractModelReference(modelRef);
             const wn = !s._messageMap.has(i.id);
-            s.addOrUpdateMessage(i.id, i.cost, i.tokens, i.modelID, i.providerID, i.time?.completed, i.time?.created);
+            s.addOrUpdateMessage(
+                i.id,
+                i.cost,
+                i.tokens,
+                i.modelID ?? model.id,
+                i.providerID ?? model.providerID,
+                i.time?.completed,
+                i.time?.created,
+            );
             if (wn) { s.promptCount++; ac++; }
-            if (i.modelID) s.model = i.modelID;
+            if (model.id) {
+                s.model = model.id;
+                applyModelEffort(s, modelRef, { preserveWhenMissing: true });
+            }
             if (i.providerID) s.provider = i.providerID;
             if (i.mode) lm = i.mode;
         }
@@ -268,6 +317,7 @@ async function loadProviderModels(client, wd) {
         for (const p of pl) {
             if (!p?.models) continue;
             for (const [mid, m] of Object.entries(p.models)) {
+                rememberModelInfo(modelCatalog, m, p.id, mid);
                 if (m?.limit?.context) {
                     providerModels.set(mid, m.limit.context);
                     if (p.id) providerModels.set(`${p.id}/${mid}`, m.limit.context);
@@ -277,6 +327,7 @@ async function loadProviderModels(client, wd) {
             }
         }
         activity("models", `loaded ${providerModels.size} provider model limits`);
+        refreshSessionEfforts();
     } catch (e) { log(`loadModels: ${e?.message || e}`); }
 }
 
@@ -311,12 +362,13 @@ async function loadConfigLimits(p) {
     try {
         const raw = await readFile(p, "utf-8");
         const j = JSON.parse(raw.replace(/\/\/.*$/gm, "").replace(/\/\*[\s\S]*?\*\//g, ""));
-        const prs = j?.provider;
+        const prs = j?.provider ?? j?.providers;
         if (!prs || typeof prs !== "object") return;
         let c = 0;
         for (const [pid, pd] of Object.entries(prs)) {
             if (!pd?.models) continue;
             for (const [mid, m] of Object.entries(pd.models)) {
+                rememberModelInfo(modelCatalog, m, pid, mid);
                 const l = m?.limit?.context;
                 if (typeof l === "number" && l > 0) {
                     providerModels.set(mid, l);
@@ -328,6 +380,7 @@ async function loadConfigLimits(p) {
             }
         }
         activity("models", `loaded ${c} model limits from ${basename(p)}`);
+        refreshSessionEfforts();
     } catch (e) { log(`loadConfigLimits(${p}): ${e?.message || e}`); }
 }
 
@@ -475,9 +528,11 @@ export const OpencodeRichPresence = async ({ client, directory }) => {
                 if (!sid) return;
                 const s = ensureSession(sid);
                 const agent = input.agent || s.agent;
-                const model = input.model?.modelID || s.model;
+                const modelRef = extractModelReference(input.model ?? s.model);
+                const model = modelRef.id || s.model;
                 const mode = input.agent || s.mode;
                 s.agent = agent;
+                if (input.model !== undefined && input.model !== null) applyModelEffort(s, input.model);
                 s.model = model;
                 s.mode = mode;
                 s.modelLimit = getModelLimit(s.model) ?? s.modelLimit;
@@ -577,7 +632,18 @@ export const OpencodeRichPresence = async ({ client, directory }) => {
                     const sid = i.sessionID;
                     if (!sid) return;
                     const s = ensureSession(sid);
-                    s.addOrUpdateMessage(i.id, i.cost, i.tokens, i.modelID, i.providerID, i.time?.completed, i.time?.created);
+                    const modelRef = modelReferenceFromInfo(i);
+                    const model = extractModelReference(modelRef);
+                    s.addOrUpdateMessage(
+                        i.id,
+                        i.cost,
+                        i.tokens,
+                        i.modelID ?? model.id,
+                        i.providerID ?? model.providerID,
+                        i.time?.completed,
+                        i.time?.created,
+                    );
+                    if (model.id) applyModelEffort(s, modelRef, { preserveWhenMissing: true });
                     if (i.mode) s.mode = i.mode;
                     s.modelLimit = getModelLimit(s.model) ?? s.modelLimit;
                     s.lastActivity = Date.now();

@@ -6,6 +6,8 @@ export class SessionState {
         this.agent = "unknown";
         this.model = "unknown";
         this.provider = "unknown";
+        this.effort = "";
+        this.variant = "";
         this.mode = "unknown";
         this.state = STATE.WAITING;
         this.startedAt = Date.now();

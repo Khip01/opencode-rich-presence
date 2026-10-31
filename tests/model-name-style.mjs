@@ -4,6 +4,7 @@ import {
     formatModelName,
     getTemplateVars,
     renderTemplate,
+    formatEffortCapital,
 } from "../src/plugin/template-engine.js";
 import { renderPresence } from "../src/plugin/local-presence.js";
 import { STATE } from "../src/shared/constants.js";
@@ -109,6 +110,25 @@ console.log("\n== renderTemplate integration ==");
 {
     const v = getTemplateVars(null);
     ok(renderTemplate("{modelCode|OpenCode}", v) === "?", "null session modelCode is defined (?), fallback not used");
+}
+
+// ── effort typography ───────────────────────────────────────────
+console.log("\n== effort typography ==");
+
+{
+    const v = getTemplateVars({ effort: "high", state: STATE.WORKING });
+    ok(v.effort === "high", "effort is canonical lowercase");
+    ok(v.effortLower === "high", "effortLower is lowercase");
+    ok(v.effortUpper === "HIGH", "effortUpper is uppercase");
+    ok(v.effortCapital === "High", "effortCapital is capitalized");
+    ok(formatEffortCapital("") === "", "empty effort stays empty");
+    ok(renderTemplate("Model{{#if effort}} · {effortCapital} effort{{/if}}", v) === "Model · High effort", "effort conditional adds separator when present");
+}
+
+{
+    const v = getTemplateVars({ effort: "", state: STATE.WORKING });
+    ok(v.effort === "" && v.effortUpper === "" && v.effortCapital === "", "missing effort exposes empty typography variables");
+    ok(renderTemplate("Model{{#if effort}} · {effortCapital} effort{{/if}}", v) === "Model", "effort conditional removes separator when empty");
 }
 
 // ── renderPresence integration ──────────────────────────────────

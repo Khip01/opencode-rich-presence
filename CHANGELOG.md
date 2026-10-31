@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Model effort template variables**: V1 and V2 now resolve the selected
+  model variant's reasoning effort and expose `{effort}`, `{effortLower}`,
+  `{effortUpper}`, and `{effortCapital}`. Standard effort variants are
+  recognized directly; custom aliases use `reasoningEffort` metadata when
+  available, and unknown or absent effort remains empty. Boolean effort
+  conditionals can omit separators when no effort is available.
+
 ## [3.6.0] - 2026-10-28
 
 ### Added

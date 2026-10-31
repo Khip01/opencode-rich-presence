@@ -16,12 +16,19 @@ export function formatModelName(code) {
     return tokens.map((t) => t.charAt(0).toUpperCase() + t.slice(1)).join(" ");
 }
 
+export function formatEffortCapital(value) {
+    if (!value) return "";
+    const text = String(value);
+    return text.charAt(0).toUpperCase() + text.slice(1).toLowerCase();
+}
+
 export function getTemplateVars(session, replacements) {
     const s = session || {};
     const rawModel = s.model || "?";
     const modelCode = formatModelCode(rawModel);
     const modelName = formatModelName(modelCode);
     const modelNameLower = modelName === "?" ? "?" : modelName.toLowerCase();
+    const effort = typeof s.effort === "string" ? s.effort : "";
     const d = {
         id: s.sessionID ? s.sessionID.substring(s.sessionID.length - 12) : "?",
         sessionId: s.sessionID || "?",
@@ -30,6 +37,10 @@ export function getTemplateVars(session, replacements) {
         modelCode,
         modelName,
         modelNameLower,
+        effort,
+        effortLower: effort.toLowerCase(),
+        effortUpper: effort.toUpperCase(),
+        effortCapital: formatEffortCapital(effort),
         mode: s.mode || "?",
         state: s.state || STATE.WAITING,
         elapsed: s.startedAt ? formatDuration(Date.now() - s.startedAt) : "?",
@@ -138,9 +149,11 @@ export function renderTemplate(template, vars) {
     // 2. Boolean conditional: {{#if var}}tb{{else}}fb{{/if}}
     const boolCondRegex = /\{\{#if\s+(\w+)\s*\}\}([\s\S]*?)(?:\{\{else\}\}([\s\S]*?))?\{\{\/if\}\}/g;
     r = r.replace(boolCondRegex, (_, vn, tb, fb) => {
-        const v = String(vars[vn] ?? "");
-        const met = v === "true" || v === "1" || v === "yes";
-        return met ? (tb || "") : (fb || "");
+        const v = String(vars[vn] ?? "").trim().toLowerCase();
+        const booleanValue = v === "true" || v === "1" || v === "yes";
+        const effortValue = ["effort", "effortLower", "effortUpper", "effortCapital"].includes(vn)
+            && v !== "";
+        return (booleanValue || effortValue) ? (tb || "") : (fb || "");
     });
 
     // 3. Variable substitution: {var} or {var|fallback}

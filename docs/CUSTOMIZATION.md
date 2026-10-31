@@ -41,6 +41,10 @@
 | `{modelCode}` | `muse-spark-1.2-contributor-free` | Model code only (provider prefix stripped, after last `/`) |
 | `{modelName}` | `Muse Spark 1.2 Contributor Free` | Human-readable Title Case (Code with `-`/`_`/`:` replaced by space, `.` preserved) |
 | `{modelNameLower}` | `muse spark 1.2 contributor free` | Human-readable lowercase (same as `modelName`, lowercased) |
+| `{effort}` | `high` or `""` | Resolved model reasoning effort, empty when unavailable |
+| `{effortLower}` | `high` or `""` | Effort normalized to lowercase |
+| `{effortUpper}` | `HIGH` or `""` | Effort normalized to uppercase |
+| `{effortCapital}` | `High` or `""` | Effort with the first letter capitalized |
 | `{mode}` | `build`, `plan` | Agent mode |
 | `{state}` | `Working`, `Thinking` | Current state |
 | `{provider}` | `Khip01` | Provider name |
@@ -73,6 +77,28 @@ Example mixing variants in one `details`:
 
 ```json
 { "details": "{modelName} ({mode}) | {modelCode}" }
+```
+
+### Effort variables
+
+OpenCode model variants can represent reasoning effort. The plugin exposes the
+resolved effort through `{effort}` and typography helpers:
+
+- `{effort}` and `{effortLower}`: canonical lowercase, for example `high`.
+- `{effortUpper}`: uppercase, for example `HIGH`.
+- `{effortCapital}`: first letter uppercase, for example `High`.
+
+Standard variants such as `low`, `medium`, `high`, `max`, `none`, `minimal`,
+and `xhigh` are recognized directly. A custom variant is resolved only when
+its model metadata provides `reasoningEffort`; otherwise the effort variables
+are empty. A model without a selected variant also produces empty effort
+variables.
+
+Use a boolean conditional when adding separators so an unavailable effort does
+not leave extra whitespace or punctuation:
+
+```json
+{ "details": "{modelName}{{#if effort}} · {effortCapital} effort{{/if}}" }
 ```
 
 Fallback syntax works: `{modelCode|OpenCode}`, `{modelName|Unknown}`, etc.
@@ -116,7 +142,7 @@ Rules on `plan-plan` with `*plan* -> x` become `x-x` (contains replaces globally
 
 ### Rules
 
-- `vars` must be known template vars (e.g. `model`, `modelName`, `modelCode`, `provider`, `mode`, `state`, `cost`, `context`, `elapsed`). Unknown names are skipped.
+- `vars` must be known template vars (e.g. `model`, `modelName`, `modelCode`, `effort`, `effortUpper`, `provider`, `mode`, `state`, `cost`, `context`, `elapsed`). Unknown names are skipped.
 - `from`/`to` are strings. `from` empty, `from: "*"`, or `from` with `*` in the middle is skipped. `to` may be `""` to delete.
 - Case-sensitive: `Free`, `free`, and `FREE` are different; write separate rules for each casing you want.
 - Rules run in order and chain: the output of rule 1 is the input of rule 2. Identical duplicate rules (same `vars`+`from`+`to`) are deduped to the first occurrence; different casing is not a duplicate.
