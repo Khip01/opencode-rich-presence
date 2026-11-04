@@ -63,6 +63,12 @@
 | `{prompts}` | `12` | User prompt count (from SQLite database, not context window) |
 | `{promptsCompact}` | `1.5K` | Prompt count (compact), useful with labels such as `prmpts` |
 
+`{contextLimit}` and `{contextLimitCompact}` render `?` when the window is
+unknown. The limit is resolved from the model's provider first, then from
+your `opencode.jsonc` model definitions, so custom providers that OpenCode
+does not expose to plugins still show the right window. A model switch
+never reuses the previous model's limit.
+
 ### Model Name Variants
 
 `{model}` is the raw string from OpenCode (e.g. `oc/muse-spark-1.2-contributor-free`).

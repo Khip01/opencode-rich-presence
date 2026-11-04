@@ -1,6 +1,7 @@
 import "./test-env.mjs";
 import assert from "node:assert/strict";
 import { readFileSync, rmSync, writeFileSync, utimesSync } from "node:fs";
+import { join } from "node:path";
 
 // V2 entry harness: drives src/plugin/index.v2.js with a mocked V2
 // plugin context (no OpenCode v2 binary needed). Covers the review
@@ -113,6 +114,7 @@ const mockCtx = {
         list: async () => [
             { id: "gpt-6.1-sol", providerID: "openrouter", limit: { context: 1000000 } },
             { id: "xkiro/openai/gpt-6-luna", providerID: "xkiro", limit: { context: 393216 } },
+            { id: "free-model", providerID: "opencode", limit: { context: 200000 } },
         ],
     },
     session: {
@@ -207,6 +209,34 @@ ok(await waitFor(/1M token · \d+ prompts · High/, 10000, "high effort render")
 hooks.context({ sessionID: SID, agent: "build", model: { providerID: "xkiro", id: "gpt-6-luna" } });
 ok(await waitFor(/393\.2K token/, 10000, "prefixed model limit render"), "provider-prefixed model id resolves its context limit");
 ok(await waitFor(/2 prompts/, 10000, "assistant prompt fallback"), "assistant history repairs the V2 prompt count");
+
+section("stale context limit is cleared when the model is unknown");
+// Regression: a session switched away from a 200K model rendered the old
+// 200K window forever because the resolver only ever wrote a limit when
+// one was found. Custom providers are usually missing from the plugin
+// model catalog, so the config file is the only source for their window.
+hooks.context({ sessionID: SID, agent: "build", model: { providerID: "opencode", id: "free-model" } });
+ok(await waitFor(/200K token/, 10000, "200K model render"), "catalog model renders its 200K window");
+const staleWindowCount = countMatches(/200K token/);
+writeFileSync(join(process.env.OPENCODE_CONFIG_DIR, "opencode.jsonc"), [
+    "{",
+    "  // inline comments plus trailing commas are normal in opencode configs",
+    '  "providers": {',
+    '    "openagentic": {',
+    '      "settings": { "baseURL": "https://example.com/v1" },',
+    '      "models": {',
+    '        "deepseek-v4.1-flash": {',
+    '          "limit": { "context": 393216, "output": 32768 }, // 384K window',
+    "        },",
+    "      },",
+    "    },",
+    "  },",
+    "}",
+].join("\n"), "utf-8");
+hooks.context({ sessionID: SID, agent: "build", model: { providerID: "openagentic", id: "deepseek-v4.1-flash" } });
+ok(await waitFor(/393\.2K token/, 15000, "custom provider limit reload"), "unknown custom model reloads its window from the JSONC config");
+await new Promise((r) => setTimeout(r, 500));
+ok(countMatches(/200K token/) === staleWindowCount, "previous 200K window is not reused for the new model");
 
 section("stale context cannot mark a new execution completed");
 contextMessages = [{

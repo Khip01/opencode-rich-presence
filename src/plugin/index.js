@@ -22,7 +22,10 @@ import {
     modelReferenceFromInfo,
     rememberModelInfo,
     resolveEffort,
+    addModelLimit,
+    resolveModelLimit,
 } from "./model-effort.js";
+import { parseJsonc } from "../shared/jsonc.js";
 import {
     renderPresence,
     pushPresence,
@@ -42,6 +45,9 @@ const sessions = new Map();
 const queue = [];
 let displayedSessionID = null;
 const providerModels = new Map();
+// Config files consulted when a model has no known context window. Filled
+// during setup; assignModelLimit() reloads them on demand (throttled).
+const limitConfigPaths = [];
 const modelCatalog = new Map();
 let writeTimer = null;
 let config = null;
@@ -168,12 +174,33 @@ function updateDisplay() {
     displayedSessionID = li;
 }
 
-function getModelLimit(mid) {
-    if (!mid) return null;
-    if (providerModels.has(mid)) return providerModels.get(mid);
-    const st = mid.includes("/") ? mid.split("/").slice(1).join("/") : mid;
-    if (providerModels.has(st)) return providerModels.get(st);
-    return null;
+function getModelLimit(mid, providerID = null) {
+    return resolveModelLimit(providerModels, providerID, mid);
+}
+
+// Set the session's context window from the model + provider it runs on.
+// An unknown model must clear the previous window instead of keeping it:
+// a session that switched providers was rendering its old limit (for
+// example 200K from a free model) against a 393K window.
+//
+// Custom providers are frequently missing from the plugin-visible model
+// list, so an unknown model triggers a throttled reload from the config
+// files instead of being rendered as "200K" or "0".
+let lastLimitReloadAt = 0;
+function assignModelLimit(session) {
+    if (!session) return;
+    const limit = getModelLimit(session.model, session.provider);
+    session.modelLimit = limit || null;
+    if (limit || !limitConfigPaths.length) return;
+    if (Date.now() - lastLimitReloadAt < 60000) return;
+    lastLimitReloadAt = Date.now();
+    void Promise.allSettled(limitConfigPaths.map((p) => loadConfigLimits(p))).then(() => {
+        const reloaded = getModelLimit(session.model, session.provider);
+        if (reloaded) {
+            session.modelLimit = reloaded;
+            activity("models", `reloaded limit for sid=${session.sessionID.slice(-8)} model=${session.model} provider=${session.provider} limit=${reloaded}`);
+        }
+    });
 }
 
 function applyModelEffort(session, ref, { preserveWhenMissing = false } = {}) {
@@ -195,6 +222,11 @@ function applyModelEffort(session, ref, { preserveWhenMissing = false } = {}) {
 
 function refreshSessionEfforts() {
     for (const session of sessions.values()) {
+        // Limits are reloaded asynchronously (provider.list and the config
+        // file); re-resolve them here so sessions restored before the load
+        // finished pick up the real window.
+        const limit = getModelLimit(session.model, session.provider);
+        if (limit) session.modelLimit = limit;
         if (!session.variant) continue;
         session.effort = resolveEffort(
             session.variant,
@@ -258,7 +290,7 @@ async function restoreSessionMessages(client, sid, wd) {
             if (i.mode) lm = i.mode;
         }
         if (lm) s.mode = lm;
-        s.modelLimit = getModelLimit(s.model) ?? s.modelLimit;
+        assignModelLimit(s);
         activity("restore", `sid=${sid.slice(-8)} restored=${ac} cost=$${s.cost.toFixed(4)} model=${s.model}`);
     } catch (e) { log(`restoreMsg(${sid}): ${e?.message || e}`); }
 }
@@ -314,19 +346,15 @@ async function loadProviderModels(client, wd) {
         const d = r?.data ?? r;
         const pl = d?.all ?? (Array.isArray(d) ? d : null);
         if (!Array.isArray(pl)) return;
+        let c = 0;
         for (const p of pl) {
             if (!p?.models) continue;
             for (const [mid, m] of Object.entries(p.models)) {
                 rememberModelInfo(modelCatalog, m, p.id, mid);
-                if (m?.limit?.context) {
-                    providerModels.set(mid, m.limit.context);
-                    if (p.id) providerModels.set(`${p.id}/${mid}`, m.limit.context);
-                    const st = mid.includes("/") ? mid.split("/").slice(1).join("/") : mid;
-                    if (st !== mid) providerModels.set(st, m.limit.context);
-                }
+                if (addModelLimit(providerModels, p.id ?? null, mid, m?.limit?.context)) c += 1;
             }
         }
-        activity("models", `loaded ${providerModels.size} provider model limits`);
+        activity("models", `loaded ${c} provider model limits (${providerModels.size} keys)`);
         refreshSessionEfforts();
     } catch (e) { log(`loadModels: ${e?.message || e}`); }
 }
@@ -360,8 +388,10 @@ function loadFallbackLimits() {
 async function loadConfigLimits(p) {
     if (!p) return;
     try {
-        const raw = await readFile(p, "utf-8");
-        const j = JSON.parse(raw.replace(/\/\/.*$/gm, "").replace(/\/\*[\s\S]*?\*\//g, ""));
+        // OpenCode configs are JSONC: comments plus trailing commas. Both
+        // broke the old regex-based read, which silently dropped every
+        // custom provider limit defined in the user's config.
+        const j = parseJsonc(await readFile(p, "utf-8"));
         const prs = j?.provider ?? j?.providers;
         if (!prs || typeof prs !== "object") return;
         let c = 0;
@@ -369,14 +399,7 @@ async function loadConfigLimits(p) {
             if (!pd?.models) continue;
             for (const [mid, m] of Object.entries(pd.models)) {
                 rememberModelInfo(modelCatalog, m, pid, mid);
-                const l = m?.limit?.context;
-                if (typeof l === "number" && l > 0) {
-                    providerModels.set(mid, l);
-                    providerModels.set(`${pid}/${mid}`, l);
-                    const st = mid.includes("/") ? mid.split("/").slice(1).join("/") : mid;
-                    if (st !== mid) providerModels.set(st, l);
-                    c++;
-                }
+                if (addModelLimit(providerModels, pid, mid, m?.limit?.context, { override: true })) c++;
             }
         }
         activity("models", `loaded ${c} model limits from ${basename(p)}`);
@@ -476,9 +499,12 @@ export const OpencodeRichPresence = async ({ client, directory }) => {
     const cfgPaths = [
         directory ? join(directory, "opencode.json") : null,
         directory ? join(directory, "opencode.jsonc") : null,
-        join(homedir(), ".config", "opencode", "opencode.json"),
-        join(homedir(), ".config", "opencode", "opencode.jsonc"),
+        join(OPENCODE_DIR, "opencode.json"),
+        join(OPENCODE_DIR, "opencode.jsonc"),
     ].filter(Boolean);
+    for (const p of cfgPaths) {
+        if (!limitConfigPaths.includes(p)) limitConfigPaths.push(p);
+    }
     for (const p of cfgPaths) { loadConfigLimits(p).catch(() => {}); }
 
     try { await mkdir(OPENCODE_DIR, { recursive: true }); } catch {}
@@ -535,7 +561,7 @@ export const OpencodeRichPresence = async ({ client, directory }) => {
                 if (input.model !== undefined && input.model !== null) applyModelEffort(s, input.model);
                 s.model = model;
                 s.mode = mode;
-                s.modelLimit = getModelLimit(s.model) ?? s.modelLimit;
+                assignModelLimit(s);
                 s.lastActivity = Date.now();
                 s.promptCount++;
                 activity(
@@ -645,7 +671,7 @@ export const OpencodeRichPresence = async ({ client, directory }) => {
                     );
                     if (model.id) applyModelEffort(s, modelRef, { preserveWhenMissing: true });
                     if (i.mode) s.mode = i.mode;
-                    s.modelLimit = getModelLimit(s.model) ?? s.modelLimit;
+                    assignModelLimit(s);
                     s.lastActivity = Date.now();
                     activity(
                         "event",

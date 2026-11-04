@@ -50,7 +50,10 @@ export function getTemplateVars(session, replacements) {
         contextCompact: compactNumber(s.contextTokens || 0),
         contextFullCompact: compactNumber(s.totalTokens || 0),
         contextLimit: s.modelLimit ? s.modelLimit.toLocaleString() : "?",
-        contextLimitCompact: compactNumber(s.modelLimit || 0),
+        // Unknown window renders "?" instead of "0": a session whose model
+        // is missing from the loaded catalog must not look like it has a
+        // zero-token window.
+        contextLimitCompact: s.modelLimit ? compactNumber(s.modelLimit) : "?",
         cost: typeof s.cost === "number" ? (s.cost === 0 ? "free" : `${s.currency || "$"}${s.cost.toFixed(4)}`) : `${s.currency || "$"}0`,
         costCompact: formatCompactCurrency(s.cost || 0, s.currency || "$"),
         prompts: s.promptCount ?? 0,

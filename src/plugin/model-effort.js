@@ -146,6 +146,58 @@ export function resolveEffort(variant, modelInfo) {
     return normalizeEffort(configured);
 }
 
+function modelSuffixes(modelID) {
+    if (typeof modelID !== "string" || !modelID) return [];
+    const base = modelID.split("#", 1)[0];
+    const parts = base.split("/");
+    const suffixes = [];
+    for (let i = 0; i < parts.length; i += 1) {
+        const candidate = parts.slice(i).join("/");
+        if (candidate && !suffixes.includes(candidate)) suffixes.push(candidate);
+    }
+    return suffixes;
+}
+
+function validLimit(limit) {
+    return typeof limit === "number" && Number.isFinite(limit) && limit > 0;
+}
+
+// Store a context limit under both the provider-qualified and the bare
+// model id. A bare id can collide across providers (several providers
+// expose the same `deepseek-v4.1-flash` id with different windows), so
+// the qualified key is what lookups trust first. `override` is used for
+// user configuration, which is authoritative over provider defaults.
+export function addModelLimit(limits, providerID, modelID, limit, { override = false } = {}) {
+    if (!limits || !validLimit(limit)) return false;
+    const suffixes = modelSuffixes(modelID);
+    if (!suffixes.length) return false;
+    for (const suffix of suffixes) {
+        if (providerID) {
+            const key = `${providerID}/${suffix}`;
+            if (override || !limits.has(key)) limits.set(key, limit);
+        }
+        if (override || !limits.has(suffix)) limits.set(suffix, limit);
+    }
+    return true;
+}
+
+export function resolveModelLimit(limits, providerID, modelID) {
+    if (!limits) return null;
+    const suffixes = modelSuffixes(modelID);
+    if (!suffixes.length) return null;
+    if (providerID) {
+        for (const suffix of suffixes) {
+            const value = limits.get(`${providerID}/${suffix}`);
+            if (validLimit(value)) return value;
+        }
+    }
+    for (const suffix of suffixes) {
+        const value = limits.get(suffix);
+        if (validLimit(value)) return value;
+    }
+    return null;
+}
+
 export function modelCatalogKeys(providerID, modelID) {
     if (typeof modelID !== "string" || !modelID) return [];
     const base = modelID.split("#", 1)[0];

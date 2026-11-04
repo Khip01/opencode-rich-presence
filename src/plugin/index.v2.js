@@ -12,7 +12,7 @@ import { STATE } from "../shared/constants.js";
 import { activity, log } from "../shared/logger.js";
 import { readState } from "../shared/presence-state.js";
 import { DAEMON_PID_FILE, CONFIG_PATH, OPENCODE_DIR, CLIENT_HEARTBEAT } from "../shared/paths.js";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import {
     isDaemonAlive,
     isPidAlive,
@@ -36,7 +36,10 @@ import {
     modelReferenceFromInfo,
     rememberModelInfo,
     resolveEffort,
+    addModelLimit,
+    resolveModelLimit,
 } from "./model-effort.js";
+import { parseJsonc } from "../shared/jsonc.js";
 
 // `Plugin.define` from the `@opencode/plugin` SDK is a pure identity
 // function (`define(def) { return def; }`). It is inlined here so the
@@ -166,18 +169,6 @@ function isUserMessage(info) {
     return info?.role === "user" || info?.type === "user";
 }
 
-function modelIDVariants(value) {
-    if (typeof value !== "string" || !value) return [];
-    const base = value.split("#", 1)[0];
-    const parts = base.split("/");
-    const variants = [];
-    for (let i = 0; i < parts.length; i += 1) {
-        const candidate = parts.slice(i).join("/");
-        if (candidate && !variants.includes(candidate)) variants.push(candidate);
-    }
-    return variants;
-}
-
 async function ensureDaemonAndConnect(daemonStopped) {
     const c = getDaemonClient();
     if (isDaemonAlive()) {
@@ -242,13 +233,29 @@ function createRuntime(ctx, loadedConfig) {
     // window closed and nothing running). Pushes resume on the first sign
     // of a client or work.
     let presenceSuppressed = false;
+    // Context limits come from two sources: the model catalog OpenCode
+    // exposes to plugins and the user's opencode config. The catalog can
+    // be partially loaded when the plugin sets up (custom providers may
+    // be missing), so an unknown limit triggers one throttled refresh
+    // instead of rendering a wrong window forever.
+    let lastLimitRefreshAt = 0;
 
-    function limitFor(modelID) {
-        if (!modelID) return null;
-        for (const candidate of modelIDVariants(modelID)) {
-            if (modelLimits.has(candidate)) return modelLimits.get(candidate);
-        }
-        return null;
+    function limitFor(modelID, providerID = null) {
+        return resolveModelLimit(modelLimits, providerID, modelID);
+    }
+
+    function refreshLimitsForUnknownModel(session) {
+        if (!session || session.modelLimit) return;
+        if (Date.now() - lastLimitRefreshAt < 15000) return;
+        lastLimitRefreshAt = Date.now();
+        void refreshModelLimits(ctx).then(() => {
+            const limit = session.modelLimit || limitFor(session.model, session.provider);
+            if (limit) {
+                session.modelLimit = limit;
+                activity("models", `reloaded limit for sid=${session.sessionID.slice(-8)} model=${session.model} provider=${session.provider} limit=${limit}`);
+                commit("limit refreshed");
+            }
+        });
     }
 
     function ensureSession(sid) {
@@ -411,19 +418,31 @@ function createRuntime(ctx, loadedConfig) {
     function applyModel(session, ref) {
         if (!session || ref === null || ref === undefined) return;
         const model = modelRefOf(ref);
+        const previousModel = session.model;
+        const previousProvider = session.provider;
         if (model.id) session.model = model.id;
         if (model.providerID) session.provider = model.providerID;
         session.variant = model.hasVariant ? model.variant : "";
         session.effort = model.hasVariant
             ? resolveEffort(model.variant, findModelInfo(modelCatalog, model.providerID, model.id))
             : "";
-        const limit = limitFor(session.model) ?? limitFor(model.id);
-        if (limit) session.modelLimit = limit;
+        const provider = model.providerID ?? session.provider ?? null;
+        const limit = limitFor(session.model, provider) ?? limitFor(model.id, provider);
+        if (limit) {
+            session.modelLimit = limit;
+        } else if (session.model !== previousModel || session.provider !== previousProvider) {
+            // A different model with an unknown window must not keep the
+            // previous model's limit: that is how a 393K session ended up
+            // displayed against a 200K window.
+            session.modelLimit = null;
+            refreshLimitsForUnknownModel(session);
+        }
     }
 
     function applyModelLimit(session, ref) {
         if (!session) return;
         const model = modelRefOf(ref);
+        const provider = model.providerID ?? session.provider ?? null;
         const candidates = [
             model.id,
             ref?.id,
@@ -432,7 +451,7 @@ function createRuntime(ctx, loadedConfig) {
             session.model,
         ];
         for (const candidate of candidates) {
-            const limit = limitFor(candidate);
+            const limit = limitFor(candidate, provider);
             if (limit) {
                 session.modelLimit = limit;
                 return;
@@ -716,7 +735,21 @@ function createRuntime(ctx, loadedConfig) {
         if (shouldPush) push();
     }
 
+    function applyLimitsToSessions() {
+        for (const session of sessions.values()) {
+            const limit = limitFor(session.model, session.provider);
+            if (limit) session.modelLimit = limit;
+            if (session.variant) {
+                session.effort = resolveEffort(
+                    session.variant,
+                    findModelInfo(modelCatalog, session.provider, session.model),
+                );
+            }
+        }
+    }
+
     async function refreshModelLimits(sourceCtx = ctx) {
+        let catalogCount = 0;
         try {
             const list = await sourceCtx.model.list();
             const models = Array.isArray(list) ? list : list?.data ?? [];
@@ -726,71 +759,52 @@ function createRuntime(ctx, loadedConfig) {
                     const limit = model?.limit?.context;
                     if (typeof limit !== "number" || limit <= 0) continue;
                     const rawID = model.modelID ?? model.id;
-                    const provider = model.providerID;
-                    if (rawID) {
-                        for (const candidate of modelIDVariants(rawID)) modelLimits.set(candidate, limit);
-                    }
-                    if (provider && rawID) {
-                        for (const candidate of modelIDVariants(rawID)) {
-                            modelLimits.set(`${provider}/${candidate}`, limit);
-                        }
-                    }
+                    if (!rawID) continue;
+                    if (addModelLimit(modelLimits, model.providerID ?? null, rawID, limit)) catalogCount += 1;
                 }
-                activity("models", `loaded ${modelLimits.size} model limits and ${modelCatalog.size} model definitions (v2)`);
-                for (const session of sessions.values()) {
-                    if (!session.variant) continue;
-                    session.effort = resolveEffort(
-                        session.variant,
-                        findModelInfo(modelCatalog, session.provider, session.model),
-                    );
-                }
+                activity("models", `loaded ${catalogCount} catalog limits (${modelLimits.size} keys) and ${modelCatalog.size} model definitions (v2)`);
             }
         } catch (error) {
             log(`model limits: ${error?.message || error}`);
         }
-        // Fallback: read custom model limits from opencode.jsonc directly.
-        // ctx.model.list() may not include custom models defined in the config,
-        // so we parse the config file as a second source of truth.
+        // The plugin-facing model catalog can be partial: custom providers
+        // are frequently missing, which leaves their sessions without a
+        // context window (or with the window of a previously selected
+        // model). Read the opencode config as a second source. Config
+        // limits win because they are explicit overrides, such as a
+        // reduced context budget.
         try {
             const { readFile } = await import("node:fs/promises");
+            const projectDir = sourceCtx?.location?.directory || null;
             const candidates = [
+                projectDir ? join(projectDir, "opencode.jsonc") : null,
+                projectDir ? join(projectDir, "opencode.json") : null,
                 join(OPENCODE_DIR, "opencode.jsonc"),
                 join(OPENCODE_DIR, "opencode.json"),
-            ];
+            ].filter(Boolean);
             for (const cfgPath of candidates) {
                 try {
-                    let raw = await readFile(cfgPath, "utf-8");
-                    // Strip // and /* */ comments for JSONC files
-                    raw = raw.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
-                    const cfg = JSON.parse(raw);
-                    const providers = cfg.providers || {};
+                    const raw = await readFile(cfgPath, "utf-8");
+                    const cfg = parseJsonc(raw);
+                    const providers = cfg?.providers || cfg?.provider || {};
+                    let configCount = 0;
                     for (const [pid, prov] of Object.entries(providers)) {
-                        const models = prov.models || {};
+                        const models = prov?.models || {};
                         for (const [mid, mdef] of Object.entries(models)) {
                             rememberModelInfo(modelCatalog, mdef, pid, mid);
                             const limit = mdef?.limit?.context;
-                            if (typeof limit !== "number" || limit <= 0) continue;
-                            for (const candidate of modelIDVariants(mid)) {
-                                if (!modelLimits.has(candidate)) modelLimits.set(candidate, limit);
-                            }
-                            for (const candidate of modelIDVariants(mid)) {
-                                const pk = `${pid}/${candidate}`;
-                                if (!modelLimits.has(pk)) modelLimits.set(pk, limit);
-                            }
+                            if (addModelLimit(modelLimits, pid, mid, limit, { override: true })) configCount += 1;
                         }
                     }
-                    activity("models", `config fallback loaded, total ${modelLimits.size} model limits`);
-                    for (const session of sessions.values()) {
-                        if (!session.variant) continue;
-                        session.effort = resolveEffort(
-                            session.variant,
-                            findModelInfo(modelCatalog, session.provider, session.model),
-                        );
+                    if (configCount) {
+                        activity("models", `config limits from ${basename(cfgPath)}: ${configCount} models, ${modelLimits.size} keys`);
                     }
-                    break;
-                } catch {}
+                } catch (error) {
+                    if (error?.code !== "ENOENT") log(`config limits ${cfgPath}: ${error?.message || error}`);
+                }
             }
         } catch {}
+        applyLimitsToSessions();
     }
 
     async function refreshSessionStats(sid, sourceCtx = ctx, options = {}) {

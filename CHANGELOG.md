@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Wrong context limit for custom providers**: the plugin read
+  `opencode.jsonc` with a parser that only stripped whole-line comments, so
+  an inline `//` comment (for example on a `limit.context` line) made the
+  whole file unparseable and every custom provider limit was dropped. Such
+  sessions fell back to whatever bare-id limit came first from the model
+  catalog, which is how a 384K-window model rendered as `353.7K/200K tok`.
+  Configs are now parsed as JSONC (comments and trailing commas), provider
+  limits are keyed provider-first, and the config file is re-read on demand
+  when a model has no known window.
+- **Stale context limit after a model switch**: a session that switched to a
+  model with an unknown window kept rendering the previous model's limit.
+  The limit is now cleared and reloaded instead, and an unknown window
+  renders `?` rather than `0`.
+
 ## [3.6.1] - 2026-10-31
 
 ### Added
