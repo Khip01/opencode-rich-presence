@@ -527,13 +527,13 @@ provided, so it can fail with the same 403.
 
 1. Wait and retry, or pin a known release:
    ```bash
-   ORP_VERSION=v3.6.2 bash install.sh
+   ORP_VERSION=v3.6.3 bash install.sh
    ```
 2. Manual fallback: download the release tarball directly from
    [GitHub Releases](https://github.com/Khip01/opencode-rich-presence/releases/latest),
    then install it:
    ```bash
-   npm install -g ./opencode-rich-presence-v3.6.2.tgz
+   npm install -g ./opencode-rich-presence-v3.6.3.tgz
    opencode-rpc install
    opencode service restart
    ```
@@ -586,7 +586,7 @@ This can happen immediately after install, or after a reboot / npm
 cache cleanup:
 
 ```
-$ npm install -g 'Khip01/opencode-rich-presence#v3.6.2'
+$ npm install -g 'Khip01/opencode-rich-presence#v3.6.3'
 added 1 package in 4s
 
 $ opencode-rpc
@@ -641,12 +641,12 @@ ls -la "$(npm root -g)/opencode-rich-presence"
     ```bash
     # Download from: https://github.com/Khip01/opencode-rich-presence/releases/latest
     # File name: opencode-rich-presence-v<version>.tgz
-    npm install -g ./opencode-rich-presence-v3.6.2.tgz
+    npm install -g ./opencode-rich-presence-v3.6.3.tgz
     ```
 3. Verify:
    ```bash
    opencode-rpc version
-   # Expected: opencode-rich-presence v3.6.2 (stable)
+   # Expected: opencode-rich-presence v3.6.3 (stable)
    ```
 
 **Why `opencode-rpc update --ref <tag>` does not help on a fresh
@@ -707,7 +707,7 @@ from
 [GitHub Releases](https://github.com/Khip01/opencode-rich-presence/releases/latest):
 
 ```bash
-npm install -g ./opencode-rich-presence-v3.6.2.tgz
+npm install -g ./opencode-rich-presence-v3.6.3.tgz
 ```
 
 **Check 2: PowerShell execution policy**

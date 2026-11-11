@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.6.3] - 2026-11-11
+
+### Fixed
+
+- **Presence disappearing during V2 location reloads**: `location.shutdown`
+  now resets local session/display state and restarts event handling without
+  immediately sending the daemon a goodbye. OpenCode can emit this event
+  while evicting and replacing an idle location service, so it is not treated
+  as proof that every client window has closed.
+- **Final V2 cleanup**: disposal of the last V2 plugin setup now waits through
+  a bounded five-second reload grace period before stopping Presence. A
+  replacement setup cancels the pending stop, while final cleanup still sends
+  goodbye and clears Discord activity.
+
+### Added
+
+- **V2 lifecycle regression coverage**: the entry harness now verifies
+  transient location shutdown, replacement setup cancellation, and delayed
+  final cleanup.
+
 ## [3.6.2] - 2026-11-04
 
 ### Fixed
