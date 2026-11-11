@@ -972,6 +972,34 @@ use the dynamic cost expression instead of the hardcoded `$0 spent`,
 e.g.:
 `"{model|OpenCode} ({mode|standby}) {{#if cost == \"free\"}} • $0 spent{{else}}{costCompact} spent{{/if}}"`
 
+### Presence shows "? (?)" and "0/? tok" after a location reload
+
+**Symptom:** After OpenCode reloads a location (new window, directory
+switch, plugin reload), Discord shows `? (?) · $0 spent` and
+`Completed! · 0/? tok · 0 prmpts` instead of the last agent task.
+
+**Root cause:** `location.shutdown` used to clear the shared session
+map. The next render had no session at all, so it used the `idle`
+template. `getTemplateVars()` writes `?` for every unresolved field,
+and `{var|fallback}` skipped the fallback because `?` counts as a
+value. The idle render therefore leaked `?` into Discord until a new
+session event arrived.
+
+**How to verify:** In `~/.config/opencode/presence-activity.log`:
+
+```
+[event] location.shutdown, resetting local state
+[template] sid=? details="{modelName|OpenCode} ({mode|standby}) ..." -> "? (?) ..."
+```
+
+**Fix:** Upgrade to the release after v3.6.3. `location.shutdown` now
+keeps the last session snapshot (only releasing a stale execution
+guard), and template fallbacks apply when the resolved value is
+missing, empty, or `?`.
+
+**Note:** This is not lost OpenCode state. The session itself is
+intact; only the plugin's in-memory copy was discarded.
+
 ### JSONC parser treats `://` in URLs as a comment
 
 (Phase 2: not applicable. Phase 2 does not parse JSONC from the

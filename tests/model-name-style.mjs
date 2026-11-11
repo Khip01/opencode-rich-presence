@@ -109,7 +109,9 @@ console.log("\n== renderTemplate integration ==");
 
 {
     const v = getTemplateVars(null);
-    ok(renderTemplate("{modelCode|OpenCode}", v) === "?", "null session modelCode is defined (?), fallback not used");
+    // "?" is the unresolved placeholder, so an explicit fallback applies.
+    ok(renderTemplate("{modelCode|OpenCode}", v) === "OpenCode", "null session modelCode falls back to OpenCode");
+    ok(renderTemplate("{modelCode}", v) === "?", "null session modelCode without fallback still renders ?");
 }
 
 // ── effort typography ───────────────────────────────────────────

@@ -127,6 +127,19 @@ console.log("\n=== 3. Null session (no session at all) uses idle templates ===")
     assert(!rendered.details.includes("0.26"), "null session has no session cost");
 }
 
+console.log("\n=== 3b. Null session uses template fallbacks, not '?' placeholders ===");
+{
+    // Bug being guarded: getTemplateVars(null) writes "?" for every
+    // unresolved field, and {var|fallback} used to skip the fallback
+    // because "?" is a value. The idle presence rendered
+    // "? (?) • $0 spent" / "0/? tok" after a location reload.
+    const rendered = renderPresence(null, makeConfig());
+    assert(rendered.details.includes("OpenCode (standby)"), `idle details fall back to OpenCode/standby (got "${rendered.details}")`);
+    assert(!rendered.details.includes("?"), `idle details carry no '?' placeholder (got "${rendered.details}")`);
+    assert(rendered.state.includes("Completed!"), `idle state keeps the configured text (got "${rendered.state}")`);
+    assert(!rendered.state.includes("?"), `idle state carries no '?' placeholder (got "${rendered.state}")`);
+}
+
 console.log("\n=== 4. Active states still use byState templates ===");
 {
     for (const st of [STATE.WORKING, STATE.THINKING, STATE.TYPING, STATE.ASKING]) {

@@ -532,13 +532,24 @@ window and clearing the presence.
 
 The V2 plugin also treats location shutdown and final plugin disposal
 differently. OpenCode may emit `location.shutdown` while evicting or reloading
-a location service, so that event resets local session/display state and
-restarts event handling without sending the daemon a goodbye. When the last
-V2 plugin setup is actually disposed, the plugin waits 5 seconds before
-stopping presence. A replacement setup cancels that pending stop. The grace
-period can be adjusted with `ORP_LOCATION_RELOAD_GRACE_MS`; its default keeps
-reloads from briefly clearing Discord while still allowing final cleanup to
-clear it promptly.
+a location service, so that event restarts event handling without sending the
+daemon a goodbye. It does not clear the shared session map: sibling locations
+still use that map, and the last known session is what the presence should
+keep showing while the location reloads. Clearing the map used to render the
+idle template with unresolved variables (`? (?)`, `0/? tok`) until the next
+session event arrived. Any execution guard still held by a session of the
+shutting location is released and the state settles on `Waiting for command`
+instead of staying on `Working` until the watchdog fires. When the last V2
+plugin setup is actually disposed, the plugin waits 5 seconds before stopping
+presence. A replacement setup cancels that pending stop. The grace period can
+be adjusted with `ORP_LOCATION_RELOAD_GRACE_MS`; its default keeps reloads
+from briefly clearing Discord while still allowing final cleanup to clear it
+promptly.
+
+Template fallbacks (`{var|fallback}`) apply when the resolved value is
+missing, empty, or the `?` placeholder. A session-less render therefore
+shows the configured fallback text (`OpenCode (standby)`) instead of
+leaking `?` into Discord.
 
 **Do not add `"opencode-rich-presence"` to the `plugin` array in
 `opencode.jsonc` or `opencode.json`.** OpenCode reads that array as

@@ -162,8 +162,16 @@ export function renderTemplate(template, vars) {
     // 3. Variable substitution: {var} or {var|fallback}
     const varRegex = /(?<!\{)\{(\w+)(?:\|([^}]*))?\}?\}?/g;
     r = r.replace(varRegex, (_, vn, fb) => {
-        if (vars[vn] !== undefined && vars[vn] !== null) return String(vars[vn]);
-        return fb !== undefined ? fb : "?";
+        const value = vars[vn];
+        // "?" is what getTemplateVars() writes for a field it cannot
+        // resolve (no session yet, unknown model, unknown window). Treat
+        // it as missing so an explicit {var|fallback} still applies
+        // instead of leaking "?" into the presence.
+        if (value !== undefined && value !== null && value !== "" && value !== "?") {
+            return String(value);
+        }
+        if (fb !== undefined) return fb;
+        return value === undefined || value === null ? "?" : String(value);
     });
 
     return r;

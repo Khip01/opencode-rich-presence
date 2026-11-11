@@ -979,9 +979,24 @@ function createRuntime(ctx, loadedConfig) {
         }
 
         if (type === "location.shutdown") {
-            activity("event", "location.shutdown, resetting local state");
-            sessions.clear();
-            displayedID = null;
+            // A single location going away must not erase the shared
+            // session map. Sibling locations still use it, and the last
+            // known session is exactly what the presence should keep
+            // showing while the location reloads. Clearing it here made
+            // the next render fall back to the idle template with
+            // unresolved variables ("? (?)" / "0/? tok") until a real
+            // session event arrived again.
+            activity("event", "location.shutdown, keeping last session snapshot");
+            for (const session of sessions.values()) {
+                if (!executionGuarded(session)) continue;
+                // The turn belonged to the shutting location, so it cannot
+                // advance anymore. Release the guard and settle the state
+                // instead of leaving the presence on Working until the
+                // watchdog timeout.
+                markExecutionFinished(session, eventTime);
+                if (session.state !== STATE.WAITING) setState(session, STATE.WAITING, type);
+            }
+            updateDisplay();
             restartEventLoop(ctx);
             return;
         }

@@ -477,19 +477,34 @@ rmSync(CLIENT_HEARTBEAT, { force: true });
     ok(countMatches(/auto-clear \(no client/) === clearBefore, "no heartbeat file: no auto-clear");
 }
 
-section("location.shutdown resets local state without stopping presence");
+section("location.shutdown keeps the last session and restarts event handling");
 const lifecycleStopPattern = /lifecycle stop \(last location disposed\)/;
 const presenceStopPattern = /stop \(Phase 2: daemon-based push\)/;
 const lifecycleStopsBeforeShutdown = countMatches(lifecycleStopPattern);
 const presenceStopsBeforeShutdown = countMatches(presenceStopPattern);
+const logOffsetBeforeShutdown = logText().length;
 emit({
     type: "location.shutdown",
     location: { directory: mockCtx.location.directory },
     created: Date.now(),
     data: {},
 });
-ok(await waitFor(/location\.shutdown, resetting local state/, 10000), "location.shutdown resets local state and restarts event handling");
+ok(await waitFor(/location\.shutdown, keeping last session snapshot/, 10000), "location.shutdown keeps the last session and restarts event handling");
 ok(countMatches(presenceStopPattern) === presenceStopsBeforeShutdown, "location.shutdown does not stop presence");
+// Regression: clearing the shared session map here made the next render
+// fall back to the idle template with unresolved variables, so Discord
+// showed "? (?) · $0 spent" / "Completed! · 0/? tok" until a new session
+// event arrived. The last known session must stay on screen instead.
+const afterShutdown = () => logText().slice(logOffsetBeforeShutdown);
+ok(
+    await waitForCondition(
+        () => /sent rendered payload to daemon/.test(afterShutdown()) && /details="[^"]*gpt-6\.1-sol/.test(afterShutdown()),
+        15000,
+        "post-shutdown session render",
+    ),
+    "the presence keeps rendering the last session after a location reload",
+);
+ok(!/details="\? \(\?\)/.test(afterShutdown()), "no unresolved placeholder render after a location reload");
 
 section("replacement setup cancels the deferred presence stop");
 await cleanup();
