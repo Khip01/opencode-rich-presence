@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import { readFileSync, rmSync, writeFileSync, utimesSync } from "node:fs";
 import { join } from "node:path";
 
+process.env.ORP_LOCATION_RELOAD_GRACE_MS = "2000";
+
 // V2 entry harness: drives src/plugin/index.v2.js with a mocked V2
 // plugin context (no OpenCode v2 binary needed). Covers the review
 // surface for the v2 port:
@@ -184,7 +186,7 @@ function endEventStream() {
 
 section("setup registers v2 hooks");
 ok(def && typeof def === "object" && def.id === "opencode-rich-presence-v2", "default export carries the v2 plugin id");
-const cleanup = await def.setup(mockCtx);
+let cleanup = await def.setup(mockCtx);
 ok(typeof hooks.prompt === "function", "prompt hook registered");
 ok(typeof hooks.context === "function", "context hook registered");
 ok(typeof toolHooks["execute.before"] === "function", "tool execute.before hook registered");
@@ -475,17 +477,38 @@ rmSync(CLIENT_HEARTBEAT, { force: true });
     ok(countMatches(/auto-clear \(no client/) === clearBefore, "no heartbeat file: no auto-clear");
 }
 
-section("location.shutdown clears presence");
+section("location.shutdown resets local state without stopping presence");
+const lifecycleStopPattern = /lifecycle stop \(last location disposed\)/;
+const presenceStopPattern = /stop \(Phase 2: daemon-based push\)/;
+const lifecycleStopsBeforeShutdown = countMatches(lifecycleStopPattern);
+const presenceStopsBeforeShutdown = countMatches(presenceStopPattern);
 emit({
     type: "location.shutdown",
     location: { directory: mockCtx.location.directory },
     created: Date.now(),
     data: {},
 });
-ok(await waitFor(/location\.shutdown, clearing presence/, 10000), "location.shutdown handled and logged");
+ok(await waitFor(/location\.shutdown, resetting local state/, 10000), "location.shutdown resets local state and restarts event handling");
+ok(countMatches(presenceStopPattern) === presenceStopsBeforeShutdown, "location.shutdown does not stop presence");
 
-section("cleanup");
+section("replacement setup cancels the deferred presence stop");
 await cleanup();
+await new Promise((resolve) => setTimeout(resolve, 100));
+ok(countMatches(lifecycleStopPattern) === lifecycleStopsBeforeShutdown, "last-location cleanup waits during the reload grace period");
+const setupCountBeforeReplacement = countMatches(/v2 plugin setup complete/);
+cleanup = await def.setup(mockCtx);
+ok(await waitForCount(/v2 plugin setup complete/, setupCountBeforeReplacement, 10000, "replacement setup"), "replacement location setup completes");
+await new Promise((resolve) => setTimeout(resolve, 2500));
+ok(countMatches(lifecycleStopPattern) === lifecycleStopsBeforeShutdown, "replacement setup cancels the pending presence stop");
+
+section("final cleanup stops presence after the grace period");
+const lifecycleStopsBeforeFinalCleanup = countMatches(lifecycleStopPattern);
+const presenceStopsBeforeFinalCleanup = countMatches(presenceStopPattern);
+await cleanup();
+await new Promise((resolve) => setTimeout(resolve, 100));
+ok(countMatches(lifecycleStopPattern) === lifecycleStopsBeforeFinalCleanup, "final cleanup does not stop presence immediately");
+ok(await waitForCount(lifecycleStopPattern, lifecycleStopsBeforeFinalCleanup, 5000, "final lifecycle stop"), "final cleanup stops presence after the reload grace period");
+ok(countMatches(presenceStopPattern) > presenceStopsBeforeFinalCleanup, "final cleanup runs the presence stop");
 killSandboxDaemon();
 ok(await waitPidGone(10000), "sandbox daemon exited");
 

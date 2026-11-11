@@ -52,7 +52,32 @@ const Plugin = { define(def) { return def; } };
 // All V2 locations in one OpenCode service share the daemon client. Keep the
 // connection alive until the last V2 plugin setup is disposed.
 let activePresenceUsers = 0;
+let pendingPresenceStopTimer = null;
 let lastForwardedEnabled = null;
+
+function cancelPendingPresenceStop() {
+    if (!pendingPresenceStopTimer) return;
+    clearTimeout(pendingPresenceStopTimer);
+    pendingPresenceStopTimer = null;
+}
+
+const LOCATION_RELOAD_GRACE_MS = 5000;
+
+function locationReloadGraceMs() {
+    const value = Number(process.env.ORP_LOCATION_RELOAD_GRACE_MS);
+    return Number.isFinite(value) && value >= 0 ? value : LOCATION_RELOAD_GRACE_MS;
+}
+
+function schedulePresenceStop(reason) {
+    cancelPendingPresenceStop();
+    pendingPresenceStopTimer = setTimeout(() => {
+        pendingPresenceStopTimer = null;
+        if (activePresenceUsers > 0) return;
+        activity("presence", `lifecycle stop (${reason})`);
+        stopPresence();
+    }, locationReloadGraceMs());
+    pendingPresenceStopTimer.unref?.();
+}
 let sharedRuntime = null;
 let sharedRuntimeRefs = 0;
 let sharedController = null;
@@ -130,15 +155,19 @@ function restartEventLoop(ctx) {
     })();
 }
 
-function acquirePresence() {
+function acquirePresence(cancelPendingStop = null) {
     activePresenceUsers += 1;
+    cancelPendingStop?.();
     if (activePresenceUsers === 1) startPresence();
 }
 
-function releasePresence() {
+function releasePresence(scheduleStop = null) {
     if (activePresenceUsers <= 0) return;
     activePresenceUsers -= 1;
-    if (activePresenceUsers === 0) stopPresence();
+    if (activePresenceUsers === 0) {
+        if (scheduleStop) scheduleStop("last location disposed");
+        else stopPresence();
+    }
 }
 
 function dataOf(event) {
@@ -950,9 +979,10 @@ function createRuntime(ctx, loadedConfig) {
         }
 
         if (type === "location.shutdown") {
-            activity("event", "location.shutdown, clearing presence");
+            activity("event", "location.shutdown, resetting local state");
             sessions.clear();
-            stopPresence();
+            displayedID = null;
+            restartEventLoop(ctx);
             return;
         }
 
@@ -1235,7 +1265,7 @@ export default Plugin.define({
         const runtime = sharedRuntime;
         sharedRuntimeRefs += 1;
         runtime.readControlState();
-        acquirePresence();
+        acquirePresence(cancelPendingPresenceStop);
 
         activity("load", `v2 plugin loaded dir=${ctx.location?.directory || "(none)"}`);
         activity("config", `appId=${runtime.config?.appId || "?"} key=${runtime.config?.largeImageKey || "?"} currency=${runtime.config?.currency || "?"}`);
@@ -1338,7 +1368,7 @@ export default Plugin.define({
             try { await contextHook?.dispose?.(); } catch {}
             try { await toolHook?.dispose?.(); } catch {}
             activity("load", "v2 plugin unloaded");
-            releasePresence();
+            releasePresence(schedulePresenceStop);
             liveCtxs.delete(ctx);
             sharedRuntimeRefs -= 1;
             if (sharedRuntimeRefs <= 0) {

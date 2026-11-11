@@ -530,6 +530,16 @@ presence forever. The heartbeat is the only "user is gone" signal, so
 the client timeout is the detection window between closing the last
 window and clearing the presence.
 
+The V2 plugin also treats location shutdown and final plugin disposal
+differently. OpenCode may emit `location.shutdown` while evicting or reloading
+a location service, so that event resets local session/display state and
+restarts event handling without sending the daemon a goodbye. When the last
+V2 plugin setup is actually disposed, the plugin waits 5 seconds before
+stopping presence. A replacement setup cancels that pending stop. The grace
+period can be adjusted with `ORP_LOCATION_RELOAD_GRACE_MS`; its default keeps
+reloads from briefly clearing Discord while still allowing final cleanup to
+clear it promptly.
+
 **Do not add `"opencode-rich-presence"` to the `plugin` array in
 `opencode.jsonc` or `opencode.json`.** OpenCode reads that array as
 a list of npm packages to fetch on startup via Bun, and the package
