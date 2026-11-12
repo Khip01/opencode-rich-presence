@@ -987,16 +987,6 @@ function createRuntime(ctx, loadedConfig) {
             // unresolved variables ("? (?)" / "0/? tok") until a real
             // session event arrived again.
             activity("event", "location.shutdown, keeping last session snapshot");
-            for (const session of sessions.values()) {
-                if (!executionGuarded(session)) continue;
-                // The turn belonged to the shutting location, so it cannot
-                // advance anymore. Release the guard and settle the state
-                // instead of leaving the presence on Working until the
-                // watchdog timeout.
-                markExecutionFinished(session, eventTime);
-                if (session.state !== STATE.WAITING) setState(session, STATE.WAITING, type);
-            }
-            updateDisplay();
             restartEventLoop(ctx);
             return;
         }

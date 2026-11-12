@@ -413,7 +413,8 @@ The template engine (`src/plugin/template-engine.js`) derives vars in `getTempla
 The template engine supports:
 
 1. **Variables:** `{model}`, `{modelCode}`, `{modelName}`, `{modelNameLower}`, `{effort}`, `{effortLower}`, `{effortUpper}`, `{effortCapital}`, `{context}`, etc.
-2. **Fallbacks:** `{var|fallback}` is used if var is undefined/null.
+2. **Fallbacks:** `{var|fallback}` is used if var is undefined, null, empty,
+   or the unresolved `?` placeholder.
 3. **Boolean conditionals:** `{{#if thinking}}...{{else}}...{{/if}}`
 4. **Comparison conditionals:** `{{#if contextPercent > 50}}...{{else}}...{{/if}}`
 5. **Effort presence conditionals:** `{{#if effort}}...{{else}}...{{/if}}` treats a non-empty effort as present.
@@ -438,7 +439,7 @@ even though the session data is correct.
 Variable substitution handles edge cases:
 - `{var}` (typo missing `}` matches, returns fallback or "?")
 - `{var}}` (extra `}` matches, returns var value)
-- Missing var -> fallback or "?"
+- Missing, empty, or unresolved var -> fallback or "?"
 
 ## CLI Subcommands
 
@@ -537,9 +538,9 @@ daemon a goodbye. It does not clear the shared session map: sibling locations
 still use that map, and the last known session is what the presence should
 keep showing while the location reloads. Clearing the map used to render the
 idle template with unresolved variables (`? (?)`, `0/? tok`) until the next
-session event arrived. Any execution guard still held by a session of the
-shutting location is released and the state settles on `Waiting for command`
-instead of staying on `Working` until the watchdog fires. When the last V2
+session event arrived. Execution guards are left unchanged because the event
+may belong to another location; the existing terminal-event and watchdog
+logic remains responsible for settling execution state. When the last V2
 plugin setup is actually disposed, the plugin waits 5 seconds before stopping
 presence. A replacement setup cancels that pending stop. The grace period can
 be adjusted with `ORP_LOCATION_RELOAD_GRACE_MS`; its default keeps reloads

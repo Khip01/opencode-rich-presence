@@ -7,17 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.6.4] - 2026-11-12
+
 ### Fixed
 
 - **Placeholder presence after a V2 location reload**: `location.shutdown` no
   longer clears the shared session map, so the last known session stays on
-  screen while the location reloads. A stale execution guard held by the
-  shutting location is released and the session settles on
-  `Waiting for command` instead of lingering on `Working`.
+  screen while the location reloads without changing the state of sessions
+  owned by sibling locations.
 - **Unresolved template placeholders**: `{var|fallback}` now applies when the
   resolved value is empty or the `?` placeholder. A session-less render shows
   the configured fallback (`OpenCode (standby)`) instead of `? (?)` and
   `0/? tok`.
+
+### Added
+
+- Added V2 lifecycle regression coverage for preserving the last session
+  presence after `location.shutdown`.
+- Added template fallback coverage for session-less renders.
 
 ## [3.6.3] - 2026-11-11
 
