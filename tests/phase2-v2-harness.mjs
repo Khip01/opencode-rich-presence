@@ -437,6 +437,29 @@ try {
         assert(stillAlive,
             "daemon still alive after multiple disconnect/reconnect cycles");
     });
+
+    await scenario("8. Abrupt client exit (socket close, no goodbye) clears presence", async () => {
+        // A Desktop quit or a crash closes the IPC socket without
+        // sending "goodbye". The daemon used to keep the last activity
+        // on Discord forever in that case; it now clears after a short
+        // debounce. The PID is fake on purpose, so the daemon's
+        // liveness check sees "process gone" and clears.
+        const logBefore = readLog().length;
+        const sock4 = await connectClient(99004);
+        sendState(sock4, 99004, "ses_abrupt_ffff", "Working",
+            "abrupt exit", "Working - 0 ctx");
+        await sleep(600);
+        // Half-close without a goodbye message.
+        sock4.end();
+        await sleep(4500);
+
+        const tail = readLog().slice(logBefore);
+        const decided = tail.indexOf("last client process exited; clearing Discord presence");
+        assert(decided >= 0, "daemon decides to clear after the last client goes away");
+        const cleared = tail.indexOf("clearActivity", decided + 1);
+        assert(cleared > decided, "clearActivity runs after the idle-clear decision");
+        assert(isDaemonReady(), "daemon stays alive after the idle clear");
+    });
 } finally {
     try { sock1?.end(); } catch {}
     try { sock2?.end(); } catch {}

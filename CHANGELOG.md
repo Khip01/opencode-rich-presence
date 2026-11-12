@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Presence left on Discord after an abrupt client exit**: the daemon now
+  clears the activity a few seconds after the last plugin process is gone,
+  even when that process closed its IPC socket without sending `goodbye`
+  (Desktop quit, crash, SIGKILL). A client that reconnects during the
+  debounce window cancels the pending clear.
+
 ## [3.6.4] - 2026-11-12
 
 ### Fixed

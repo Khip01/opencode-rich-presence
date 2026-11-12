@@ -134,6 +134,12 @@ let enabled = true;
 // so it is not lost.
 let lastClearAt = 0;
 const CLEAR_SET_ACTIVITY_GUARD_MS = 1500;
+// Abrupt client exits (Desktop quit, crash, SIGKILL) close the IPC socket
+// without sending "goodbye", so the goodbye handler never clears Discord.
+// Debounce a clear on socket close instead. The delay absorbs a transient
+// reconnect (for example a location reload), and hello() cancels it.
+let idleClearTimer = null;
+const IDLE_CLEAR_DELAY_MS = 3000;
 // Capabilities advertised to clients in the hello ack. The plugin
 // compares this list against what it needs and recycles a daemon that
 // predates a feature (Node does not hot-reload a running process, so a
@@ -384,6 +390,34 @@ function scheduleFinalStatePush() {
     if (finalStateTimer.unref) finalStateTimer.unref();
 }
 
+function cancelIdleClear() {
+    if (!idleClearTimer) return;
+    clearTimeout(idleClearTimer);
+    idleClearTimer = null;
+}
+
+// Clear the displayed presence when the last plugin process is gone.
+// A socket close also happens on a transient reconnect while the plugin
+// process stays alive, so only clear when that pid no longer exists (or
+// when a new client has not reconnected during the debounce window).
+function scheduleIdleClear(pid) {
+    if (clients.size > 0) return;
+    cancelIdleClear();
+    idleClearTimer = setTimeout(() => {
+        idleClearTimer = null;
+        if (clients.size > 0) return;
+        if (pid !== null && isPidAlive(pid)) {
+            logToFile(`client pid=${pid} disconnected but process is alive; keeping presence`);
+            return;
+        }
+        logToFile("last client process exited; clearing Discord presence (daemon stays alive)");
+        clearPresence().catch((e) => {
+            logToFile(`idle clearPresence failed: ${e?.message || e}`);
+        });
+    }, IDLE_CLEAR_DELAY_MS);
+    idleClearTimer.unref?.();
+}
+
 async function clearPresence() {
     if (!discordConnected || !discordClient) {
         // No Discord to clear. Log the intent for observability so
@@ -430,6 +464,7 @@ function handleClientMessage(msg, sock) {
 
     switch (msg.type) {
         case "hello":
+            cancelIdleClear();
             clients.set(pid, sock);
             instances.set(pid, { lastSeen: Date.now(), sessionInfo: null, rendered: null });
             // The daemon stays alive across all-exit, so a new
@@ -489,6 +524,7 @@ function handleClientMessage(msg, sock) {
         }
 
         case "goodbye":
+            cancelIdleClear();
             logToFile(`instance goodbye: pid=${pid}`);
             instances.delete(pid);
             clients.delete(pid);
@@ -613,6 +649,10 @@ async function startServer() {
                     clients.delete(pid);
                     instances.delete(pid);
                     logToFile(`client disconnected: pid=${pid}`);
+                    // The plugin's normal shutdown sends "goodbye" and
+                    // clears immediately. An abrupt exit only closes the
+                    // socket, so arrange the clear here too.
+                    scheduleIdleClear(pid);
                     break;
                 }
             }
