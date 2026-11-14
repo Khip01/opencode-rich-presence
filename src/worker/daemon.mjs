@@ -407,7 +407,10 @@ function scheduleIdleClear(pid) {
         idleClearTimer = null;
         if (clients.size > 0) return;
         if (pid !== null && isPidAlive(pid)) {
-            logToFile(`client pid=${pid} disconnected but process is alive; keeping presence`);
+            // The socket can close before the process exits. There will be
+            // no second close event, so keep polling until the PID is gone.
+            logToFile(`client pid=${pid} disconnected but process is alive; keeping presence and rechecking`);
+            scheduleIdleClear(pid);
             return;
         }
         logToFile("last client process exited; clearing Discord presence (daemon stays alive)");

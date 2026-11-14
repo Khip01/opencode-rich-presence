@@ -22,8 +22,8 @@ jobs:
       fail-fast: false
       matrix:
         # The full range declared in `engines.node` (LTS lines 20 and
-        # 22 plus the current latest 24) on Linux, where the daemon
-        # speaks Unix domain sockets.
+        # 22 plus the current latest 24) on Linux, plus one macOS lane,
+        # where the daemon speaks Unix domain sockets.
         #
         # Windows runs one job on Node 22. Its purpose is to exercise
         # the named-pipe code paths for real: isDaemonReady/IS_WINDOWS
@@ -45,6 +45,9 @@ jobs:
             suite: full
           - os: ubuntu-latest
             node: 24
+            suite: full
+          - os: macos-latest
+            node: 22
             suite: full
           - os: windows-latest
             node: 22
@@ -109,6 +112,9 @@ jobs:
 
       - name: Phase 2 v2 harness
         run: npm run test:phase2-v2
+
+      - name: Daemon lifecycle harness
+        run: npm run test:daemon-lifecycle
 
       # Unix-only harnesses: hardcoded /tmp working paths and `bash -n`
       # over install.sh. Gated to Linux until they are ported.

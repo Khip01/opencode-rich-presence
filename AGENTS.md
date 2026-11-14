@@ -494,7 +494,7 @@ guarantees the test depends on.
 | Context | Trigger | What runs | May curl GitHub? |
 |---------|---------|-----------|-------------------|
 | **Local** (`npm test`) | Manual, by developer | All commit-time harnesses + optionally pre-release (with `--tarball=`) | No (default), opt-in via `ORP_USE_GITHUB_RELEASE=1` in cli-lifecycle §3 |
-| **Commit-time** (`.github/workflows/test.yml`, every push to main) | Push to main / PR | `npm test` = phase1 + phase2 + phase2-v2 + template-selection + model-name-style + model-effort + replacements + presence-toggle + v2-entry + win-path + presence-gc + cli-lifecycle | No |
+| **Commit-time** (`.github/workflows/test.yml`, every push to main) | Push to main / PR | `npm test` = phase1 + phase2 + phase2-v2 + daemon-lifecycle + template-selection + model-name-style + model-effort + replacements + presence-toggle + v2-entry + win-path + presence-gc + cli-lifecycle | No |
 | **Pre-release gate** (`.github/workflows/release.yml`, tag push) | `on: push: tags: [v*]` between `npm pack` and "Create GitHub release" | `npm run test:pre-release -- --tarball=...` against the just-built tarball | No (uses local npm pack output) |
 | **Post-release user simulation** (`.github/workflows/post-release.yml`, release published) | `on: release: types: [published]` | `npm run test:post-release` downloads REAL published tarball + simulates upgrade flow | **Yes** (CI IP, safe) |
 
@@ -519,22 +519,26 @@ guarantees the test depends on.
 | 38 | Windows named pipes: PID liveness helpers, stale socket/PID cross-check, IPC address shape, no double-prefix, Discord pipe candidates (`tests/win-path.mjs`) | ✓ | ✓ | inherited | inherited |
 | 39 | Presence GC: subfolder layout, legacy migration incl. collisions, dead/live/unparsable PID passes, 72h age fallback, newest-cap, idempotence (`tests/presence-gc.mjs`) | ✓ | ✓ | inherited | inherited |
 | 40 | V2 entry: mocked v2 context against a live daemon, prompt push, bare model id, `set-enabled` forward and retry, tick forward without a prompt (`tests/v2-entry.mjs`) | ✓ | ✓ | inherited | inherited |
+| 41 | Daemon client lifecycle: real mock Discord frames, abrupt disconnect, delayed PID exit, live PID, reconnect debounce, multiple clients, goodbye, daemon reuse (`tests/daemon-lifecycle.mjs`) | ✓ | ✓ | inherited | inherited |
 
 ### CI matrix (`.github/workflows/test.yml`)
 
-The commit-time column above runs on two OS lanes:
+The commit-time column above runs on three OS lanes:
 
 - `ubuntu-latest` × Node 20/22/24 (`suite: full`): every harness,
   including phase1, phase2 and cli-lifecycle.
+- `macos-latest` × Node 22 (`suite: full`): every harness, including
+  phase1, phase2, cli-lifecycle, and the daemon lifecycle harness.
 - `windows-latest` × Node 22 (`suite: windows`): syntax, smoke, and
-  rows 33-39 plus phase2-v2. This is the lane that actually executes
+  rows 33-41 plus phase2-v2. This is the lane that actually executes
   the `IS_WINDOWS` branches and makes the daemon bind a real
   `\\.\pipe\...` address.
 
 phase1, phase2 and cli-lifecycle are gated to `suite: full` because
 they hardcode `/tmp` working paths and shell out to `bash`. Until
 those are ported to `tmpdir()`, `npm test` will not fully pass on a
-Windows box.
+Windows box. The daemon lifecycle harness uses OS-native temporary
+directories and IPC addresses, so it runs on all three OS lanes.
 
 ### Curl discipline (important)
 
@@ -580,9 +584,11 @@ passes):
       most recently active and pushes it. CI cannot run multiple
       OpenCode instances.
 - [ ] **M4: Windows platform-specific.** Run install + uninstall
-      in Git Bash / MSYS2 / Cygwin on Windows. CI runs Ubuntu only.
+      in Git Bash / MSYS2 / Cygwin on Windows. CI covers the daemon's
+      named-pipe lifecycle but not every shell installer environment.
 - [ ] **M5: macOS platform-specific.** Run install + uninstall on
-      macOS. CI runs Ubuntu only.
+      macOS. CI runs the automated suite on macOS, but does not replace
+      a manual install test on a user machine.
 - [ ] **M6: Real network conditions.** Test on a flaky connection
       (mobile hotspot, captive portal) to verify error messages
       are helpful. CI has a fast, reliable network.
