@@ -20,8 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Add daemon lifecycle coverage for delayed process exit, reconnect debounce,
   multiple clients, normal goodbye, and actual Discord clear frames.
-- Add macOS Node 22 to the test matrix and run the daemon lifecycle harness
-  on Linux, macOS, and Windows.
+- Run the daemon lifecycle harness as a separate Linux, macOS, and Windows
+  workflow job so unrelated V2 harness failures cannot hide its result.
 
 ## [3.6.4] - 2026-11-12
 
