@@ -16,7 +16,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 if (!process.env.OPENCODE_CONFIG_DIR) {
-    const TEST_TMP = mkdtempSync(join(tmpdir(), `orp-test-${process.pid}-${Date.now()}-`));
+    // Keep the sandbox prefix short. macOS has a shorter Unix-domain socket
+    // path limit than Linux, and the long hosted-runner temp root plus the
+    // old PID/timestamp prefix could make DAEMON_SOCKET fail to bind.
+    const TEST_TMP = mkdtempSync(join(tmpdir(), "o-"));
     process.env.OPENCODE_CONFIG_DIR = TEST_TMP;
     // Daemon looks for discord-ipc in XDG_RUNTIME_DIR first. Point it at
     // the same temp dir so any future mock Discord IPC server we add

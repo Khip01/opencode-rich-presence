@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Presence left on Discord after an abrupt client exit**: the daemon now
+  clears the activity a few seconds after the last plugin process is gone,
+  even when that process closed its IPC socket without sending `goodbye`
+  (Desktop quit, crash, SIGKILL). If the socket closes before the process
+  exits, the daemon rechecks the PID until it is gone. A client that
+  reconnects during the debounce window cancels the pending clear.
+
+### Tests
+
+- Add daemon lifecycle coverage for delayed process exit, reconnect debounce,
+  multiple clients, normal goodbye, and actual Discord clear frames.
+- Run the daemon lifecycle harness as a separate Linux, macOS, and Windows
+  workflow job so unrelated V2 harness failures cannot hide its result.
+- Keep shared test sandboxes short enough for macOS Unix-domain socket paths.
+
 ## [3.6.4] - 2026-11-12
 
 ### Fixed

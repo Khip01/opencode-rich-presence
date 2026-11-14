@@ -8,10 +8,11 @@
     "opencode-rpc": "./bin/opencode-rpc.js"
   },
   "scripts": {
-    "test": "node tests/phase1-harness.mjs && node tests/phase2-harness.mjs && node tests/phase2-v2-harness.mjs && node tests/template-selection.mjs && node tests/model-name-style.mjs && node tests/model-effort.mjs && node tests/replacements.mjs && node tests/presence-toggle.mjs && node tests/v2-entry.mjs && node tests/tui-heartbeat.mjs && node tests/win-path.mjs && node tests/presence-gc.mjs && node tests/cli-lifecycle.mjs",
+    "test": "node tests/phase1-harness.mjs && node tests/phase2-harness.mjs && node tests/phase2-v2-harness.mjs && node tests/daemon-lifecycle.mjs && node tests/template-selection.mjs && node tests/model-name-style.mjs && node tests/model-effort.mjs && node tests/replacements.mjs && node tests/presence-toggle.mjs && node tests/v2-entry.mjs && node tests/tui-heartbeat.mjs && node tests/win-path.mjs && node tests/presence-gc.mjs && node tests/cli-lifecycle.mjs",
     "test:phase1": "node tests/phase1-harness.mjs",
     "test:phase2": "node tests/phase2-harness.mjs",
     "test:phase2-v2": "node tests/phase2-v2-harness.mjs",
+    "test:daemon-lifecycle": "node tests/daemon-lifecycle.mjs",
     "test:template-selection": "node tests/template-selection.mjs",
     "test:model-name-style": "node tests/model-name-style.mjs",
     "test:model-effort": "node tests/model-effort.mjs",
