@@ -538,6 +538,8 @@ in a separate three-OS job:
 The separate `daemon-lifecycle` job runs on Ubuntu Node 20, macOS Node 22,
 and Windows Node 22. Its result is independent of `v2-entry`, so a failure in
 the V2 plugin harness cannot hide lifecycle coverage on another platform.
+Shared test sandboxes use a short temporary-directory prefix because macOS
+has a shorter Unix-domain socket path limit than Linux.
 
 phase1, phase2 and cli-lifecycle are gated to `suite: full` because
 they hardcode `/tmp` working paths and shell out to `bash`. Until

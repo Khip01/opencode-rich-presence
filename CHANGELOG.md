@@ -22,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   multiple clients, normal goodbye, and actual Discord clear frames.
 - Run the daemon lifecycle harness as a separate Linux, macOS, and Windows
   workflow job so unrelated V2 harness failures cannot hide its result.
+- Keep shared test sandboxes short enough for macOS Unix-domain socket paths.
 
 ## [3.6.4] - 2026-11-12
 
