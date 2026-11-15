@@ -375,7 +375,10 @@ client disconnect event. Older releases had no way to notice that the
 user left, so the presence lingered on Discord until the service
 restarted.
 
-**How it works now:** the TUI plugin part touches
+**How it works now:** the daemon clears presence when the last plugin client
+disconnects abruptly, including a Desktop quit, crash, or `SIGKILL`. It waits
+three seconds to absorb a reconnect and rechecks the disconnected process PID
+before clearing. The TUI plugin part also touches
 `~/.config/opencode/.opencode-rich-presence.heartbeat` every 10 seconds
 while any window is open. When every window has been closed for
 `ORP_CLIENT_TIMEOUT_MS` (default 30000 ms) and nothing is running
@@ -393,8 +396,9 @@ window is open.
    ```
 
    A missing `tui.js` part (or an install made before the plugin
-   directory form existed) disables the client
-   check and keeps the legacy always-on behavior. Run
+   directory form existed) disables the heartbeat-based client check and
+   keeps the legacy always-on behavior while the IPC socket remains open.
+   Abrupt socket disconnects are still handled by the daemon. Run
    `opencode-rpc install` to migrate to the plugin directory form.
 
 2. Check the heartbeat is being touched while a window is open:
@@ -527,13 +531,13 @@ provided, so it can fail with the same 403.
 
 1. Wait and retry, or pin a known release:
    ```bash
-   ORP_VERSION=v3.6.4 bash install.sh
+   ORP_VERSION=v3.6.5 bash install.sh
    ```
 2. Manual fallback: download the release tarball directly from
    [GitHub Releases](https://github.com/Khip01/opencode-rich-presence/releases/latest),
    then install it:
    ```bash
-   npm install -g ./opencode-rich-presence-v3.6.4.tgz
+   npm install -g ./opencode-rich-presence-v3.6.5.tgz
    opencode-rpc install
    opencode service restart
    ```
@@ -586,7 +590,7 @@ This can happen immediately after install, or after a reboot / npm
 cache cleanup:
 
 ```
-$ npm install -g 'Khip01/opencode-rich-presence#v3.6.4'
+$ npm install -g 'Khip01/opencode-rich-presence#v3.6.5'
 added 1 package in 4s
 
 $ opencode-rpc
@@ -641,12 +645,12 @@ ls -la "$(npm root -g)/opencode-rich-presence"
     ```bash
     # Download from: https://github.com/Khip01/opencode-rich-presence/releases/latest
     # File name: opencode-rich-presence-v<version>.tgz
-    npm install -g ./opencode-rich-presence-v3.6.4.tgz
+    npm install -g ./opencode-rich-presence-v3.6.5.tgz
     ```
 3. Verify:
    ```bash
    opencode-rpc version
-   # Expected: opencode-rich-presence v3.6.4 (stable)
+   # Expected: opencode-rich-presence v3.6.5 (stable)
    ```
 
 **Why `opencode-rpc update --ref <tag>` does not help on a fresh
@@ -707,7 +711,7 @@ from
 [GitHub Releases](https://github.com/Khip01/opencode-rich-presence/releases/latest):
 
 ```bash
-npm install -g ./opencode-rich-presence-v3.6.4.tgz
+npm install -g ./opencode-rich-presence-v3.6.5.tgz
 ```
 
 **Check 2: PowerShell execution policy**

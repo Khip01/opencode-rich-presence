@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.6.5] - 2026-11-15
+
+Patch release. The core client-lifecycle fix was contributed by
+[@chocolocoe](https://github.com/chocolocoe) in
+[#5](https://github.com/Khip01/opencode-rich-presence/pull/5). Follow-up
+hardening and cross-platform validation were completed during review.
+
 ### Fixed
 
 - **Presence left on Discord after an abrupt client exit**: the daemon now

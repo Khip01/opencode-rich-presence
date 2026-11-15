@@ -504,14 +504,20 @@ be broken by upstream dependency churn (a `@opencode/plugin@2.2.0`
 peer-set change crashed npm 10.8.x installs; see
 `docs/TROUBLESHOOTING.md`).
 
-## Client Presence (heartbeat + auto-clear)
+## Client Presence (socket lifecycle + heartbeat auto-clear)
 
-OpenCode's background service keeps running (and keeps the server part
-loaded) after the last client window closes, and it emits no client
-disconnect event. The plugin therefore cannot ask the server whether a
-window is open. Instead, the TUI part runs inside every client window
-and touches `~/.config/opencode/.opencode-rich-presence.heartbeat`
-every 10 seconds; the server part reads that file's mtime.
+OpenCode's background service can keep running (and keep the server part
+loaded) after the last client window closes. The daemon therefore watches
+the actual plugin IPC lifecycle as well as the TUI heartbeat. An abrupt
+Desktop quit, crash, or `SIGKILL` closes the client socket without a
+`goodbye`; after a three-second debounce, the daemon rechecks the client PID
+and clears Discord when the process is gone. A reconnect during the debounce
+cancels the clear, and the daemon stays alive so a later client can reuse the
+existing Discord connection.
+
+The TUI part runs inside every client window and touches
+`~/.config/opencode/.opencode-rich-presence.heartbeat` every 10 seconds; the
+server part reads that file's mtime for clients whose socket remains open.
 
 The push loop shows the presence while any of these hold:
 
@@ -527,9 +533,9 @@ When none hold, the server part sends a goodbye to the daemon (which
 clears the Discord activity) and suppresses pushes until a client or
 new activity reappears. An ASKING session (pending permission) counts
 as no work: it cannot advance without a client, so it must not pin the
-presence forever. The heartbeat is the only "user is gone" signal, so
-the client timeout is the detection window between closing the last
-window and clearing the presence.
+presence forever. The heartbeat remains the fallback for a client whose
+IPC socket is still open; the socket lifecycle is the primary signal for
+abrupt process exits.
 
 The V2 plugin also treats location shutdown and final plugin disposal
 differently. OpenCode may emit `location.shutdown` while evicting or reloading
