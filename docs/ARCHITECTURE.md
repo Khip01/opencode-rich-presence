@@ -531,7 +531,18 @@ The push loop shows the presence while any of these hold:
 
 When none hold, the server part sends a goodbye to the daemon (which
 clears the Discord activity) and suppresses pushes until a client or
-new activity reappears. An ASKING session (pending permission) counts
+new activity reappears.
+
+Between those cases, two more paths send a clear request (`state` with
+`rendered: null`) and never a payload:
+
+- startup restore with only restored history (no live session), and
+- the displayed session is deleted and nothing else is displayed.
+
+The daemon drops that instance from its picker. It clears the Discord
+activity only when no other instance is showing one. A clear that the live
+socket refuses to write is logged as `clearActivity not written` and retried
+up to three times with a 1s then 2s backoff while Discord stays connected. An ASKING session (pending permission) counts
 as no work: it cannot advance without a client, so it must not pin the
 presence forever. The heartbeat remains the fallback for a client whose
 IPC socket is still open; the socket lifecycle is the primary signal for

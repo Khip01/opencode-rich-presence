@@ -70,8 +70,9 @@ that drove v2.x's "display disappears during handoff" is gone.
 Phase 1's render + log code stays unchanged. Only
 `local-presence.js`'s push function became a daemon-client send
 call. Daemon is intentionally simple: picks a payload, pushes it.
-No internal retry, no self-heal; reconnect only when the Discord
-IPC socket actually dies.
+No self-heal; reconnect only when the Discord IPC socket actually
+dies. The only retry is a bounded one for a clear that the live
+socket refused to write (3 attempts, see "Known Bugs").
 
 ## Project Structure (Phase 2)
 
@@ -626,6 +627,26 @@ is no longer reproducible. Phase 2 introduces a daemon that owns
 ONE Discord connection for the whole machine, so the question of
 "handoff" disappears entirely; state updates are in-place SET_ACTIVITY
 on the existing connection.
+
+### Restored sessions and deleted sessions must not leave presence behind
+
+Two bugs from the v3.6.x line, both fixed on `fix/restored-session-display`:
+
+- Startup restore loaded the 50 most recent sessions with `Date.now()` as
+  their `lastActivity`, so an old session (wrong model, old cost) became
+  the displayed presence the moment OpenCode opened. Restored sessions now
+  use the server's `time.updated`, carry `_restoredOnly`, never win the
+  display, and send nothing to the daemon until a real event or prompt.
+  Regression coverage: `tests/v2-entry.mjs`, section "startup restore does
+  not display an old session".
+- Deleting the displayed session left the last payload on Discord. With no
+  displayed session the plugin now sends a clear request (`rendered: null`).
+  The daemon drops that instance and clears the activity only when no other
+  instance is showing one. Regression coverage: `tests/v2-entry.mjs`,
+  section "deleting the last live session clears the Discord presence".
+
+Do not reintroduce the empty idle template as a payload. With no session,
+the only thing the plugin may send is the clear request.
 
 ### Force-restart / self-heal watchdog / internal retry
 
