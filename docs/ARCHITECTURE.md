@@ -371,7 +371,7 @@ instance. Tags:
 | `load` | plugin lifecycle events |
 | `config` | config resolution |
 | `models` | model limits loaded (provider, fallback, config) |
-| `restore` | sessions restored from OpenCode on startup |
+| `restore` | sessions restored from OpenCode on startup (history only, never displayed until a live event or prompt) |
 | `event` | raw SDK event received |
 | `state` | session state transition (only when state actually changes) |
 | `session` | session metadata updated |

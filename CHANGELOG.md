@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Presence showed an old session on OpenCode startup**: the V2 plugin
+  restored the most recent sessions from history and displayed one of them
+  immediately, so opening OpenCode without chatting could show an unrelated
+  model and cost. Restored sessions now keep the server's last-update time
+  and never become the displayed session or reach the daemon until a real
+  event or prompt arrives.
+
 ## [3.6.5] - 2026-11-15
 
 Patch release. The core client-lifecycle fix was contributed by

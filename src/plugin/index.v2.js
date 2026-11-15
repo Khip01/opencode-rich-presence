@@ -617,12 +617,20 @@ function createRuntime(ctx, loadedConfig) {
         return session;
     }
 
-    function syncSessionInfo(info, fallbackSID, eventTime) {
+    function syncSessionInfo(info, fallbackSID, eventTime, options = {}) {
         if (!info && !fallbackSID) return null;
         const sid = info?.id ?? info?.sessionID ?? fallbackSID;
         const session = ensureSession(sid);
         if (!session) return null;
         if (info?.time?.created) session.startedAt = info.time.created;
+        if (options.restored) {
+            // Startup restore: the session list is history, not live activity.
+            // Use the server's own last-update time (overwriting the constructor
+            // Date.now() stamp) and keep it out of the display and push paths
+            // until a real event or prompt arrives.
+            session.lastActivity = eventTimestamp(info?.time?.updated, 0);
+            session._restoredOnly = true;
+        }
         // The server-side idle stamp only advances when the session really
         // becomes idle. It doubles as proof of terminal state when the
         // execution events are lost.
@@ -632,8 +640,10 @@ function createRuntime(ctx, loadedConfig) {
         // Server-side message updates count as activity evidence too: a turn
         // that is still streaming keeps time.updated moving even when the
         // event stream is dead, so the watchdog will not fire early.
-        if (info?.time?.updated) markNativeEvent(session, info.time.updated);
-        touch(session, info?.time?.updated || eventTime);
+        if (!options.restored) {
+            if (info?.time?.updated) markNativeEvent(session, info.time.updated);
+            touch(session, info?.time?.updated || eventTime);
+        }
         const sessionModel = modelReferenceFromInfo(info);
         if (sessionModel !== null && sessionModel !== undefined) applyModel(session, sessionModel);
         applyAgent(session, info?.agent ?? info?.agentID);
@@ -642,14 +652,17 @@ function createRuntime(ctx, loadedConfig) {
     }
 
     function updateDisplay() {
-        const active = [...sessions.entries()]
+        // Sessions that only came from the startup restore are history. They
+        // never win the display, so opening OpenCode alone shows nothing.
+        const live = [...sessions.entries()].filter(([, session]) => !session._restoredOnly);
+        const active = live
             .filter(([, session]) => session.isActive())
             .sort((a, b) => (b[1].lastActivity || 0) - (a[1].lastActivity || 0));
         if (active.length) {
             displayedID = active[0][0];
             return;
         }
-        const latest = [...sessions.entries()]
+        const latest = live
             .sort((a, b) => (b[1].lastActivity || 0) - (a[1].lastActivity || 0));
         displayedID = latest[0]?.[0] ?? null;
     }
@@ -754,7 +767,9 @@ function createRuntime(ctx, loadedConfig) {
         }
         pushPresence(rendered);
         forwardEnabled(presenceEnabled);
-        if (rendered && presenceEnabled) sendStateToDaemon(session, rendered);
+        // No displayed session (startup with only restored history): send
+        // nothing, so the daemon never pushes the empty idle template to Discord.
+        if (session && rendered && presenceEnabled) sendStateToDaemon(session, rendered);
     }
 
     function commit(reason, shouldPush = true) {
@@ -919,7 +934,7 @@ function createRuntime(ctx, loadedConfig) {
             const response = await sourceCtx.session.list({ directory: sourceCtx.location?.directory, limit: 50, order: "desc" });
             const list = Array.isArray(response) ? response : response?.data ?? [];
             if (!Array.isArray(list)) return;
-            for (const info of list) syncSessionInfo(info, info?.id);
+            for (const info of list) syncSessionInfo(info, info?.id, undefined, { restored: true });
             updateDisplay();
             const latest = displayedID;
             if (latest) await refreshSessionStats(latest, sourceCtx);
@@ -955,6 +970,8 @@ function createRuntime(ctx, loadedConfig) {
         // Any native event for this session proves the event stream is
         // alive; the stuck-guard watchdog relies on this signal.
         if (sid) markNativeEvent(sessions.get(sid), eventTime);
+        // A real event for a restored session makes it live again.
+        if (sid && sessions.get(sid)) sessions.get(sid)._restoredOnly = false;
 
         if (type === "session.created") {
             const session = syncSessionInfo(data, sid, eventTime);
@@ -1288,6 +1305,7 @@ export default Plugin.define({
                 const sid = event?.sessionID;
                 if (!sid) return;
                 const session = runtime.ensureSession(sid);
+                if (session) session._restoredOnly = false;
                 runtime.addPrompt(session, event?.messageID);
                 runtime.markPromptPending?.(session);
                 runtime.touch(session);

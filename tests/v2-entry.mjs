@@ -108,6 +108,12 @@ let endStreamRequested = false;
 // Controllable session.get() extras: when set, the mock reports session
 // time fields (e.g. the server-side idle stamp) to the plugin.
 let mockSessionGetTime = null;
+// Sessions returned by session.list() at startup. Dated well in the past so
+// a restore must not treat them as current activity.
+const RESTORE_SID = "ses_v2restoreold01";
+let mockSessionList = [
+    { id: RESTORE_SID, directory: "/tmp/orp-v2-harness-proj", time: { created: 1788000000000, updated: 1788792633518 }, model: { providerID: "opencode", id: "free-model" } },
+];
 const subscribeReady = new Promise((resolve) => { subscribeResolve = resolve; });
 const mockCtx = {
     location: { directory: "/tmp/orp-v2-harness-proj" },
@@ -122,6 +128,8 @@ const mockCtx = {
     session: {
         hook: async (name, cb) => { hooks[name] = cb; return { dispose: async () => {} }; },
         get: async ({ sessionID }) => ({ id: sessionID, ...(mockSessionGetTime ? { time: mockSessionGetTime } : {}) }),
+        // Startup restore source: old history, never live activity.
+        list: async () => mockSessionList,
         context: async () => contextMessages,
     },
     tool: {
@@ -194,6 +202,24 @@ ok(await waitFor(/v2 plugin setup complete/, 10000), "setup completes in activit
 
 section("missed set-enabled is not committed");
 ok(await waitFor(/set-enabled forward skipped \(not connected\): true/, 10000, "setup-time skip"), "setup-time forward skipped without daemon");
+
+section("startup restore does not display an old session");
+// Runs right after setup, before any prompt. The restore loaded RESTORE_SID
+// (old updated time). Nothing live exists yet, so the display stays empty.
+ok(await waitFor(/restore\] completed: \d+ sessions restored/, 15000, "restore completion"), "startup restore completes");
+ok(countMatches(new RegExp(`\\[queue\\] added sid=${RESTORE_SID.slice(-8)}`)) >= 1, "restored session is tracked");
+ok(countMatches(new RegExp(`\\[display\\] .* -> ${RESTORE_SID.slice(-8)} `)) === 0, "restored session never becomes the display");
+{
+    const text = logText();
+    const restoreAt = text.lastIndexOf("[restore] completed:");
+    const after = restoreAt >= 0 ? text.slice(restoreAt) : "";
+    const pushes = [...after.matchAll(/\[push\] would-push details="([^"]*)"/g)].map((m) => m[1]);
+    ok(pushes.every((d) => !/\bfree-model\b|200K/i.test(d)), "no payload after restore shows the restored session's model");
+    // No live session: nothing may reach the daemon, so the empty idle
+    // template never gets pushed to Discord and no restored model leaks.
+    const sentAfter = (after.match(/sent rendered payload to daemon/g) || []).length;
+    ok(sentAfter === 0, `no rendered payload is sent to the daemon after restore (${sentAfter} sent)`);
+}
 
 section("prompt pushes to the daemon");
 const forwardedTrueBefore = countMatches(/forwarded set-enabled=true to daemon/);
