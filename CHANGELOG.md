@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.6.6] - 2026-11-15
+
+Patch release. Fixes presence that appeared on OpenCode startup from an old
+session, and presence that stayed on Discord after the displayed session was
+deleted.
+
 ### Fixed
 
 - **Presence showed an old session on OpenCode startup**: the V2 plugin
