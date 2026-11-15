@@ -102,6 +102,8 @@ socket refused to write (3 attempts, see "Known Bugs").
     singleton guard in `main()` exits when the PID file names a live
     daemon; the hello ack advertises protocol capabilities
   - `discord-ipc.mjs`: inline Discord IPC client (replaces @xhayper)
+  - `clear-presence.mjs`: bounded clearActivity retry policy, kept separate
+    so write-failure and retry behavior can be tested deterministically
 - `src/cli/`: CLI commands
   - `install.js`, `uninstall.js`, `restart.js`, `update.js`
   - `on.js`, `off.js`, `kill.js`, `spawn.js`: presence toggle
@@ -521,6 +523,8 @@ guarantees the test depends on.
 | 39 | Presence GC: subfolder layout, legacy migration incl. collisions, dead/live/unparsable PID passes, 72h age fallback, newest-cap, idempotence (`tests/presence-gc.mjs`) | ✓ | ✓ | inherited | inherited |
 | 40 | V2 entry: mocked v2 context against a live daemon, prompt push, bare model id, `set-enabled` forward and retry, tick forward without a prompt (`tests/v2-entry.mjs`) | ✓ | ✓ | inherited | inherited |
 | 41 | Daemon client lifecycle: real mock Discord frames, abrupt disconnect, delayed PID exit, live PID, reconnect debounce, multiple clients, goodbye, daemon reuse (`tests/daemon-lifecycle.mjs`) | ✓ | separate job | inherited | inherited |
+| 42 | Discord IPC write failure: callback and synchronous write errors, one disconnect notification, socket cleanup (`tests/discord-ipc.mjs`) | ✓ | ✓ | inherited | inherited |
+| 43 | Clear retry policy: recovery after failed writes, bounded all-failure path, disconnect stop, thrown error recovery (`tests/clear-presence-retry.mjs`) | ✓ | ✓ | inherited | inherited |
 
 ### CI matrix (`.github/workflows/test.yml`)
 

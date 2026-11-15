@@ -122,6 +122,35 @@ export class DiscordIPC {
         this._disconnectedHandler = handler;
     }
 
+    // Mark the current socket as unusable and notify the daemon once. A
+    // failed write is often followed by both an error and a close event, so
+    // the state transition must be idempotent or reconnect can be scheduled
+    // multiple times for one broken connection.
+    _markDisconnected(reason, sourceSocket = this.socket) {
+        // An old socket can emit its final close event after a reconnect has
+        // already installed a new socket. Do not let that stale event tear
+        // down the new connection.
+        if (sourceSocket && this.socket && sourceSocket !== this.socket) {
+            if (!sourceSocket.destroyed) {
+                try { sourceSocket.destroy(); } catch {}
+            }
+            return;
+        }
+
+        const socket = this.socket;
+        const wasConnected = this.connected || Boolean(socket);
+        this.connected = false;
+        this.socket = null;
+        this.lastError = reason instanceof Error ? reason : new Error(String(reason));
+
+        if (socket && !socket.destroyed) {
+            try { socket.destroy(); } catch {}
+        }
+        if (wasConnected && this._disconnectedHandler) {
+            this._disconnectedHandler(reason);
+        }
+    }
+
     async connect() {
         if (this.connected) return;
         if (this.connecting) {
@@ -169,14 +198,10 @@ export class DiscordIPC {
                 // fire-and-forget for SET_ACTIVITY) but watch for
                 // socket close/error so the daemon can reconnect.
                 socket.on("close", () => {
-                    this.connected = false;
-                    this.socket = null;
-                    if (this._disconnectedHandler) this._disconnectedHandler("socket closed");
+                    this._markDisconnected("socket closed", socket);
                 });
                 socket.on("error", (e) => {
-                    this.connected = false;
-                    this.socket = null;
-                    if (this._disconnectedHandler) this._disconnectedHandler(`socket error: ${e?.message || e}`);
+                    this._markDisconnected(`socket error: ${e?.message || e}`, socket);
                 });
                 // Post-handshake data handler. We mostly discard
                 // frames (we are fire-and-forget for SET_ACTIVITY),
@@ -327,18 +352,19 @@ export class DiscordIPC {
     }
 
     async disconnect() {
-        if (this.socket) {
+        const socket = this.socket;
+        this.socket = null;
+        this.connected = false;
+        if (socket) {
             try {
                 const closeBuf = Buffer.alloc(8);
                 closeBuf.writeUInt32LE(2, 0);
                 closeBuf.writeUInt32LE(0, 4);
-                this.socket.write(closeBuf);
+                socket.write(closeBuf);
             } catch {}
-            try { this.socket.end(); } catch {}
-            try { this.socket.destroy(); } catch {}
-            this.socket = null;
+            try { socket.end(); } catch {}
+            try { socket.destroy(); } catch {}
         }
-        this.connected = false;
     }
 }
 

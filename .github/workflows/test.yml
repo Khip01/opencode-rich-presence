@@ -74,6 +74,15 @@ jobs:
           node bin/opencode-rpc.js info
           npm pack --dry-run
 
+      # Deterministic Discord failure paths. These harnesses inject socket
+      # write failures and use a fake sleep, so they do not need Discord or
+      # network access and are safe on every OS in the matrix.
+      - name: Discord IPC failure harness
+        run: npm run test:discord-ipc
+
+      - name: Clear presence retry harness
+        run: npm run test:clear-retry
+
       # Pure-logic harnesses. No daemon and no filesystem layout
       # assumptions, so they are safe on every OS in the matrix.
       - name: Template selection harness

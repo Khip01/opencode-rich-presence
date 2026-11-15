@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Discord IPC write failures**: failed writes now transition the IPC client
+  through one idempotent disconnect path, so reconnect is notified once even
+  when an error is followed by a close event.
+
+### Tests
+
+- Add deterministic coverage for Discord write failures and bounded
+  `clearActivity()` retry behavior without requiring Discord Desktop.
+
 ## [3.6.6] - 2026-11-15
 
 Patch release. Fixes presence that appeared on OpenCode startup from an old

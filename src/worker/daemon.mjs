@@ -69,6 +69,7 @@ import {
     ACTIVITY_LOG,
 } from "../shared/paths.js";
 import { DiscordIPC } from "./discord-ipc.mjs";
+import { retryClearActivity } from "./clear-presence.mjs";
 import { readState } from "../shared/presence-state.js";
 import { isPidAlive, unlinkSocketPath } from "../shared/daemon-liveness.js";
 
@@ -433,28 +434,23 @@ async function clearPresence() {
     }
     // clearActivity() resolves false when the frame was not written (the
     // socket is dead). It does not throw, so the result must be checked or
-    // "sent" would be logged for a clear that never left the daemon. A live
-    // socket that refuses one write is retried a few times with a short
-    // backoff. Bounded on purpose: no reconnect loop here, the reconnect path
-    // owns a dropped socket.
-    const CLEAR_ATTEMPTS = 3;
-    const CLEAR_BACKOFF_MS = [1000, 2000];
-    for (let attempt = 1; attempt <= CLEAR_ATTEMPTS; attempt += 1) {
-        let sent = false;
-        try {
-            sent = await discordClient.clearActivity();
-        } catch (e) {
-            logToFile(`clearActivity failed (attempt ${attempt}/${CLEAR_ATTEMPTS}): ${e?.message || e}`);
-        }
-        if (sent) {
-            logToFile(attempt === 1 ? "clearActivity sent" : `clearActivity sent (attempt ${attempt})`);
-            return;
-        }
-        logToFile(`clearActivity not written (attempt ${attempt}/${CLEAR_ATTEMPTS})`);
-        if (attempt === CLEAR_ATTEMPTS || !discordConnected || !discordClient) return;
-        await new Promise((r) => setTimeout(r, CLEAR_BACKOFF_MS[attempt - 1]));
-        if (!discordConnected || !discordClient) return;
-    }
+    // "sent" would be logged for a clear that never left the daemon. The
+    // retry policy is bounded on purpose. A dropped socket still belongs to
+    // the reconnect path.
+    await retryClearActivity({
+        clearActivity: () => discordClient.clearActivity(),
+        canRetry: () => Boolean(discordConnected && discordClient),
+        onAttempt: ({ attempt, attempts, sent, error }) => {
+            if (error) {
+                logToFile(`clearActivity failed (attempt ${attempt}/${attempts}): ${error?.message || error}`);
+            }
+            if (sent) {
+                logToFile(attempt === 1 ? "clearActivity sent" : `clearActivity sent (attempt ${attempt})`);
+            } else {
+                logToFile(`clearActivity not written (attempt ${attempt}/${attempts})`);
+            }
+        },
+    });
 }
 
 // ─── Local socket server ──────────────────────────────────────────────────
