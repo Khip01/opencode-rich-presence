@@ -145,3 +145,14 @@ jobs:
             ## What's in ${{ github.ref_name }}
 
             See [CHANGELOG.md](https://github.com/Khip01/opencode-rich-presence/blob/main/CHANGELOG.md) for full details.
+
+  # Post-release validation. Runs after the GitHub release is published, with
+  # the same tag, by calling post-release.yml. A release created with the
+  # default GITHUB_TOKEN does not fire the `release` trigger, so this chain is
+  # the only automatic path. A failure here does not retract the release.
+  post-release:
+    name: Post-release validation
+    needs: release
+    uses: ./.github/workflows/post-release.yml
+    with:
+      tag: ${{ github.ref_name }}

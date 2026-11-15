@@ -40,6 +40,15 @@ on:
         description: "Tag to validate (e.g. v3.1.8). Leave empty to use the latest published release."
         required: false
         type: string
+  # Called by release.yml right after it publishes a release. A release
+  # created with the default GITHUB_TOKEN does NOT fire the `release`
+  # trigger above, so release.yml calls this workflow directly.
+  workflow_call:
+    inputs:
+      tag:
+        description: "Tag to validate."
+        required: true
+        type: string
 
 permissions:
   contents: read
