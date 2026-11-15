@@ -539,6 +539,7 @@ function handleClientMessage(msg, sock) {
                 inst.sessionInfo = null;
                 inst.rendered = null;
                 const anyLeft = [...instances.values()].some((other) => other.rendered);
+                logToFile(`state pid=${pid} holds=no holders_left=${[...instances.values()].filter((o) => o.rendered).length} clear=${anyLeft ? "no" : "yes"}`);
                 if (!anyLeft) {
                     lastPushedFingerprint = null;
                     displayedPid = null;
@@ -556,6 +557,8 @@ function handleClientMessage(msg, sock) {
             }
             inst.sessionInfo = msg.session || inst.sessionInfo;
             inst.rendered = msg.rendered;
+            // Diagnostic: which instances hold a payload after this update.
+            logToFile(`state pid=${pid} holds=yes holders=${[...instances.values()].filter((o) => o.rendered).length}`);
             // Re-push if the picked session might have changed. Throttling
             // inside pushCurrentPresence prevents flooding. Wrap in
             // .catch so a rejection does not become an unhandled

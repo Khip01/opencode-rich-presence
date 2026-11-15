@@ -22,6 +22,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A clear that the daemon cannot write is now logged as `not written` instead
   of `sent`, and is retried a bounded number of times on a live connection.
 
+### Tests
+
+- The daemon logs each state message with how many instances hold a payload
+  (`holds=` / `holders_left=` / `clear=`). Lifecycle coverage asserts that
+  clearing one of two holders does not clear Discord.
+
 ## [3.6.5] - 2026-11-15
 
 Patch release. The core client-lifecycle fix was contributed by

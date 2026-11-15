@@ -319,6 +319,33 @@ try {
         reconnected.destroy();
     });
 
+    await scenario("A clear request does not clear while another instance still holds a payload", async () => {
+        // Deleted-session path. The daemon logs how many instances hold a
+        // payload after each state message. With two holders, clearing one
+        // must leave Discord alone: no clear frame, and holders_left=1.
+        const pidA = await spawnDeadPid();
+        const pidB = await spawnDeadPid();
+        const clientA = await connectClient(pidA);
+        const clientB = await connectClient(pidB);
+        await sleep(300);
+        sendState(clientA, pidA, "hold-a", "hold A");
+        sendState(clientB, pidB, "hold-b", "hold B");
+        await sleep(800);
+
+        const clearsBefore = clearFrames().length;
+        clientA.write(JSON.stringify({ type: "state", pid: pidA, session: null, rendered: null }) + "\n");
+        await sleep(800);
+        assert(clearFrames().length === clearsBefore, "no clear frame while another instance still holds a payload");
+        assert(
+            readLog().split("\n").some((l) => /state pid=\d+ holds=no holders_left=1 clear=no/.test(l)),
+            "daemon log records holders_left=1 and clear=no",
+        );
+
+        clientA.destroy();
+        clientB.destroy();
+        await sleep(IDLE_CLEAR_DELAY_MS + 500);
+    });
+
     await scenario("Multiple clients clear only when the last socket closes", async () => {
         const pidA = await spawnDeadPid();
         const pidB = await spawnDeadPid();
