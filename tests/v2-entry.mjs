@@ -542,6 +542,25 @@ ok(await waitForCount(/v2 plugin setup complete/, setupCountBeforeReplacement, 1
 await new Promise((resolve) => setTimeout(resolve, 2500));
 ok(countMatches(lifecycleStopPattern) === lifecycleStopsBeforeShutdown, "replacement setup cancels the pending presence stop");
 
+section("deleting the last live session clears the Discord presence");
+// The displayed session is deleted and nothing else is live. The plugin must
+// tell the daemon to drop its payload, so the daemon clears the activity
+// instead of keeping the last payload (e.g. "Completed! 0/1M tok") on screen.
+{
+    const clearsBefore = countMatches(/instance pid=\d+ has no session; cleared Discord presence/);
+    const sentBefore = countMatches(/sent rendered payload to daemon/);
+    emit({ type: "session.deleted", sessionID: SID, data: { id: SID } });
+    ok(await waitForCount(/instance pid=\d+ has no session; cleared Discord presence/, clearsBefore, 15000, "daemon clear on delete"), "daemon clears presence when the last session is deleted");
+    await new Promise((r) => setTimeout(r, 1500));
+    // A deleted session has no displayed session, so the plugin sends a clear
+    // request (rendered null), never a payload for the deleted session.
+    const clearRequests = countMatches(/sent clear request to daemon/);
+    ok(clearRequests >= 1, "plugin sends a clear request when no session is displayed");
+    const afterDelete = logText().slice(logText().lastIndexOf("session.deleted sid=" + SID.slice(-8)));
+    const payloadsAfterDelete = (afterDelete.match(/sent rendered payload to daemon/g) || []).length;
+    ok(payloadsAfterDelete === 0, `no rendered payload is sent for the deleted session (${payloadsAfterDelete} sent)`);
+}
+
 section("final cleanup stops presence after the grace period");
 const lifecycleStopsBeforeFinalCleanup = countMatches(lifecycleStopPattern);
 const presenceStopsBeforeFinalCleanup = countMatches(presenceStopPattern);

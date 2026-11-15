@@ -127,7 +127,8 @@ export function sendStateToDaemon(session, rendered) {
     } : null;
     const ok = c.sendState(process.pid, minimalSession, rendered);
     if (ok) {
-        activity("push", "sent rendered payload to daemon");
+        // A null payload is a clear request, not a rendered presence.
+        activity("push", rendered ? "sent rendered payload to daemon" : "sent clear request to daemon");
     } else {
         activity("push", `failed to send: ${c.lastError || "not connected"}`);
     }

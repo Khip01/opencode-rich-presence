@@ -767,9 +767,15 @@ function createRuntime(ctx, loadedConfig) {
         }
         pushPresence(rendered);
         forwardEnabled(presenceEnabled);
-        // No displayed session (startup with only restored history): send
-        // nothing, so the daemon never pushes the empty idle template to Discord.
-        if (session && rendered && presenceEnabled) sendStateToDaemon(session, rendered);
+        // No displayed session (startup with only restored history, or the
+        // last session was deleted): tell the daemon to drop this instance's
+        // payload so the stale activity is cleared. Never send the empty idle
+        // template itself.
+        if (!session) {
+            if (presenceEnabled) sendStateToDaemon(null, null);
+        } else if (rendered && presenceEnabled) {
+            sendStateToDaemon(session, rendered);
+        }
     }
 
     function commit(reason, shouldPush = true) {

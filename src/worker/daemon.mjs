@@ -512,8 +512,32 @@ function handleClientMessage(msg, sock) {
                 return;
             }
             inst.lastSeen = Date.now();
+            if (!msg.rendered) {
+                // The plugin has no displayed session (its last session was
+                // deleted). Drop this instance from the picker. If no other
+                // instance is showing anything, clear the Discord activity
+                // instead of leaving the last payload on screen. No
+                // reconnect: clearActivity uses the existing IPC connection.
+                inst.sessionInfo = null;
+                inst.rendered = null;
+                const anyLeft = [...instances.values()].some((other) => other.rendered);
+                if (!anyLeft) {
+                    lastPushedFingerprint = null;
+                    displayedPid = null;
+                    clearPresence().catch((e) => {
+                        logToFile(`clearPresence (no session) failed: ${e?.message || e}`);
+                    });
+                    logToFile(`instance pid=${pid} has no session; cleared Discord presence`);
+                } else {
+                    pushCurrentPresence().catch((e) => {
+                        logToFile(`state push failed: ${e?.message || e}`);
+                    });
+                }
+                try { sock.write(JSON.stringify({ type: "ack" }) + "\n"); } catch {}
+                break;
+            }
             inst.sessionInfo = msg.session || inst.sessionInfo;
-            inst.rendered = msg.rendered || inst.rendered;
+            inst.rendered = msg.rendered;
             // Re-push if the picked session might have changed. Throttling
             // inside pushCurrentPresence prevents flooding. Wrap in
             // .catch so a rejection does not become an unhandled

@@ -15,6 +15,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   model and cost. Restored sessions now keep the server's last-update time
   and never become the displayed session or reach the daemon until a real
   event or prompt arrives.
+- **Presence kept showing the last payload after the displayed session was
+  deleted**: the plugin now tells the daemon to drop its payload when no
+  session is displayed, and the daemon clears the Discord activity when no
+  other instance is showing anything. No reconnect is involved.
 
 ## [3.6.5] - 2026-11-15
 
