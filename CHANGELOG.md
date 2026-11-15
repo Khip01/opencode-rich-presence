@@ -19,6 +19,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   deleted**: the plugin now tells the daemon to drop its payload when no
   session is displayed, and the daemon clears the Discord activity when no
   other instance is showing anything. No reconnect is involved.
+- A clear that the daemon cannot write is now logged as `not written` instead
+  of `sent`, and is retried a bounded number of times on a live connection.
 
 ## [3.6.5] - 2026-11-15
 
