@@ -12,6 +12,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Discord IPC write failures**: failed writes now transition the IPC client
   through one idempotent disconnect path, so reconnect is notified once even
   when an error is followed by a close event.
+- **Existing configs missing new state templates**: `opencode-rpc install`
+  now offers to add the built-in `Compaction` template without overwriting
+  other presence customizations, and creates a timestamped backup first.
+- **Compaction template consistency**: the built-in fallback, bundled example,
+  and customization documentation now use the same model, mode, cost, context,
+  and prompt fields as the recommended `Compaction` presence configuration.
 - **V2 compaction state being overwritten**: context compaction now has a
   protected `Compaction` state instead of overloading the agent mode, so
   polling and concurrent execution events cannot hide it. The prior execution

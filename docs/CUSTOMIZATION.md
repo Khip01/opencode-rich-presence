@@ -231,8 +231,9 @@ displays as "Completed!".
         "state": "Asking"
       },
       "Compaction": {
-        "details": "{modelName} · {mode}",
-        "state": "Compacting context · {contextPercent}% ctx"
+        "_note": "Shown while OpenCode compacts context",
+        "details": "{modelName} · ({mode}) {{#if cost == \"free\"}}  · $0 spent{{else}}  · {costCompact} spent{{/if}}",
+        "state": "Compacting context  · {contextCompact}/{contextLimitCompact} tok  · {prompts} prmpts"
       }
     }
   }
@@ -312,8 +313,9 @@ with conditional effort display.
         "state": "Asking • {contextCompact}/{contextLimitCompact} tok • {promptsCompact} prmpts"
       },
       "Compaction": {
-        "details": "{modelName} · {mode}",
-        "state": "Compacting context • {contextCompact}/{contextLimitCompact} tok"
+        "_note": "Shown while OpenCode compacts context",
+        "details": "{modelName} · ({mode}) {{#if cost == \"free\"}}  · $0 spent{{else}}  · {costCompact} spent{{/if}}",
+        "state": "Compacting context  · {contextCompact}/{contextLimitCompact} tok  · {prompts} prmpts"
       }
     },
     "idle": {

@@ -126,7 +126,10 @@ opencode-rpc install
 The installer:
 
 1. Creates `~/.config/opencode/discord-config.json` from the bundled
-   example (only if missing, or after confirmation to overwrite).
+   example (only if missing, or after confirmation to overwrite). If an
+   existing config is kept and is missing a newly supported state template,
+   the installer offers to add only that template and creates a timestamped
+   backup first.
 2. Detects and offers to remove any stale `"opencode-rich-presence"`
    entry left in `opencode.jsonc` (or `.json`) by pre-v2.0.6 installs.
    The local plugin directory alone is sufficient; the entry would cause

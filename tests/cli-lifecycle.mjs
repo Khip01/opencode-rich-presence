@@ -521,6 +521,13 @@ const useGithub = process.env.ORP_USE_GITHUB_RELEASE === "1";
         "V2 install leaves no legacy single-file link");
     assert(existsSync(join(cfgV2, "discord-config.json")),
         "config file created");
+    {
+        const freshConfig = JSON.parse(readFileSync(join(cfgV2, "discord-config.json"), "utf8"));
+        assert(
+            freshConfig.presence?.byState?.Compaction?.state === "Compacting context  · {contextCompact}/{contextLimitCompact} tok  · {prompts} prmpts",
+            "fresh config includes the Compaction template",
+        );
+    }
 
     // Idempotent re-install keeps the same setup.
     const again = run(process.execPath, [cliEntry, "install"], {
@@ -529,6 +536,41 @@ const useGithub = process.env.ORP_USE_GITHUB_RELEASE === "1";
     });
     assert(again.status === 0, "sandbox opencode-rpc re-install (V2) exits 0");
     assert(existsSync(join(v2Dir, "index.js")), "V2 plugin dir survives re-install");
+
+    // Existing user config migration: add only the missing Compaction state
+    // and preserve the user's existing state-specific customization.
+    const homeTemplate = mkdtempSync(join(sandbox, "home-"));
+    const cfgTemplate = join(homeTemplate, ".config", "opencode");
+    mkdirSync(cfgTemplate, { recursive: true });
+    writeFileSync(join(cfgTemplate, "discord-config.json"), JSON.stringify({
+        discordAppId: "custom-app-id",
+        presence: {
+            byState: {
+                Asking: {
+                    details: "Keep my Asking template",
+                    state: "Keep Asking",
+                },
+            },
+        },
+    }, null, 4) + "\n");
+    const templateMigration = run(process.execPath, [cliEntry, "install"], {
+        env: { ...sandboxEnv, PATH: noBin, OPENCODE_CONFIG_DIR: cfgTemplate, HOME: homeTemplate },
+        input: "n\ny\ny\n",
+    });
+    assert(templateMigration.status === 0, "config template migration exits 0");
+    const migratedConfig = JSON.parse(readFileSync(join(cfgTemplate, "discord-config.json"), "utf8"));
+    assert(
+        migratedConfig.presence?.byState?.Compaction?.details === "{modelName} · ({mode}) {{#if cost == \"free\"}}  · $0 spent{{else}}  · {costCompact} spent{{/if}}",
+        "existing config receives the default Compaction template",
+    );
+    assert(
+        migratedConfig.presence?.byState?.Compaction?.state === "Compacting context  · {contextCompact}/{contextLimitCompact} tok  · {prompts} prmpts",
+        "existing config receives the complete Compaction state template",
+    );
+    assert(
+        migratedConfig.presence?.byState?.Asking?.details === "Keep my Asking template",
+        "existing state customization survives template migration",
+    );
 
     // Legacy migration: a pre-directory single-file link is replaced.
     const homeMig = mkdtempSync(join(sandbox, "home-"));
@@ -618,4 +660,3 @@ console.log("\n  ALL SCENARIOS PASSED");
 // That test lives in tests/release-smoke.mjs and runs only in the
 // release workflow, after the tarball is built but before the
 // GitHub release is published.
-

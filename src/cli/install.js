@@ -1,8 +1,9 @@
-import { existsSync, readFileSync, readlinkSync, writeFileSync, copyFileSync, mkdirSync, lstatSync, symlinkSync, unlinkSync, rmSync } from "node:fs";
+import { existsSync, readFileSync, readlinkSync, writeFileSync, copyFileSync, mkdirSync, lstatSync, symlinkSync, unlinkSync, rmSync, renameSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { dirname, join, basename } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { OPENCODE_DIR, CONFIG_PATH } from "../shared/paths.js";
+import { DEFAULT_PRESENCE_TEMPLATES, STATE } from "../shared/constants.js";
 import { confirm } from "./prompt.js";
 
 const PKG_ROOT = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
@@ -37,6 +38,7 @@ export async function install() {
         copyExample();
     }
 
+    await maybeMigrateMissingPresenceStates();
     await maybeMigrateRemoveFromOpencodeConfig();
     await installLocalPlugin();
 
@@ -50,6 +52,61 @@ function copyExample() {
     }
     copyFileSync(EXAMPLE_CONFIG, CONFIG_PATH);
     console.log(`Created ${CONFIG_PATH}`);
+}
+
+// Existing configs are intentionally not overwritten during install. When a
+// new built-in state is added, offer to add only that missing state template
+// so users keep their existing Discord customizations.
+async function maybeMigrateMissingPresenceStates() {
+    if (!existsSync(CONFIG_PATH)) return;
+
+    let parsed;
+    try {
+        parsed = parseJsonc(readFileSync(CONFIG_PATH, "utf-8"));
+    } catch {
+        console.log(`  Could not parse ${CONFIG_PATH}; skipped presence template migration.`);
+        return;
+    }
+
+    if (!parsed.presence || typeof parsed.presence !== "object" || Array.isArray(parsed.presence)) return;
+
+    let byState = parsed.presence.byState;
+    if (byState === undefined) {
+        byState = {};
+        parsed.presence.byState = byState;
+    }
+    if (!byState || typeof byState !== "object" || Array.isArray(byState)) {
+        console.log(`  Skipped presence template migration: presence.byState is not an object.`);
+        return;
+    }
+    if (Object.prototype.hasOwnProperty.call(byState, STATE.COMPACTION)) return;
+
+    const ok = await confirm(
+        `Add the new "${STATE.COMPACTION}" template to ${CONFIG_PATH}?`,
+        { defaultYes: true },
+    );
+    if (!ok) {
+        console.log(`  Kept existing presence templates. Add ${STATE.COMPACTION} manually when ready.`);
+        return;
+    }
+
+    byState[STATE.COMPACTION] = { ...DEFAULT_PRESENCE_TEMPLATES.byState[STATE.COMPACTION] };
+    const serialized = JSON.stringify(parsed, null, 4) + "\n";
+    const temporary = `${CONFIG_PATH}.tmp-${process.pid}`;
+    const backup = `${CONFIG_PATH}.backup-${Date.now()}`;
+
+    try {
+        // Build and validate the replacement before touching the original.
+        writeFileSync(temporary, serialized, "utf-8");
+        JSON.parse(readFileSync(temporary, "utf-8"));
+        copyFileSync(CONFIG_PATH, backup);
+        renameSync(temporary, CONFIG_PATH);
+        console.log(`  Added ${STATE.COMPACTION} template to ${CONFIG_PATH}`);
+        console.log(`  Backup: ${backup}`);
+    } catch (error) {
+        try { unlinkSync(temporary); } catch {}
+        console.log(`  Could not migrate presence templates: ${error?.message || error}`);
+    }
 }
 
 // JSONC-tolerant parser. Strips trailing commas and line/block comments.

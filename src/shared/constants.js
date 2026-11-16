@@ -115,8 +115,8 @@ export const DEFAULT_PRESENCE_TEMPLATES = {
             state: '{{#if mode == "build"}}Build access{else}Plan access{/if}}',
         },
         Compaction: {
-            details: "{model} · {mode}",
-            state: "Compacting context · {contextPercent}% ctx",
+            details: "{modelName} · ({mode}) {{#if cost == \"free\"}}  · $0 spent{{else}}  · {costCompact} spent{{/if}}",
+            state: "Compacting context  · {contextCompact}/{contextLimitCompact} tok  · {prompts} prmpts",
         },
     },
     idle: {
