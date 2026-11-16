@@ -183,7 +183,12 @@ function infoOf(event) {
 function sidOf(event) {
     const data = dataOf(event);
     const info = infoOf(event);
-    return data.sessionID ?? event?.sessionID ?? info?.sessionID ?? info?.id ?? null;
+    return data.sessionID
+        ?? data.form?.sessionID
+        ?? event?.sessionID
+        ?? info?.sessionID
+        ?? info?.id
+        ?? null;
 }
 
 function modelRefOf(value) {
@@ -313,6 +318,11 @@ function createRuntime(ctx, loadedConfig) {
             // Last time a native execution event touched this session. Used
             // as a watchdog: a guard with no event traffic at all is stuck.
             session._lastNativeEventAt = 0;
+            // A permission request or V2 form blocks the session on user
+            // input. Polling can still observe the previous assistant
+            // message, and execution events can continue around the form,
+            // so keep Asking authoritative until the request is resolved.
+            session._askingActive = false;
             sessions.set(sid, session);
             activity("queue", `added sid=${sid.slice(-8)} (v2)`);
         }
@@ -325,12 +335,60 @@ function createRuntime(ctx, loadedConfig) {
         session.lastActivity = Math.max(session.lastActivity || 0, Number.isFinite(value) ? value : Date.now());
     }
 
-    function setState(session, next, reason) {
+    function setState(session, next, reason, { force = false } = {}) {
         if (!session || session.state === next) return false;
+        // Compaction is a distinct native operation, not just another kind
+        // of Working. Context polling and concurrent step/tool events can
+        // arrive while the compaction model is still thinking, so protect
+        // the visible state until the compaction terminal event arrives.
+        if (session._askingActive && next !== STATE.ASKING) return false;
+        if (session._compactionActive && next !== STATE.COMPACTION && !force) return false;
         const previous = session.state;
         session.state = next;
         activity("state", `sid=${session.sessionID.slice(-8)} ${previous} -> ${next} (${reason})`);
         return true;
+    }
+
+    function startAsking(session, reason) {
+        if (!session) return;
+        session._askingActive = true;
+        // A user-blocking request is authoritative over a concurrent native
+        // event. The pending guard below keeps all later polling and agent
+        // events from replacing Asking.
+        setState(session, STATE.ASKING, reason, { force: true });
+    }
+
+    function finishAsking(session, reason) {
+        if (!session) return;
+        session._askingActive = false;
+        setState(session, STATE.WORKING, reason);
+    }
+
+    function startCompaction(session, reason) {
+        if (!session) return;
+        if (!session._compactionActive) {
+            session._compactionActive = true;
+            session._stateBeforeCompaction = session.state;
+        }
+        setState(session, STATE.COMPACTION, reason, { force: true });
+    }
+
+    function finishCompaction(session, reason, { failed = false } = {}) {
+        if (!session) return;
+        const previous = session._stateBeforeCompaction;
+        session._compactionActive = false;
+        session._stateBeforeCompaction = null;
+        if (failed) {
+            setState(session, STATE.WAITING, reason, { force: true });
+            return;
+        }
+        // Restore the native state that was visible before compaction. The
+        // next execution terminal event, if any, remains authoritative and
+        // can immediately settle it to Waiting for command.
+        const restored = previous && previous !== STATE.COMPACTION
+            ? previous
+            : STATE.WORKING;
+        setState(session, restored, reason, { force: true });
     }
 
     function eventTimestamp(value, fallback = Date.now()) {
@@ -370,6 +428,10 @@ function createRuntime(ctx, loadedConfig) {
 
     function executionGuarded(session) {
         return !!(session?._executionPending || session?._executionActive);
+    }
+
+    function askingGuarded(session) {
+        return !!(session?._askingActive || session?.state === STATE.ASKING);
     }
 
     function markNativeEvent(session, timestamp = Date.now()) {
@@ -416,7 +478,7 @@ function createRuntime(ctx, loadedConfig) {
     // Both rules require the idle proof, so a long-running tool (which only
     // stamps stale idle) never triggers a false Completed state.
     function tryRecoverFromLostTerminalEvent(session, latest) {
-        if (!executionGuarded(session) || session.state === STATE.ASKING) return false;
+        if (!executionGuarded(session) || askingGuarded(session) || session._compactionActive) return false;
         const guardSetAt = Math.max(session._promptAt || 0, session._executionStartedAt || 0);
         const completedAt = isAssistantMessage(latest) && latest.time?.completed
             ? eventTimestamp(latest.time.completed, 0)
@@ -901,7 +963,7 @@ function createRuntime(ctx, loadedConfig) {
             // current turn really finished.
             const recovered = updateState && generationStillCurrent && executionGuarded(session)
                 && tryRecoverFromLostTerminalEvent(session, latest);
-            if (updateState && generationStillCurrent && !executionGuarded(session) && !recovered) {
+            if (updateState && generationStillCurrent && !session._compactionActive && !askingGuarded(session) && !executionGuarded(session) && !recovered) {
                 const idleAt = session._serverIdleAt || 0;
                 if (isUserMessage(latest)) {
                     // Newest record is a prompt with no answer. The server
@@ -915,10 +977,10 @@ function createRuntime(ctx, loadedConfig) {
                     if (latest.time?.completed) setState(session, STATE.WAITING, "poll: assistant message completed");
                     else setState(session, STATE.TYPING, "poll: assistant message in progress");
                 }
-            } else if (updateState && latest && executionGuarded(session)) {
+            } else if (updateState && latest && (askingGuarded(session) || executionGuarded(session) || session._compactionActive)) {
                 activity(
                     "event",
-                    `poll state ignored sid=${sid.slice(-8)} execution active, latest=${isAssistantMessage(latest) ? "assistant" : isUserMessage(latest) ? "user" : "unknown"}`,
+                    `poll state ignored sid=${sid.slice(-8)} ${session._compactionActive ? "compaction active" : askingGuarded(session) ? "asking active" : "execution active"}, latest=${isAssistantMessage(latest) ? "assistant" : isUserMessage(latest) ? "user" : "unknown"}`,
                 );
             }
         } catch (error) {
@@ -1051,6 +1113,7 @@ function createRuntime(ctx, loadedConfig) {
             const session = ensureSession(sid);
             if (!session) return;
             touch(session, eventTime);
+            if (session._compactionActive) finishCompaction(session, `${type} (compaction terminal)`);
             markExecutionFinished(session, eventTime);
             if (session.state !== STATE.ASKING) setState(session, STATE.WAITING, type);
             activity("event", `${type} sid=${sid.slice(-8)}`);
@@ -1154,10 +1217,18 @@ function createRuntime(ctx, loadedConfig) {
         if (type === "session.compaction.started") {
             const session = ensureSession(sid);
             if (!session) return;
-            session.mode = "compaction";
             touch(session, eventTime);
-            if (session.state !== STATE.ASKING) setState(session, STATE.WORKING, type);
+            startCompaction(session, type);
+            activity("event", `${type} sid=${sid.slice(-8)}`);
             commit(type);
+            return;
+        }
+
+        if (type === "session.compaction.delta") {
+            const session = ensureSession(sid);
+            if (!session) return;
+            touch(session, eventTime);
+            if (!session._compactionActive) startCompaction(session, type);
             return;
         }
 
@@ -1166,7 +1237,8 @@ function createRuntime(ctx, loadedConfig) {
             if (!session) return;
             touch(session, eventTime);
             applyStepUsage(session, data, eventTime, "compaction");
-            if (type.endsWith("failed") && session.state !== STATE.ASKING) setState(session, STATE.WAITING, type);
+            if (type.endsWith("failed")) finishCompaction(session, type, { failed: true });
+            else finishCompaction(session, type);
             activity("event", `${type} sid=${sid.slice(-8)}`);
             commit(type);
             return;
@@ -1236,8 +1308,22 @@ function createRuntime(ctx, loadedConfig) {
             const session = ensureSession(sid);
             if (!session) return;
             touch(session, eventTime);
-            if (type === "permission.asked") setState(session, STATE.ASKING, type);
-            else setState(session, STATE.WORKING, type);
+            if (type === "permission.asked") startAsking(session, type);
+            else finishAsking(session, type);
+            commit(type);
+            return;
+        }
+
+        // OpenCode's V2 question tool uses the Form API rather than the
+        // permission API. A form is still a user-blocking request, so expose
+        // the same Asking presence until it is answered or cancelled.
+        if (type === "form.created" || type === "form.replied" || type === "form.cancelled") {
+            const session = ensureSession(sid);
+            if (!session) return;
+            touch(session, eventTime);
+            if (type === "form.created") startAsking(session, type);
+            else finishAsking(session, type);
+            activity("event", `${type} sid=${sid.slice(-8)} form=${data.form?.id ?? data.id ?? "?"}`);
             commit(type);
         }
     }

@@ -12,11 +12,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Discord IPC write failures**: failed writes now transition the IPC client
   through one idempotent disconnect path, so reconnect is notified once even
   when an error is followed by a close event.
+- **V2 compaction state being overwritten**: context compaction now has a
+  protected `Compaction` state instead of overloading the agent mode, so
+  polling and concurrent execution events cannot hide it. The prior execution
+  state is restored when compaction ends.
+- **V2 questions missing the Asking presence**: `form.created`,
+  `form.replied`, and `form.cancelled` now drive the same protected question
+  lifecycle as permission events, including session IDs nested in
+  `data.form.sessionID`.
 
 ### Tests
 
 - Add deterministic coverage for Discord write failures and bounded
   `clearActivity()` retry behavior without requiring Discord Desktop.
+- Add V2 regression coverage for protected compaction and question-form state
+  transitions, polling arbitration, and rendered `Asking`/`Compaction`
+  templates.
 
 ## [3.6.6] - 2026-11-15
 

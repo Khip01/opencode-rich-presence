@@ -5,6 +5,7 @@ export const STATE = {
     THINKING: "Thinking",
     TYPING: "Typing",
     ASKING: "Asking",
+    COMPACTION: "Compaction",
     WAITING: "Waiting for command",
 };
 
@@ -83,6 +84,7 @@ export const VALID_TEMPLATE_VARS = new Set([
     "waiting",
     "working",
     "asking",
+    "compacting",
     "active",
 ]);
 
@@ -111,6 +113,10 @@ export const DEFAULT_PRESENCE_TEMPLATES = {
         Asking: {
             details: "{model} · Permission needed",
             state: '{{#if mode == "build"}}Build access{else}Plan access{/if}}',
+        },
+        Compaction: {
+            details: "{model} · {mode}",
+            state: "Compacting context · {contextPercent}% ctx",
         },
     },
     idle: {

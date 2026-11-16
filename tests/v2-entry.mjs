@@ -36,6 +36,8 @@ writeFileSync(CONFIG_PATH, JSON.stringify({
         byState: {
             Working: { state: "{contextLimitCompact} token · {prompts} prompts{{#if effort}} · {effortCapital}{{/if}}" },
             Typing: { state: "{contextLimitCompact} token · {prompts} prompts" },
+            Asking: { state: "Asking" },
+            Compaction: { state: "Compaction" },
         },
     },
 }), "utf-8");
@@ -326,6 +328,127 @@ emit({
     data: { sessionID: SID },
 });
 ok(await waitFor(/-> Waiting for command \(session\.execution\.succeeded\)/, 10000), "native execution success clears the active state");
+
+section("compaction has its own protected presence state");
+emit({
+    type: "session.execution.started",
+    location: { directory: mockCtx.location.directory },
+    created: Date.now(),
+    data: { sessionID: SID },
+});
+ok(await waitFor(/Waiting for command -> Working \(session\.execution\.started\)/, 10000), "compaction test execution starts in Working");
+emit({
+    type: "session.compaction.started",
+    location: { directory: mockCtx.location.directory },
+    created: Date.now(),
+    data: { sessionID: SID, reason: "auto", inputID: "msg_v2_compaction_1" },
+});
+ok(await waitFor(/Working -> Compaction \(session\.compaction\.started\)/, 10000), "compaction selects the dedicated Compaction state");
+ok(await waitFor(/would-push .* state="Compaction"/, 10000), "Compaction state is rendered to the presence");
+emit({
+    type: "session.step.started",
+    location: { directory: mockCtx.location.directory },
+    created: Date.now(),
+    data: {
+        sessionID: SID,
+        assistantMessageID: "msg_v2_compaction_1",
+        agent: "build",
+        model: { providerID: "openrouter", id: "gpt-6.1-sol" },
+        started: Date.now(),
+    },
+});
+ok(await waitFor(/session\.step\.started sid=arness01 model=gpt-6\.1-sol/, 10000), "a step event arrives during compaction");
+await new Promise((r) => setTimeout(r, 500));
+ok(!/Compaction -> Thinking \(session\.step\.started\)/.test(logText()), "a step event cannot overwrite Compaction");
+ok(await waitFor(/would-push details="gpt-6\.1-sol · build" state="Compaction"/, 10000), "agent refresh keeps build mode without replacing the Compaction state");
+emit({
+    type: "session.compaction.ended",
+    location: { directory: mockCtx.location.directory },
+    created: Date.now(),
+    data: {
+        sessionID: SID,
+        reason: "auto",
+        text: "condensed context",
+        cost: 0.004,
+        tokens: { input: 100, output: 20, reasoning: 5, cache: { read: 10, write: 0 } },
+    },
+});
+ok(await waitFor(/Compaction -> Working \(session\.compaction\.ended\)/, 10000), "compaction end restores the pre-compaction execution state");
+emit({
+    type: "session.execution.succeeded",
+    location: { directory: mockCtx.location.directory },
+    created: Date.now(),
+    data: { sessionID: SID },
+});
+ok(await waitFor(/-> Waiting for command \(session\.execution\.succeeded\)/, 10000), "execution terminal event settles after compaction");
+
+section("V2 question forms select Asking");
+emit({
+    type: "form.created",
+    location: { directory: mockCtx.location.directory },
+    created: Date.now(),
+    data: {
+        form: {
+            id: "frm_v2_question_1",
+            sessionID: SID,
+            title: "Questions",
+            fields: [{ key: "q0", type: "string", title: "Choice", options: [] }],
+        },
+    },
+});
+ok(await waitFor(/Waiting for command -> Asking \(form\.created\)/, 10000), "form.created selects Asking for the V2 question tool");
+ok(await waitFor(/would-push .* state="Asking"/, 10000), "Asking state is rendered for a pending form");
+emit({
+    type: "session.step.started",
+    location: { directory: mockCtx.location.directory },
+    created: Date.now(),
+    data: {
+        sessionID: SID,
+        assistantMessageID: "msg_v2_question_1",
+        agent: "build",
+        model: { providerID: "openrouter", id: "gpt-6.1-sol" },
+        started: Date.now(),
+    },
+});
+await new Promise((r) => setTimeout(r, 300));
+ok(!/Asking -> Thinking \(session\.step\.started\)/.test(logText()), "a step event cannot overwrite Asking");
+emit({
+    type: "form.replied",
+    location: { directory: mockCtx.location.directory },
+    created: Date.now(),
+    data: { form: { id: "frm_v2_question_1", sessionID: SID }, answer: { q0: "approved" } },
+});
+ok(await waitFor(/Asking -> Working \(form\.replied\)/, 10000), "form.replied returns the session to Working");
+
+emit({
+    type: "form.created",
+    location: { directory: mockCtx.location.directory },
+    created: Date.now(),
+    data: { form: { id: "frm_v2_question_2", sessionID: SID, title: "Cancel" } },
+});
+ok(await waitFor(/Working -> Asking \(form\.created\)/, 10000), "a second form can enter Asking");
+emit({
+    type: "form.cancelled",
+    location: { directory: mockCtx.location.directory },
+    created: Date.now(),
+    data: { form: { id: "frm_v2_question_2", sessionID: SID } },
+});
+ok(await waitFor(/Asking -> Working \(form\.cancelled\)/, 10000), "form.cancelled returns the session to Working");
+
+emit({
+    type: "permission.asked",
+    location: { directory: mockCtx.location.directory },
+    created: Date.now(),
+    data: { sessionID: SID, permission: "edit" },
+});
+ok(await waitFor(/Working -> Asking \(permission\.asked\)/, 10000), "permission.asked enters the protected Asking state");
+emit({
+    type: "permission.replied",
+    location: { directory: mockCtx.location.directory },
+    created: Date.now(),
+    data: { sessionID: SID, response: "approved" },
+});
+ok(await waitFor(/Asking -> Working \(permission\.replied\)/, 10000), "permission.replied clears the Asking guard");
 
 section("set-enabled is forwarded and gates sends");
 const sentBefore = countMatches(/sent rendered payload to daemon/);

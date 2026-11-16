@@ -46,7 +46,7 @@
 | `{effortUpper}` | `HIGH` or `""` | Effort normalized to uppercase |
 | `{effortCapital}` | `High` or `""` | Effort with the first letter capitalized |
 | `{mode}` | `build`, `plan` | Agent mode |
-| `{state}` | `Working`, `Thinking` | Current state |
+| `{state}` | `Working`, `Thinking`, `Compaction` | Current state |
 | `{provider}` | `Khip01` | Provider name |
 | `{sessionId}` | `ses_abc123def` | Full session ID |
 | `{id}` | `abc123def` | Last 12 chars of session ID |
@@ -113,7 +113,7 @@ Fallback syntax works: `{modelCode|OpenCode}`, `{modelName|Unknown}`, etc.
 
 These resolve to `"true"` or `"false"` and are useful for conditionals:
 
-- `{idle}`, `{working}`, `{thinking}`, `{typing}`, `{asking}`, `{waiting}`, `{active}`
+- `{idle}`, `{working}`, `{thinking}`, `{typing}`, `{asking}`, `{compacting}`, `{waiting}`, `{active}`
 
 ## Replacements
 
@@ -221,6 +221,18 @@ displays as "Completed!".
       "Thinking": {
         "details": "{modelName}{{#if effort}} · {effortCapital} effort{{/if}} · Thinking",
         "state": "{{#if contextPercent > 50}}heavy{{else}}light{{/if}}"
+      },
+      "Typing": {
+        "details": "{modelName}{{#if effort}} · {effortCapital} effort{{/if}} · Typing",
+        "state": "{contextPercent}% ctx"
+      },
+      "Asking": {
+        "details": "{modelName} · Permission or question",
+        "state": "Asking"
+      },
+      "Compaction": {
+        "details": "{modelName} · {mode}",
+        "state": "Compacting context · {contextPercent}% ctx"
       }
     }
   }
@@ -229,9 +241,12 @@ displays as "Completed!".
 
 For OpenCode v2, these state names are selected from native execution events.
 `Thinking` represents model reasoning, `Typing` represents response text
-streaming, and `Working` represents tool execution or other active work. A
-normal stopped model step does not force `Working`; the final
-`session.execution.succeeded` event selects `Waiting for command`.
+streaming, and `Working` represents tool execution or other active work.
+`Asking` is protected while OpenCode waits for a permission reply or a V2
+question form reply. `Compaction` is protected from polling and concurrent
+step or tool events while OpenCode compacts the context. A normal stopped
+model step does not force `Working`; the final `session.execution.succeeded`
+event selects `Waiting for command`.
 
 ### Idle Template
 
@@ -295,6 +310,10 @@ with conditional effort display.
       "Asking": {
         "details": "{modelName}{{#if effort}} · {effortCapital} effort{{/if}} ({mode}) {{#if cost == \"free\"}} • $0 spent{{else}}{costCompact} spent{{/if}}",
         "state": "Asking • {contextCompact}/{contextLimitCompact} tok • {promptsCompact} prmpts"
+      },
+      "Compaction": {
+        "details": "{modelName} · {mode}",
+        "state": "Compacting context • {contextCompact}/{contextLimitCompact} tok"
       }
     },
     "idle": {

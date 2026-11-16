@@ -18,6 +18,7 @@
 import "./test-env.mjs";
 
 import { renderPresence } from "../src/plugin/local-presence.js";
+import { getTemplateVars, renderTemplate } from "../src/plugin/template-engine.js";
 import { STATE } from "../src/shared/constants.js";
 
 let passed = 0;
@@ -67,6 +68,10 @@ function makeConfig() {
                 Asking: {
                     details: "{model} ({mode}) Asking",
                     state: "Asking",
+                },
+                Compaction: {
+                    details: "{model} ({mode}) Compaction",
+                    state: "Compaction",
                 },
             },
             idle: {
@@ -142,7 +147,7 @@ console.log("\n=== 3b. Null session uses template fallbacks, not '?' placeholder
 
 console.log("\n=== 4. Active states still use byState templates ===");
 {
-    for (const st of [STATE.WORKING, STATE.THINKING, STATE.TYPING, STATE.ASKING]) {
+    for (const st of [STATE.WORKING, STATE.THINKING, STATE.TYPING, STATE.ASKING, STATE.COMPACTION]) {
         const rendered = renderPresence(makeSession({ state: st }), makeConfig());
         const expected = st;
         assert(rendered.state === expected, `state ${st} renders byState template (got "${rendered.state}")`);
@@ -158,6 +163,18 @@ console.log("\n=== 5. WAITING uses byState even when idle template exists ===");
     assert(rendered.details.includes("0.26 spent") && !rendered.details.includes("$0 spent"),
         "WAITING session selects dynamic-cost byState template, not idle");
     void srcIdle;
+}
+
+console.log("\n=== 6. Compaction boolean template variable ===");
+{
+    const compacting = getTemplateVars(makeSession({ state: STATE.COMPACTION }));
+    const waiting = getTemplateVars(makeSession({ state: STATE.WAITING }));
+    assert(compacting.compacting === "true", "Compaction exposes compacting=true");
+    assert(waiting.compacting === "false", "non-Compaction states expose compacting=false");
+    assert(
+        renderTemplate("{{#if compacting}}Compacting{{else}}Not compacting{{/if}}", compacting) === "Compacting",
+        "Compaction boolean works in a conditional template",
+    );
 }
 
 console.log("\n=== Summary ===");

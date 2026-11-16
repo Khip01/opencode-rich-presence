@@ -64,6 +64,7 @@ export function getTemplateVars(session, replacements) {
         waiting: s.state === STATE.WAITING ? "true" : "false",
         working: s.state === STATE.WORKING ? "true" : "false",
         asking: s.state === STATE.ASKING ? "true" : "false",
+        compacting: s.state === STATE.COMPACTION ? "true" : "false",
         active: s.state !== STATE.WAITING ? "true" : "false",
     };
     if (Array.isArray(replacements) && replacements.length) {
