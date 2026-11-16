@@ -161,7 +161,9 @@ Example:
 ```
 
 See the [customization guide](./docs/CUSTOMIZATION.md) for available
-variables, conditionals, and replacements.
+variables, conditionals, and replacements. Users upgrading from an older
+configuration can optionally add the new `Asking` and `Compaction` entries by
+following the [existing config instructions](./docs/CUSTOMIZATION.md#existing-configs-add-asking-and-compaction).
 
 ## Documentation
 

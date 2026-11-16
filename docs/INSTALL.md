@@ -90,6 +90,26 @@ overwritten by stale assistant history returned by context polling. It also
 keeps the last known session visible when OpenCode reloads a location, so a
 long-running idle window does not turn into an unresolved `? (?)` presence.
 
+### Existing configs and new presence states
+
+If you installed an earlier version, `opencode-rpc update` does not overwrite
+your existing `~/.config/opencode/discord-config.json`. The older file remains
+compatible: missing `Asking` and `Compaction` entries use the built-in
+templates automatically, so no manual change is required just to use the new
+states.
+
+If you want to see and customize these entries in your local config, follow
+the copy-and-paste instructions in [Customization: existing configs](./CUSTOMIZATION.md#existing-configs-add-asking-and-compaction).
+Keep your existing templates and add the two new state entries inside
+`presence.byState`. Back up the file first if it contains personal template
+customizations.
+
+Running `opencode-rpc install` may also offer to add the missing `Compaction`
+entry to a compatible existing config. It preserves the other entries and
+creates a timestamped backup before writing. The manual instructions cover
+both `Asking` and `Compaction` and work regardless of whether the installer
+offers that migration.
+
 ### D. From local source (for development of the plugin itself)
 
 ```bash

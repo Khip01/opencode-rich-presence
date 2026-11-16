@@ -249,6 +249,45 @@ step or tool events while OpenCode compacts the context. A normal stopped
 model step does not force `Working`; the final `session.execution.succeeded`
 event selects `Waiting for command`.
 
+### Existing configs: add Asking and Compaction
+
+Users upgrading from an older release do not have to edit their config for
+these states to work. The plugin supplies built-in defaults when a state entry
+is missing. Add the entries manually only if you want them visible and
+editable in `~/.config/opencode/discord-config.json`.
+
+Open the file and find the end of the existing `Typing` entry inside
+`presence.byState`. The surrounding section may look like this. Keep your own
+`Typing` values if they are customized:
+
+```json
+"Typing": {
+    "details": "{modelName}{{#if effort}} · {effortCapital} effort{{/if}} ({mode}) {{#if cost == \"free\"}}  · $0 spent{{else}}  · {costCompact} spent{{/if}}",
+    "state": "Typing  · {contextCompact}/{contextLimitCompact} tok  · {prompts} prmpts"
+}
+```
+
+Add a comma after the closing `}` of the existing `Typing` entry, then paste
+the following two entries immediately after it:
+
+```json
+"Asking": {
+    "_note": "Shown when AI needs permission",
+    "details": "{modelName}{{#if effort}} · {effortCapital} effort{{/if}} ({mode}) {{#if cost == \"free\"}}  · $0 spent{{else}}  · {costCompact} spent{{/if}}",
+    "state": "Asking  · {contextCompact}/{contextLimitCompact} tok  · {prompts} prmpts"
+},
+"Compaction": {
+    "_note": "Shown while OpenCode compacts context",
+    "details": "{modelName} · ({mode}) {{#if cost == \"free\"}}  · $0 spent{{else}}  · {costCompact} spent{{/if}}",
+    "state": "Compacting context  · {contextCompact}/{contextLimitCompact} tok  · {prompts} prmpts"
+}
+```
+
+The resulting order is `Typing`, `Asking`, `Compaction`, followed by the
+closing brace of `presence.byState`. Do not add a comma after the final
+`Compaction` entry if it is the last property in that object. Preserve your
+existing `discordAppId`, asset settings, replacements, and other templates.
+
 ### Idle Template
 
 Used only when there is NO session at all (queue empty, nothing
