@@ -10,9 +10,13 @@ Thumbs.db
 # Editor
 .vscode/
 .idea/
+.claude/
 *.swp
 *.swo
 *~
+
+# Local session notes
+docs/SESSION-CHECKPOINT.md
 
 # OS
 .DS_Store

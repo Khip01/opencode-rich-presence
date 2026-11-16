@@ -16,6 +16,10 @@ AGENTS.md
 # CI / workflows
 .github/
 
+# Local agent settings and session notes
+.claude/
+docs/SESSION-CHECKPOINT.md
+
 # Development / build
 scripts/
 tests/

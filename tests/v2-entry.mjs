@@ -360,7 +360,7 @@ emit({
 ok(await waitFor(/session\.step\.started sid=arness01 model=gpt-6\.1-sol/, 10000), "a step event arrives during compaction");
 await new Promise((r) => setTimeout(r, 500));
 ok(!/Compaction -> Thinking \(session\.step\.started\)/.test(logText()), "a step event cannot overwrite Compaction");
-ok(await waitFor(/would-push details="gpt-6\.1-sol · build" state="Compaction"/, 10000), "agent refresh keeps build mode without replacing the Compaction state");
+ok(await waitFor(/would-push details="[^"]*\(build\)[^"]*" state="Compaction"/, 10000), "agent refresh keeps build mode without replacing the Compaction state");
 emit({
     type: "session.compaction.ended",
     location: { directory: mockCtx.location.directory },

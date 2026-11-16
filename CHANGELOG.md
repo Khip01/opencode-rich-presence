@@ -7,17 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.6.7] - 2026-11-16
+
+Patch release. Adds protected OpenCode v2 `Asking` and `Compaction` Rich
+Presence lifecycles, customizable templates, and safe configuration migration.
+
+### Added
+
+- **Protected V2 Compaction state**: context compaction now has its own
+  `Compaction` presence state and restores the previous execution state after
+  compaction ends.
+- **Protected V2 Asking lifecycle**: question forms now show `Asking` during
+  the complete form lifecycle and return to the active execution state after a
+  reply or cancellation.
+- **Customizable Compaction template**: built-in defaults, the bundled config,
+  and the customization guide expose model, mode, cost, context, and prompt
+  fields for the Compaction presence.
+- **Safe configuration migration**: `opencode-rpc install` can add a missing
+  Compaction template to an existing config without overwriting other user
+  customizations, creating a timestamped backup first.
+
 ### Fixed
 
 - **Discord IPC write failures**: failed writes now transition the IPC client
   through one idempotent disconnect path, so reconnect is notified once even
   when an error is followed by a close event.
-- **Existing configs missing new state templates**: `opencode-rpc install`
-  now offers to add the built-in `Compaction` template without overwriting
-  other presence customizations, and creates a timestamped backup first.
-- **Compaction template consistency**: the built-in fallback, bundled example,
-  and customization documentation now use the same model, mode, cost, context,
-  and prompt fields as the recommended `Compaction` presence configuration.
 - **V2 compaction state being overwritten**: context compaction now has a
   protected `Compaction` state instead of overloading the agent mode, so
   polling and concurrent execution events cannot hide it. The prior execution
@@ -34,6 +48,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add V2 regression coverage for protected compaction and question-form state
   transitions, polling arbitration, and rendered `Asking`/`Compaction`
   templates.
+
+### Manual verification
+
+The `Asking` and `Compaction` states were manually verified in Discord after
+restarting the OpenCode service and the presence plugin. During compaction,
+polling was ignored while the protected state was active, then the prior state
+was restored before execution settled to `Waiting for command`.
+
+#### Asking presence
+
+<img width="449" height="190" alt="asking-presence-state" src="https://github.com/user-attachments/assets/3216922d-b189-4ded-8853-54b299d97609" />
+
+#### Compaction presence
+
+<img width="449" height="190" alt="compaction-presence-state" src="https://github.com/user-attachments/assets/f07d025d-422e-4a67-bc7c-4a9c5e6fe470" />
 
 ## [3.6.6] - 2026-11-15
 
